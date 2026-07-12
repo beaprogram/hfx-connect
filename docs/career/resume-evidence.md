@@ -4,9 +4,10 @@ This document records, feature by feature, the concrete evidence behind every re
 claim about HFX Connect. It exists so that every resume bullet drafted from this
 project is traceable to real, committed, tested work — not aspiration.
 
-**Status: foundation only.** No application features have been implemented yet
-(Milestone 1 is documentation-only). Entries are added starting with Milestone 2, once
-there is real code, tests, and behavior to describe.
+**Status: early.** Milestone 1 was documentation-only. Milestone 2A added the first
+real, tested code (application shells for both the backend and frontend) — the
+entries below reflect that. Feature-level entries (search, moderation, authentication)
+will be added as those milestones land.
 
 ## How an Entry Is Added
 
@@ -54,5 +55,82 @@ invented. Examples: load time, test coverage percentage, real user counts.
 
 ## Entries
 
-_None yet — the first entries will be added in Milestone 2 once the backend and
-frontend are initialized and the first real endpoint exists._
+## Backend Application Bootstrap
+
+### Product Purpose
+Establishes a runnable, testable Spring Boot service as the foundation for every
+later API feature — nothing user-facing yet, but a prerequisite for all of it.
+
+### Technologies Used
+Java 21, Spring Boot 4.1 (`spring-boot-starter-webmvc`), Maven Wrapper.
+
+### Engineering Complexity
+Resolved a real dependency-resolution failure: the Spring Initializr-generated parent
+POM version (`4.1.0.RELEASE`) does not correspond to an actual published Maven Central
+coordinate for Spring Boot 4.x; diagnosed via Maven Central's `maven-metadata.xml` and
+corrected to the real version (`4.1.0`). Installed and pinned a JDK 21 toolchain via
+Homebrew since none of the four JDKs already on the machine matched the project's
+requirement.
+
+### Implementation
+`backend/pom.xml`, `backend/src/main/java/com/hfxconnect/HfxConnectApplication.java`,
+`backend/src/test/java/com/hfxconnect/HfxConnectApplicationTests.java`.
+
+### Tests
+One `@SpringBootTest` application-context test (`./mvnw test`); full build lifecycle
+verified with `./mvnw verify`; manually confirmed the server actually boots and
+listens on port 8080 via a live `curl` check.
+
+### Evidence
+Commit `chore: initialize Spring Boot backend on Java 21` on branch
+`milestone/02a-application-initialization`.
+
+### Potential Resume Wording
+Bootstrapped a Java 21 / Spring Boot 4 backend service with Maven Wrapper tooling and
+automated application-context testing, diagnosing and resolving a Maven Central
+dependency-resolution issue in the process.
+
+### Measurements Still Needed
+None applicable at this stage — no performance-sensitive behavior exists yet.
+
+## Frontend Application Shell
+
+### Product Purpose
+Establishes an accessible, responsive Next.js application shell — the foundation
+every later page (search, resource detail, dashboards) will be built inside.
+
+### Technologies Used
+Next.js 16 (App Router, Turbopack), TypeScript (strict + `noUncheckedIndexedAccess`),
+Tailwind CSS v4, ESLint, Jest, React Testing Library.
+
+### Engineering Complexity
+Diagnosed and fixed a moderate-severity supply-chain vulnerability (`postcss` XSS
+advisory) bundled transitively inside Next.js's own dependency tree, without
+downgrading Next.js seven major versions as npm's automated `--force` fix suggested —
+used a scoped `overrides` entry instead and verified `npm audit` reports zero
+vulnerabilities. Built the shell to meet concrete accessibility requirements (skip
+link, semantic landmarks, visible focus states, single heading) rather than relying on
+defaults.
+
+### Implementation
+`frontend/src/app/layout.tsx`, `frontend/src/app/page.tsx`,
+`frontend/src/components/site-header.tsx`, `frontend/src/components/site-footer.tsx`.
+
+### Tests
+Four Jest + React Testing Library tests covering the homepage heading/link and both
+shared layout components (`npm test`); full quality gate (`lint`, `typecheck`, `test`,
+`build`) verified passing; manually confirmed the dev server serves the expected
+content via a live `curl` check.
+
+### Evidence
+Commit `chore: initialize Next.js frontend with strict TypeScript and Tailwind` on
+branch `milestone/02a-application-initialization`.
+
+### Potential Resume Wording
+Bootstrapped a Next.js 16 / TypeScript frontend with strict type checking, an
+accessible responsive application shell, and an automated test suite; identified and
+remediated a transitive supply-chain security advisory without a breaking downgrade.
+
+### Measurements Still Needed
+[MEASURE AFTER DEPLOYMENT]: Lighthouse performance/accessibility scores once real
+pages exist to measure.

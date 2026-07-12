@@ -5,11 +5,12 @@ form that can be reviewed before a technical interview. Entries are added only o
 the corresponding decision is actually implemented — this file describes what was
 built, not what is planned.
 
-**Status: foundation only.** Milestone 1 established the product definition and the
+**Status: early.** Milestone 1 established the product definition and the
 architecture direction (see [system-overview.md](../architecture/system-overview.md)
-and the ADRs in [docs/decisions/](../decisions/)), but no implementation exists yet.
-The talking points below are the ones already answerable from Milestone 1's decisions;
-the rest will be added as the corresponding milestone is completed.
+and the ADRs in [docs/decisions/](../decisions/)). Milestone 2A added the first real
+code — application shells only, no domain logic yet. The talking points below are the
+ones already answerable from what has actually been built; the rest will be added as
+the corresponding milestone is completed.
 
 ## Answerable Now (Milestone 1)
 
@@ -30,6 +31,31 @@ to the backend job market this project targets.
 See [ADR-001](../decisions/ADR-001-monorepo-structure.md). Short answer: one developer,
 one release cadence, and most features touch both the API and the UI together, so a
 single repository keeps related changes reviewable as one unit.
+
+## Answerable Now (Milestone 2A)
+
+**Why does the backend depend on `spring-boot-starter-webmvc` instead of the more
+commonly documented `spring-boot-starter-web`?**
+Spring Boot 4 (built on Spring Framework 7) split the former `web` starter more
+explicitly along MVC vs. reactive lines; `spring-boot-starter-webmvc` is the current
+equivalent for a servlet-based REST API, which is what HFX Connect needs. This was
+confirmed by actually generating the project against `start.spring.io` rather than
+assuming prior-version naming.
+
+**Why is there a `postcss` entry in the frontend's `package.json` `overrides` field?**
+`npm audit` flagged a moderate-severity XSS advisory in `postcss`, bundled
+transitively inside `next@16.2.10`'s own dependency tree — not a package the project
+depends on directly. npm's suggested automated fix (`npm audit fix --force`) would
+have downgraded Next.js from 16.2.10 to 9.3.3, a seven-major-version regression that
+would have broken the application. Pinning `postcss` to a patched version via
+`overrides` fixes the actual vulnerability without touching the Next.js version;
+`npm audit` now reports zero vulnerabilities.
+
+**Why weren't `auth/`, `resource/`, and the other domain packages created yet?**
+Git does not track empty directories, and creating them ahead of any real code inside
+them would be speculative scaffolding with no enforcement value. They are added
+starting in Milestone 3, alongside the entities, services, and controllers that
+actually belong in them.
 
 ## To Be Added in Later Milestones
 

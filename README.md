@@ -7,11 +7,14 @@ newcomer services, recreation, and events — that are currently scattered acros
 municipal websites, organization pages, and social media, and adds transparent
 verification so users can trust what they find.
 
-**Project status: Milestone 1 (Project Foundation) complete.** This repository
-currently contains product definition and architecture planning documentation only.
-No application code, database schema, or deployment exists yet. See
+**Project status: Milestone 2A (Application Initialization) complete.** The Spring
+Boot backend and Next.js frontend now exist as runnable application shells — no
+database, no persistence, no REST endpoints, and no real pages beyond a placeholder
+homepage yet. See
 [docs/milestones/milestone-01-project-foundation.md](docs/milestones/milestone-01-project-foundation.md)
-for exactly what this milestone delivered, and
+and
+[docs/milestones/milestone-02a-application-initialization.md](docs/milestones/milestone-02a-application-initialization.md)
+for exactly what each milestone delivered, and
 [docs/development-workflow.md](docs/development-workflow.md) for the full 12-milestone
 roadmap.
 
@@ -69,8 +72,8 @@ Flyway migrations exist (Milestone 2 onward).
 
 ```
 hfx-connect/
-  frontend/                  Next.js application (added in Milestone 2)
-  backend/                    Spring Boot application (added in Milestone 2)
+  frontend/                  Next.js application (application shell only — see frontend/README.md)
+  backend/                    Spring Boot application (application shell only — see backend/README.md)
   docs/
     product/                  Problem, vision, personas, MVP scope, user stories
     architecture/          System architecture overview
@@ -101,10 +104,33 @@ project foundation through release.
 
 ## Local Setup
 
-Not available yet — the backend and frontend do not exist as of Milestone 1. Setup
-instructions (Docker Compose, environment variables, migrations, running the
-applications) will be added here starting in Milestone 2, and only once they are
-accurate and have actually been run successfully.
+Both applications can be run independently today; there is nothing connecting them
+yet (no shared database, no API calls from the frontend to the backend).
+
+**Backend** (requires JDK 21):
+
+```bash
+cd backend
+./mvnw spring-boot:run
+```
+
+Runs on [http://localhost:8080](http://localhost:8080). See
+[backend/README.md](backend/README.md) for details — there are no routes mapped yet,
+so requests currently return `404`.
+
+**Frontend** (requires Node.js 20+):
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Runs on [http://localhost:3000](http://localhost:3000). See
+[frontend/README.md](frontend/README.md) for the full script list.
+
+Docker Compose, PostgreSQL/PostGIS, environment variables, and database migrations are
+introduced in Milestone 2B and documented here once they exist.
 
 ## Documentation Index
 
@@ -116,13 +142,16 @@ accurate and have actually been run successfully.
 - [Architecture Decision Records](docs/decisions/)
 - [Development Workflow](docs/development-workflow.md)
 - [Milestone 1: Project Foundation](docs/milestones/milestone-01-project-foundation.md)
+- [Milestone 2A: Application Initialization](docs/milestones/milestone-02a-application-initialization.md)
 - [Development Log](docs/development-log/)
 - [Resume Evidence](docs/career/resume-evidence.md)
 - [Interview Notes](docs/career/interview-notes.md)
 
-## Known Limitations (as of Milestone 1)
+## Known Limitations (as of Milestone 2A)
 
-- No application code, database schema, or deployment exists yet.
+- No database, persistence, or REST endpoints exist yet (Milestone 2B onward).
+- The frontend has a single placeholder homepage; no resource search, listings, or
+  authentication exist yet (Milestones 3-5 onward).
 - No wireframes exist yet for the core screens; recommended before or alongside
   Milestone 4.
 - No live demo, screenshots, or demo video exist yet — these will be added once there
