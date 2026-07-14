@@ -7,14 +7,12 @@ newcomer services, recreation, and events — that are currently scattered acros
 municipal websites, organization pages, and social media, and adds transparent
 verification so users can trust what they find.
 
-**Project status: Milestone 2A (Application Initialization) complete.** The Spring
-Boot backend and Next.js frontend now exist as runnable application shells — no
-database, no persistence, no REST endpoints, and no real pages beyond a placeholder
-homepage yet. See
-[docs/milestones/milestone-01-project-foundation.md](docs/milestones/milestone-01-project-foundation.md)
-and
-[docs/milestones/milestone-02a-application-initialization.md](docs/milestones/milestone-02a-application-initialization.md)
-for exactly what each milestone delivered, and
+**Project status: Milestone 2B (Database Environment) complete.** PostgreSQL/PostGIS
+now runs locally via Docker Compose, the backend connects to it through environment-based
+configuration, Flyway manages schema migrations, and `/actuator/health` reports live
+database health. There are still no domain tables, no REST endpoints, and no real
+frontend pages beyond a placeholder homepage. See
+[docs/milestones/](docs/milestones/) for exactly what each milestone delivered, and
 [docs/development-workflow.md](docs/development-workflow.md) for the full 12-milestone
 roadmap.
 
@@ -64,9 +62,10 @@ architecture decision records in [docs/decisions/](docs/decisions/).
 
 A high-level system diagram, backend module structure, and API conventions are
 documented in
-[docs/architecture/system-overview.md](docs/architecture/system-overview.md). A
-database diagram will be added under [docs/database/](docs/database/) once the first
-Flyway migrations exist (Milestone 2 onward).
+[docs/architecture/system-overview.md](docs/architecture/system-overview.md). The
+current schema (one infrastructure-focused Flyway migration so far) is documented in
+[docs/database/](docs/database/); a full entity-relationship diagram will be added once
+the domain schema exists (Milestone 3 onward).
 
 ## Repository Structure
 
@@ -85,11 +84,10 @@ hfx-connect/
     career/                    Resume evidence and interview notes, tied to real
                                        implemented features
     api/                       API documentation (populated from Milestone 3 onward)
-    database/               Database schema documentation (populated from Milestone
-                                       2 onward)
+    database/               Database schema documentation
   infrastructure/            Deployment/infrastructure configuration (added later)
   .github/workflows/     CI pipelines (added in Milestone 12)
-  docker-compose.yml    Local development environment (added in Milestone 2)
+  docker-compose.yml    Local PostgreSQL/PostGIS database
   README.md
   .gitignore
 ```
@@ -104,19 +102,33 @@ project foundation through release.
 
 ## Local Setup
 
-Both applications can be run independently today; there is nothing connecting them
-yet (no shared database, no API calls from the frontend to the backend).
+The frontend and backend still run independently (no API calls between them yet), but
+the backend now depends on a running local database.
 
-**Backend** (requires JDK 21):
+**Database** (requires Docker or a Docker-compatible runtime):
+
+```bash
+docker compose up -d
+docker compose ps   # wait for "healthy"
+```
+
+This starts PostgreSQL 17 with PostGIS on `localhost:5432` with development-only
+default credentials baked into `docker-compose.yml` (no `.env` file required for
+default local setup). `docker compose down -v` destroys local database data; plain
+`docker compose down`/`stop` does not.
+
+**Backend** (requires JDK 21, and the database running):
 
 ```bash
 cd backend
 ./mvnw spring-boot:run
 ```
 
-Runs on [http://localhost:8080](http://localhost:8080). See
-[backend/README.md](backend/README.md) for details — there are no routes mapped yet,
-so requests currently return `404`.
+Runs on [http://localhost:8080](http://localhost:8080) and connects to the database
+above using matching defaults. Flyway migrates the schema automatically on startup.
+See [backend/README.md](backend/README.md) for environment-variable overrides,
+the health endpoint, and troubleshooting (including a port-conflict scenario
+encountered and resolved while building this milestone).
 
 **Frontend** (requires Node.js 20+):
 
@@ -129,9 +141,6 @@ npm run dev
 Runs on [http://localhost:3000](http://localhost:3000). See
 [frontend/README.md](frontend/README.md) for the full script list.
 
-Docker Compose, PostgreSQL/PostGIS, environment variables, and database migrations are
-introduced in Milestone 2B and documented here once they exist.
-
 ## Documentation Index
 
 - [Problem, Vision, and Success Criteria](docs/product/problem-and-vision.md)
@@ -143,15 +152,20 @@ introduced in Milestone 2B and documented here once they exist.
 - [Development Workflow](docs/development-workflow.md)
 - [Milestone 1: Project Foundation](docs/milestones/milestone-01-project-foundation.md)
 - [Milestone 2A: Application Initialization](docs/milestones/milestone-02a-application-initialization.md)
+- [Milestone 2B: Database Environment](docs/milestones/milestone-02b-database-environment.md)
+- [Database Documentation](docs/database/)
 - [Development Log](docs/development-log/)
 - [Resume Evidence](docs/career/resume-evidence.md)
 - [Interview Notes](docs/career/interview-notes.md)
 
-## Known Limitations (as of Milestone 2A)
+## Known Limitations (as of Milestone 2B)
 
-- No database, persistence, or REST endpoints exist yet (Milestone 2B onward).
-- The frontend has a single placeholder homepage; no resource search, listings, or
-  authentication exist yet (Milestones 3-5 onward).
+- No domain tables (categories, resources, etc.) or REST endpoints exist yet
+  (Milestone 3 onward).
+- The frontend has a single placeholder homepage and does not talk to the backend yet;
+  no resource search, listings, or authentication exist (Milestones 3-5 onward).
+- No CI pipeline runs the backend/frontend/infrastructure checks automatically yet
+  (Milestone 12).
 - No wireframes exist yet for the core screens; recommended before or alongside
   Milestone 4.
 - No live demo, screenshots, or demo video exist yet — these will be added once there

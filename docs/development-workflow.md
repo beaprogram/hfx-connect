@@ -15,7 +15,8 @@ one begins.
 | # | Milestone | Focus |
 |---|---|---|
 | 1 | `milestone/01-project-foundation` | Problem, vision, personas, scope, user stories, repository and documentation foundation |
-| 2 | `milestone/02-development-environment` | Spring Boot + Next.js scaffolding, Docker Compose, PostgreSQL/PostGIS, Flyway |
+| 2A | `milestone/02a-application-initialization` | Spring Boot + Next.js scaffolding, quality tooling, accessible frontend shell |
+| 2B | `milestone/02b-database-environment` | Docker Compose PostgreSQL/PostGIS, Flyway, env-based backend DB config, health endpoint |
 | 3 | `milestone/03-resource-domain` | Category and resource persistence, DTOs, validation, REST API |
 | 4 | `milestone/04-public-frontend` | Public resource list, detail pages, application shell |
 | 5 | `milestone/05-authentication` | Registration, login, roles, backend authorization, protected routes |

@@ -1,10 +1,8 @@
 package com.hfxconnect;
 
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.context.SpringBootTest;
 
-@SpringBootTest
-class HfxConnectApplicationTests {
+class HfxConnectApplicationTests extends AbstractPostgresIntegrationTest {
 
 	@Test
 	void contextLoads() {
