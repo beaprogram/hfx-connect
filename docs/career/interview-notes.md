@@ -8,9 +8,10 @@ built, not what is planned.
 **Status: early.** Milestone 1 established the product definition and the
 architecture direction (see [system-overview.md](../architecture/system-overview.md)
 and the ADRs in [docs/decisions/](../decisions/)). Milestone 2A added the first real
-code — application shells only, no domain logic yet. The talking points below are the
-ones already answerable from what has actually been built; the rest will be added as
-the corresponding milestone is completed.
+code (application shells only). Milestone 2B connected the backend to a real,
+migrated PostgreSQL/PostGIS database. The talking points below are the ones already
+answerable from what has actually been built; the rest will be added as the
+corresponding milestone is completed.
 
 ## Answerable Now (Milestone 1)
 
@@ -56,6 +57,54 @@ Git does not track empty directories, and creating them ahead of any real code i
 them would be speculative scaffolding with no enforcement value. They are added
 starting in Milestone 3, alongside the entities, services, and controllers that
 actually belong in them.
+
+## Answerable Now (Milestone 2B)
+
+**Why does the backend configure Flyway with a hand-written `@Configuration` class
+instead of just adding `flyway-core` and letting Spring Boot handle it?**
+See [ADR-004](../decisions/ADR-004-manual-flyway-configuration.md). Short answer:
+Spring Boot 4.1 does not ship `FlywayAutoConfiguration` at all — confirmed by
+inspecting every class in every Spring Boot 4.1.0 artifact, not assumed. Without the
+explicit configuration, migrations silently never ran and no error was raised, which
+is a genuinely dangerous failure mode to leave undiagnosed.
+
+**Why is the database container pinned to `platform: linux/amd64` when developing on
+Apple Silicon?**
+The official `postgis/postgis` image publishes no `linux/arm64` build — verified with
+`docker manifest inspect` before depending on it. Rather than switching to an
+unofficial multi-arch mirror image, the platform is pinned explicitly and the image is
+run under emulation, which was smoke-tested directly (boot, health check, a real
+`CREATE EXTENSION postgis` and version check) before being adopted. This keeps the
+project on the canonical, officially published image; production deployment targets
+run amd64 infrastructure anyway, so this is purely a local-development trade-off.
+
+**Why does the backend fail to start at all if the database is unreachable, instead of
+starting in a degraded mode?**
+This is deliberate fail-fast behavior: Flyway runs inside a `@Bean` factory method
+during application context refresh, so a database that can't be reached (or a failed
+migration) fails startup immediately with a clear error, rather than letting the
+application come up in a state where later requests would fail confusingly. Verified
+by manually stopping the database and confirming startup fails with a connection-refused
+error.
+
+**How is it verified that Flyway migrations are actually idempotent, not just
+"probably fine"?**
+Two ways: an integration test (`FlywayMigrationIntegrationTest`) starts a second Spring
+context against a database a prior context in the same test run already migrated (via
+a shared Testcontainers "singleton container"), and asserts the migration-history
+table still has exactly one row. Separately, the same thing was verified manually
+against the real `docker-compose` database by starting the application twice in a row
+and confirming the second run logs "up to date, no migration necessary."
+
+**How does the health endpoint avoid leaking sensitive information?**
+`management.endpoints.web.exposure.include=health` exposes only the health endpoint
+(no other Actuator endpoints), and
+`management.endpoint.health.show-details=when-authorized` means unauthenticated
+requests see only `{"status":"UP"}` plus health-check group names — no
+component/connection-level detail (which would otherwise reveal datasource internals)
+is shown until real authentication exists (Milestone 5). Verified with an integration
+test that asserts the response body never contains credential, JDBC URL, connection
+pool, or stack trace strings.
 
 ## To Be Added in Later Milestones
 
