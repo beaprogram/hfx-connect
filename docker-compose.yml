@@ -1,0 +1,35 @@
+name: hfx-connect
+
+services:
+  database:
+    image: postgis/postgis:17-3.5
+    # The official postgis/postgis image only publishes linux/amd64 builds.
+    # Pinning the platform lets it run under emulation on Apple Silicon hosts;
+    # see docs/architecture/deployment-architecture.md for the trade-off.
+    platform: linux/amd64
+    container_name: hfx-connect-database
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-hfx_connect}
+      POSTGRES_USER: ${POSTGRES_USER:-hfx_connect}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-hfx_connect_dev_password}
+    ports:
+      # Exposed for local development only. Do not expose the database port
+      # on a production host.
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - hfx_connect_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-hfx_connect} -d ${POSTGRES_DB:-hfx_connect}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+volumes:
+  hfx_connect_postgres_data:
+    name: hfx_connect_postgres_data
