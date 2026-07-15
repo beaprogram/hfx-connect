@@ -5,16 +5,18 @@ The Spring Boot application for the HFX Connect REST API. See the
 [docs/architecture/system-overview.md](../docs/architecture/system-overview.md) for
 the intended API and module design.
 
-**Status:** database-connected application skeleton (Milestone 2B). PostgreSQL/PostGIS
-runs locally via Docker Compose, Flyway manages schema migrations, and `/actuator/health`
-reports live database health. There are still no domain tables or REST endpoints —
-those are introduced starting in Milestone 3 (category/resource domain).
+**Status:** first real feature — category management (Milestone 3A). PostgreSQL/PostGIS
+runs locally via Docker Compose, Flyway manages schema migrations, and
+`/actuator/health` reports live database health. There is no resource domain, no
+authentication, and `POST /api/v1/categories` is not protected yet — see
+[Category API](#category-api-v1categories) below.
 
 ## Stack
 
-Java 21, Spring Boot 4.1 (`spring-boot-starter-webmvc`, `spring-boot-starter-jdbc`,
-`spring-boot-starter-actuator`), PostgreSQL JDBC driver, Flyway, Maven (via the Maven
-Wrapper — no local Maven installation required).
+Java 21, Spring Boot 4.1 (`spring-boot-starter-webmvc`, `spring-boot-starter-data-jpa`,
+`spring-boot-starter-validation`, `spring-boot-starter-actuator`), PostgreSQL JDBC
+driver, Flyway, springdoc-openapi, Maven (via the Maven Wrapper — no local Maven
+installation required).
 
 ## Local Development
 
@@ -40,9 +42,8 @@ which match `docker-compose.yml`'s defaults exactly — no environment variables
 required for standard local development. Flyway runs automatically on startup; see
 `src/main/resources/db/migration/`.
 
-There are no REST routes mapped yet, so requests to most paths return `404` — this is
-expected until Milestone 3 adds real endpoints. `/actuator/health` is the exception;
-see below.
+Most paths still return `404` — only `/actuator/health` and `/api/v1/categories` (and
+its sub-routes) are mapped so far.
 
 ### Overriding the Database Connection
 
@@ -65,6 +66,35 @@ visible to unauthenticated requests (`management.endpoint.health.show-details=wh
 — component-level detail (which would reveal datasource/connection internals) is
 withheld until authenticated requests are possible (Milestone 5). Only the `health`
 endpoint is exposed; no other Actuator endpoints are enabled.
+
+## Category API (`/api/v1/categories`)
+
+Full reference: `docs/api/README.md` and `docs/milestones/milestone-03a-category-domain.md`.
+Interactive docs from a running backend: `http://localhost:8080/swagger-ui.html`.
+
+**`POST /api/v1/categories` is not protected by authentication yet** — anyone who can
+reach the API can create a category. This is a deliberate, documented limitation
+(Milestone 5 adds authentication/authorization), not an oversight.
+
+```bash
+# Create
+curl -X POST http://localhost:8080/api/v1/categories \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Food Assistance", "description": "Food banks and meals."}'
+
+# Get by ID or slug
+curl http://localhost:8080/api/v1/categories/1
+curl http://localhost:8080/api/v1/categories/slug/food-assistance
+
+# Paginated list (page/size bounded; size max 100)
+curl "http://localhost:8080/api/v1/categories?page=0&size=20"
+```
+
+The slug is always derived from the name (see
+[ADR-005](../docs/decisions/ADR-005-category-identifiers-and-normalization.md)) — it
+cannot be supplied directly. Duplicate names/slugs (case- and whitespace-insensitive)
+return `409`; validation failures return `400` with the shape documented in
+`docs/api/README.md`.
 
 ## Commands
 
@@ -90,24 +120,41 @@ exits.
 backend/
   src/main/java/com/hfxconnect/
     HfxConnectApplication.java              Application entry point
-    common/config/
-      FlywayMigrationConfig.java                Runs Flyway on startup (see ADR-004)
+    common/
+      config/
+        FlywayMigrationConfig.java             Runs Flyway on startup; also orders it
+                                                            before JPA (see ADR-004 and this file's
+                                                            Javadoc)
+        OpenApiConfig.java                          OpenAPI document metadata
+      error/                                             Shared error-handling pattern — see
+                                                             docs/architecture/backend-architecture.md
+    category/                                           Category domain (entity, repository,
+                                                             service, controller, DTOs, slug generator)
   src/main/resources/
-    application.properties                        Base configuration (env-based DB connection, Actuator)
+    application.properties                        Base configuration (env-based DB connection,
+                                                             JPA, Actuator)
     db/migration/
       V1__enable_postgis_extension.sql         First Flyway migration
+      V2__create_categories_table.sql         Second Flyway migration
   src/test/java/com/hfxconnect/
-    AbstractPostgresIntegrationTest.java   Shared Testcontainers setup
+    AbstractPostgresIntegrationTest.java   Shared Testcontainers setup (public — extended
+                                                             from sub-packages like category/)
     HfxConnectApplicationTests.java          Application-context smoke test
     FlywayMigrationIntegrationTest.java     Migration + idempotency tests
     HealthEndpointIntegrationTest.java      Health endpoint tests
+    category/                                           Category domain tests (unit, repository,
+                                                             API integration — see
+                                                             docs/milestones/milestone-03a-category-domain.md)
 ```
 
-Domain packages (`auth/`, `category/`, `resource/`, `search/`, `moderation/`, `event/`,
-etc., as described in
+Domain packages not yet needed (`auth/`, `resource/`, `search/`, `moderation/`,
+`event/`, etc., as described in
 [system-overview.md](../docs/architecture/system-overview.md#backend-module-structure))
-are added starting in Milestone 3, once there is real domain logic to put in them —
-this avoids empty, speculative package scaffolding.
+are added when there's real domain logic to put in them — this avoids empty,
+speculative package scaffolding. `category/` is the first one, and the pattern it
+establishes (entity/repository/service/controller/DTOs, no setters without an update
+endpoint, shared `common/error` exceptions) is documented in
+`docs/architecture/backend-architecture.md` for later domains to follow.
 
 ## Troubleshooting
 
@@ -127,6 +174,14 @@ PostgreSQL only applies `POSTGRES_DB`/`POSTGRES_USER`/`POSTGRES_PASSWORD` the fi
 time a fresh volume is initialized. If you change credentials after the volume already
 has data, either match `DB_PASSWORD` to the original value, or reset the local database
 (destroys local data): `docker compose down -v && docker compose up -d`.
+
+**After using the `POSTGRES_PORT` override, a later plain `docker compose up -d`
+recreates the container back onto port 5432.** Docker Compose re-reads
+`docker-compose.yml`'s environment substitution on every `up`, including the default
+value, if you don't pass `POSTGRES_PORT` again — it will recreate the container (not
+the volume; your data is preserved) with whatever port resolves this time. If you're
+using the override on a given machine, pass it every time:
+`POSTGRES_PORT=55432 docker compose up -d`.
 
 **Container shows `unhealthy` or the backend can't connect at all.**
 Check `docker compose ps` and `docker compose logs database`. Confirm the container is

@@ -7,12 +7,14 @@ newcomer services, recreation, and events — that are currently scattered acros
 municipal websites, organization pages, and social media, and adds transparent
 verification so users can trust what they find.
 
-**Project status: Milestone 2B (Database Environment) complete.** PostgreSQL/PostGIS
-now runs locally via Docker Compose, the backend connects to it through environment-based
-configuration, Flyway manages schema migrations, and `/actuator/health` reports live
-database health. There are still no domain tables, no REST endpoints, and no real
-frontend pages beyond a placeholder homepage. See
-[docs/milestones/](docs/milestones/) for exactly what each milestone delivered, and
+**Project status: Milestone 3A (Category Domain and API) complete.** The backend now
+has its first real feature: a full REST API for managing categories (create,
+retrieve by ID/slug, paginated listing), backed by PostgreSQL with Flyway migrations,
+validated input, database-enforced uniqueness, centralized error handling, and
+OpenAPI documentation — see [backend/README.md](backend/README.md#category-api-apiv1categories).
+There is no resource domain, no authentication, and no real frontend pages beyond a
+placeholder homepage yet. See [docs/milestones/](docs/milestones/) for exactly what
+each milestone delivered, and
 [docs/development-workflow.md](docs/development-workflow.md) for the full 12-milestone
 roadmap.
 
@@ -39,8 +41,10 @@ submit new listings, and report incorrect information; let organizations manage 
 own approved listings and events; and let moderators and administrators review
 submissions and reports, manage verification status, and maintain an audit history.
 
-None of this is implemented yet — this section describes the plan, not the current
-state.
+None of this is implemented yet, with one exception: category management (the
+classification resources will use) exists as a working backend API — see
+[backend/README.md](backend/README.md#category-api-apiv1categories). Everything else
+in this section describes the plan, not the current state.
 
 ## Technology Stack
 
@@ -62,10 +66,14 @@ architecture decision records in [docs/decisions/](docs/decisions/).
 
 A high-level system diagram, backend module structure, and API conventions are
 documented in
-[docs/architecture/system-overview.md](docs/architecture/system-overview.md). The
-current schema (one infrastructure-focused Flyway migration so far) is documented in
-[docs/database/](docs/database/); a full entity-relationship diagram will be added once
-the domain schema exists (Milestone 3 onward).
+[docs/architecture/system-overview.md](docs/architecture/system-overview.md); the
+layered pattern each backend domain follows (entity/repository/service/controller,
+DTOs, centralized error handling) is documented in
+[docs/architecture/backend-architecture.md](docs/architecture/backend-architecture.md)
+now that a real domain (categories) established it in practice. The current schema
+is documented in [docs/database/](docs/database/), and the API contract in
+[docs/api/README.md](docs/api/README.md) (also always available live from a running
+backend at `/v3/api-docs` and `/swagger-ui.html`).
 
 ## Repository Structure
 
@@ -153,17 +161,21 @@ Runs on [http://localhost:3000](http://localhost:3000). See
 - [Milestone 1: Project Foundation](docs/milestones/milestone-01-project-foundation.md)
 - [Milestone 2A: Application Initialization](docs/milestones/milestone-02a-application-initialization.md)
 - [Milestone 2B: Database Environment](docs/milestones/milestone-02b-database-environment.md)
+- [Milestone 3A: Category Domain and API](docs/milestones/milestone-03a-category-domain.md)
+- [API Documentation](docs/api/README.md)
 - [Database Documentation](docs/database/)
+- [Backend Architecture](docs/architecture/backend-architecture.md)
 - [Development Log](docs/development-log/)
 - [Resume Evidence](docs/career/resume-evidence.md)
 - [Interview Notes](docs/career/interview-notes.md)
 
-## Known Limitations (as of Milestone 2B)
+## Known Limitations (as of Milestone 3A)
 
-- No domain tables (categories, resources, etc.) or REST endpoints exist yet
-  (Milestone 3 onward).
+- `POST /api/v1/categories` has no authentication or authorization yet — anyone who
+  can reach the API can create a category (Milestone 5 adds authentication).
+- No resource domain, tables, or endpoints exist yet (Milestone 3B onward).
 - The frontend has a single placeholder homepage and does not talk to the backend yet;
-  no resource search, listings, or authentication exist (Milestones 3-5 onward).
+  no resource search, listings, or authentication exist (Milestones 4-5 onward).
 - No CI pipeline runs the backend/frontend/infrastructure checks automatically yet
   (Milestone 12).
 - No wireframes exist yet for the core screens; recommended before or alongside
