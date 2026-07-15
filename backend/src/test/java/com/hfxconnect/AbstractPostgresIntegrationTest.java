@@ -18,7 +18,7 @@ import org.testcontainers.utility.DockerImageName;
  * up when the JVM exits.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-abstract class AbstractPostgresIntegrationTest {
+public abstract class AbstractPostgresIntegrationTest {
 
 	@ServiceConnection
 	static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(

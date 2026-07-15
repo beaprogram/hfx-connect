@@ -9,7 +9,8 @@ built, not what is planned.
 architecture direction (see [system-overview.md](../architecture/system-overview.md)
 and the ADRs in [docs/decisions/](../decisions/)). Milestone 2A added the first real
 code (application shells only). Milestone 2B connected the backend to a real,
-migrated PostgreSQL/PostGIS database. The talking points below are the ones already
+migrated PostgreSQL/PostGIS database. Milestone 3A delivered the first complete
+feature (category management). The talking points below are the ones already
 answerable from what has actually been built; the rest will be added as the
 corresponding milestone is completed.
 
@@ -92,9 +93,11 @@ error.
 Two ways: an integration test (`FlywayMigrationIntegrationTest`) starts a second Spring
 context against a database a prior context in the same test run already migrated (via
 a shared Testcontainers "singleton container"), and asserts the migration-history
-table still has exactly one row. Separately, the same thing was verified manually
-against the real `docker-compose` database by starting the application twice in a row
-and confirming the second run logs "up to date, no migration necessary."
+table's row count matches its distinct-version count (proving no migration was ever
+recorded twice, without hardcoding a total that would need updating every time a new
+migration is added). Separately, the same thing was verified manually against the
+real `docker-compose` database by starting the application twice in a row and
+confirming the second run logs "up to date, no migration necessary."
 
 **How does the health endpoint avoid leaking sensitive information?**
 `management.endpoints.web.exposure.include=health` exposes only the health endpoint
@@ -106,17 +109,55 @@ is shown until real authentication exists (Milestone 5). Verified with an integr
 test that asserts the response body never contains credential, JDBC URL, connection
 pool, or stack trace strings.
 
+## Answerable Now (Milestone 3A)
+
+**Why does `Category` have no setters?**
+There's no update or delete endpoint yet — nothing in this milestone's scope
+justifies one. The entity is built once via its constructor and only read afterward.
+When a real update requirement exists for some entity, that entity gains the specific
+setters it actually needs at that point, not generic ones added ahead of time
+"just in case."
+
+**Why are there two separate unique constraints (`normalized_name` and `slug`)
+instead of one?**
+Because they can diverge: two different display names can generate the identical
+slug even though their normalized names differ. `"Food Assistance"` and
+`"Food, Assistance!"` both slugify to `food-assistance` (punctuation collapses into
+the same hyphen run), but their normalized names — `"food assistance"` vs.
+`"food, assistance!"` — are different strings. A single shared constraint would miss
+that collision. See [ADR-005](../decisions/ADR-005-category-identifiers-and-normalization.md).
+This is directly tested (`CategorySlugGeneratorTest.differentNamesCanProduceTheSameSlug`
+and `CategoryServiceTest.createRejectsDuplicateSlugEvenWhenNameDiffers`) and was
+confirmed manually against the running API.
+
+**How is race-safe duplicate handling actually verified, given a real concurrent-request
+race is hard to reproduce in a test?**
+Two layers, tested two different ways. The application-level pre-check
+(`existsByNormalizedName`/`existsBySlug`) is exercised naturally by ordinary
+sequential integration tests. The database-constraint-violation path — what actually
+fires if two requests both pass the pre-check before either commits — is tested with
+a mocked repository that's stubbed to throw `DataIntegrityViolationException` from
+`save()`, verifying the service's translation logic directly
+(`CategoryServiceTest.createTranslatesADatabaseRaceConditionIntoAConflict`) rather
+than trying to engineer genuine concurrency in an integration test, which would be
+slower and flakier for no extra confidence in this specific code path.
+
+**Why does Hibernate schema validation need an explicit bean-ordering fix?**
+Because Spring Boot 4.1's missing Flyway auto-configuration (ADR-004) has a
+second-order consequence once JPA is introduced: nothing in the bean graph forces the
+hand-written `flyway` bean to run before JPA's `entityManagerFactory` bean, so
+Hibernate's schema validation could run against a database Flyway hadn't migrated
+yet. Fixed by registering `EntityManagerFactoryDependsOnPostProcessor("flyway")` —
+found at its actual Spring Boot 4.1 location by inspecting jar contents, since it had
+also moved packages — which is the same mechanism the now-removed
+`FlywayAutoConfiguration` used internally for exactly this problem.
+
 ## To Be Added in Later Milestones
 
-- How DTOs protect the API boundary from the JPA entity model (Milestone 3).
-- How database constraints enforce rules that also exist in application validation
-  (Milestone 3).
 - How authentication tokens and refresh cookies work (Milestone 5).
 - How authorization is enforced server-side, independent of the frontend (Milestone 5).
 - How moderation approval and audit-history writes are made transactional (Milestone
   9).
-- How duplicate submissions/bookmarks are prevented at the database level (Milestones
-  3, 8).
 - How geographic search is kept fast as content grows (Milestone 7).
 - How map performance is protected through bounds-based queries and compact marker
   payloads (Milestone 7).

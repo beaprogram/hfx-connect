@@ -6,8 +6,10 @@ project is traceable to real, committed, tested work — not aspiration.
 
 **Status: early.** Milestone 1 was documentation-only. Milestone 2A added the first
 real, tested code (application shells for both the backend and frontend). Milestone 2B
-connected the backend to a real, migrated PostgreSQL/PostGIS database. Feature-level
-entries (search, moderation, authentication) will be added as those milestones land.
+connected the backend to a real, migrated PostgreSQL/PostGIS database. Milestone 3A
+delivered the first real feature — category management — end to end. Feature-level
+entries (search, moderation, authentication) will continue to be added as those
+milestones land.
 
 ## How an Entry Is Added
 
@@ -192,3 +194,63 @@ database with automated Testcontainers integration tests.
 ### Measurements Still Needed
 None applicable at this stage — no performance-sensitive query behavior exists yet
 (geospatial query performance will be measured starting in Milestone 7).
+
+## Category Domain — First Full Backend Vertical Slice
+
+### Product Purpose
+Lets administrators create and browse the categories (Food Assistance, Study Spaces,
+...) that will classify community resources — the first real, usable feature in the
+product, and the layering pattern every later domain follows.
+
+### Technologies Used
+Spring Data JPA, Jakarta Bean Validation, Flyway, Spring MVC, springdoc-openapi,
+Testcontainers, Mockito.
+
+### Engineering Complexity
+Designed and implemented a full layered domain slice from schema to HTTP API:
+deterministic slug generation (Unicode normalization, diacritic stripping, punctuation
+handling) with 9 dedicated edge-case tests; a two-constraint uniqueness design
+(case/whitespace-insensitive name uniqueness independent from slug uniqueness, since
+two different names can generate the same slug); centralized exception handling
+reused by every future domain; and race-condition-safe duplicate handling (application
+pre-check for fast, clear errors, database constraint as the authoritative guard,
+with the constraint-violation path specifically unit-tested via a mocked repository
+rather than attempted as a flaky real-concurrency test). Diagnosed and fixed a genuine
+Spring Boot 4.1 JPA/Flyway bean-ordering bug (Hibernate schema validation running
+before Flyway had migrated) by locating and applying the same internal mechanism
+Spring Boot's own now-removed Flyway auto-configuration used to use. Also caught and
+fixed a previously-passing test (from Milestone 2B) that had become silently stale
+once a second migration existed, replacing its hardcoded assertion with one that
+verifies the same invariant without needing future updates.
+
+### Implementation
+`backend/src/main/java/com/hfxconnect/category/` (entity, repository, service,
+controller, DTOs, slug generator, exceptions),
+`backend/src/main/java/com/hfxconnect/common/error/` (shared error-handling
+pattern), `backend/src/main/resources/db/migration/V2__create_categories_table.sql`.
+
+### Tests
+53 tests total (up from 6 at the end of Milestone 2B) across 7 classes: 9 pure-function
+slug-generation tests, 14 mocked-repository service tests, 10 real-database
+repository/constraint tests, and 14 full-HTTP-layer API integration tests — all
+against the real `postgis/postgis:17-3.5` image via Testcontainers, not H2 or mocks
+for the database-dependent tests. `./mvnw test` and `./mvnw verify` both pass.
+Additionally verified manually against the real local docker-compose database:
+creation, retrieval, listing, pagination, duplicate rejection, validation errors,
+malformed JSON, 404s, the generated OpenAPI document, and continued health-endpoint
+correctness.
+
+### Evidence
+Commits on branch `milestone/03a-category-domain`; see
+`docs/development-log/2026-07-15.md` for exact commands and observed output.
+
+### Potential Resume Wording
+Designed and implemented a layered Spring Boot REST domain (entity, repository,
+service, controller, DTOs) with deterministic slug generation, database-enforced
+uniqueness, centralized error handling, and OpenAPI documentation; wrote 53 automated
+tests spanning unit, database-integration, and full-HTTP-layer coverage against a real
+PostgreSQL/PostGIS instance via Testcontainers; diagnosed and fixed a Spring Boot 4.1
+JPA/Flyway startup-ordering defect through direct classpath investigation.
+
+### Measurements Still Needed
+[MEASURE AFTER DEPLOYMENT]: real API response-time data once deployed (Milestone 12).

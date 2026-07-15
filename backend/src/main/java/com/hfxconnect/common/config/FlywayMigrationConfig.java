@@ -2,6 +2,7 @@ package com.hfxconnect.common.config;
 
 import javax.sql.DataSource;
 import org.flywaydb.core.Flyway;
+import org.springframework.boot.jpa.autoconfigure.EntityManagerFactoryDependsOnPostProcessor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -27,6 +28,21 @@ public class FlywayMigrationConfig {
 				.load();
 		flyway.migrate();
 		return flyway;
+	}
+
+	/**
+	 * Without built-in Flyway auto-configuration, Spring has no reason to
+	 * create the {@code flyway} bean before JPA's {@code entityManagerFactory}
+	 * bean — the two have no dependency on each other in the bean graph, so
+	 * Hibernate's schema validation (ddl-auto=validate) can run against a
+	 * database Flyway hasn't migrated yet, failing with a spurious "missing
+	 * table" error even though the migration would have succeeded a moment
+	 * later. Forcing the ordering explicitly (the same mechanism the removed
+	 * {@code FlywayAutoConfiguration} used internally) fixes this.
+	 */
+	@Bean
+	static EntityManagerFactoryDependsOnPostProcessor entityManagerFactoryDependsOnFlywayPostProcessor() {
+		return new EntityManagerFactoryDependsOnPostProcessor("flyway");
 	}
 
 }
