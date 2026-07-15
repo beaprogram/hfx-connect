@@ -39,17 +39,21 @@ class FlywayMigrationIntegrationTest extends AbstractPostgresIntegrationTest {
 
 		Integer historyRowCount = jdbcTemplate.queryForObject(
 				"SELECT count(*) FROM flyway_schema_history", Integer.class);
+		Integer distinctVersionCount = jdbcTemplate.queryForObject(
+				"SELECT count(DISTINCT version) FROM flyway_schema_history", Integer.class);
 
 		// AbstractPostgresIntegrationTest uses one singleton container shared by
 		// every test class in this run. HfxConnectApplicationTests already
 		// started a Spring application context (and therefore ran Flyway)
 		// against this exact database before this test class's context started.
-		// If Flyway had reapplied the migration on this second startup, or
+		// If Flyway had reapplied any migration on this second startup, or
 		// failed a checksum check against an already-applied migration, either
-		// this context would have failed to start or this table would contain
-		// more than one row for version 1. Exactly one row proves the second
-		// startup correctly recognized the schema as already current.
-		assertThat(historyRowCount).isEqualTo(1);
+		// this context would have failed to start or some version would appear
+		// more than once in the history table. Comparing the row count against
+		// the distinct-version count (rather than a hardcoded total) proves no
+		// migration was ever recorded twice, regardless of how many real
+		// migrations currently exist.
+		assertThat(historyRowCount).isEqualTo(distinctVersionCount);
 	}
 
 }
