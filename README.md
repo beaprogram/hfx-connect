@@ -1,5 +1,7 @@
 # HFX Connect
 
+[![CI](https://github.com/beaprogram/hfx-connect/actions/workflows/ci.yml/badge.svg)](https://github.com/beaprogram/hfx-connect/actions/workflows/ci.yml)
+
 HFX Connect is a location-based community-services platform for Halifax students,
 newcomers, residents, community organizations, moderators, and administrators. It
 consolidates community resources — food assistance, study spaces, employment support,
@@ -16,7 +18,8 @@ resource API yet**; that's Milestone 3C. There is no authentication and no real
 frontend pages beyond a placeholder homepage. See [docs/milestones/](docs/milestones/)
 for exactly what each milestone delivered, and
 [docs/development-workflow.md](docs/development-workflow.md) for the full 12-milestone
-roadmap.
+roadmap. A baseline GitHub Actions workflow now verifies the backend and frontend on
+pull requests; deployment automation remains part of the later release milestone.
 
 ## The Problem
 
@@ -59,7 +62,8 @@ Everything else in this section describes the plan, not the current state.
 | Migrations | Flyway |
 | Testing | JUnit, Mockito, Testcontainers, React Testing Library, Playwright |
 | Local infrastructure | Docker Compose |
-| CI/CD | GitHub Actions (planned, Milestone 12) |
+| CI | GitHub Actions for backend verification and frontend lint/typecheck/test/build |
+| Deployment | Planned for the release milestone |
 | Deployment (MVP) | Vercel (frontend), Render (backend), managed PostgreSQL |
 
 Rationale for the significant technical decisions already made is documented as
@@ -99,7 +103,7 @@ hfx-connect/
     api/                       API documentation (populated from Milestone 3 onward)
     database/               Database schema documentation
   infrastructure/            Deployment/infrastructure configuration (added later)
-  .github/workflows/     CI pipelines (added in Milestone 12)
+  .github/workflows/     Pull-request CI
   docker-compose.yml    Local PostgreSQL/PostGIS database
   README.md
   .gitignore
@@ -183,8 +187,8 @@ Runs on [http://localhost:3000](http://localhost:3000). See
   `/api/v1/resources` route (Milestone 3C).
 - The frontend has a single placeholder homepage and does not talk to the backend yet;
   no resource search, listings, or authentication exist (Milestones 4-5 onward).
-- No CI pipeline runs the backend/frontend/infrastructure checks automatically yet
-  (Milestone 12).
+- No deployment workflow or hosted environment exists yet; CI currently verifies the
+  backend and frontend only.
 - No wireframes exist yet for the core screens; recommended before or alongside
   Milestone 4.
 - No live demo, screenshots, or demo video exist yet — these will be added once there
