@@ -83,6 +83,8 @@ Slugs get their own independent `UNIQUE` constraint, separate from
   example, to avoid breaking existing links after a rename), it will need its own
   design, since this milestone has no update endpoint at all.
 - The normalization and slug rules are implemented once, in
-  `com.hfxconnect.category.CategorySlugGenerator` and `CategoryService`, and unit
-  tested directly — this is the authoritative reference for exact behavior, more
-  precise than this document's prose description.
+  `com.hfxconnect.common.text.SlugGenerator` and `CategoryService`, and unit tested
+  directly — this is the authoritative reference for exact behavior, more precise than
+  this document's prose description. (Originally `category.CategorySlugGenerator`;
+  moved to `common.text` in Milestone 3B once the resource domain needed the identical
+  algorithm — see `docs/milestones/milestone-03b-resource-domain.md`.)

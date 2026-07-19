@@ -2,6 +2,7 @@ package com.hfxconnect.category;
 
 import com.hfxconnect.common.error.InvalidPaginationException;
 import com.hfxconnect.common.error.ValidationException;
+import com.hfxconnect.common.text.SlugGenerator;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
@@ -29,7 +30,7 @@ public class CategoryService {
 	public CategoryResponse create(CategoryCreateRequest request) {
 		String name = normalizeWhitespace(request.name());
 		String normalizedName = name.toLowerCase(Locale.ROOT);
-		String slug = CategorySlugGenerator.generate(name)
+		String slug = SlugGenerator.generate(name)
 				.orElseThrow(() -> new ValidationException(
 						"The submitted category contains invalid information.",
 						Map.of("name", "Category name must contain at least one letter or number.")));
