@@ -3,11 +3,13 @@
 > Status: written once a real domain slice (Category, Milestone 3A) established the
 > pattern in practice. Describes what the codebase actually does, and is the
 > reference every later domain (resources, organizations, events, ...) should follow
-> for consistency, not a new design each time.
+> for consistency, not a new design each time. Updated in Milestone 3B, which added a
+> second domain (`resource`) and, deliberately, no controller for it yet — see
+> "Business Layer Can Precede the HTTP Layer" below.
 
 ## Layering
 
-Each domain (`category`, and later `resource`, `event`, etc.) is one package under
+Each domain (`category`, `resource`, and later `event`, etc.) is one package under
 `com.hfxconnect`, containing:
 
 | Class | Responsibility |
@@ -38,11 +40,15 @@ JPA entities are never returned from a controller and never accepted as a
 
 ## No Update Endpoint Yet — No Setters
 
-`Category` has no setters. It's built once via its constructor and only read
-afterward, because Milestone 3A deliberately has no `PATCH`/`PUT` endpoint (not
-justified by anything in scope yet). When a real update requirement exists for some
-entity, that entity gains the specific setters or update methods it actually needs at
-that point — not generic ones added speculatively ahead of time.
+`Category` and `CommunityResource` have no general-purpose setters. Each gains only
+the specific, focused mutation methods a real, current need justifies — not generic
+ones added speculatively ahead of time. `CommunityResource` has `updateDetails(...)`
+and `deactivate()` because Milestone 3B's service layer genuinely needs both.
+`Category` gained `deactivate()` in Milestone 3B — not for its own API (it still has
+no update/deactivate endpoint), but because the `resource` domain's own tests
+genuinely needed a way to produce an inactive category and none existed. Neither
+entity has a full field-by-field setter API, and neither will until a real update
+endpoint is built that needs one.
 
 ## Centralized Error Handling
 
@@ -60,6 +66,13 @@ that point — not generic ones added speculatively ahead of time.
   translates exceptions into HTTP responses. Adding a new domain never means adding a
   new `@ExceptionHandler` method for routine cases — only `ApiException` subclasses
   need to exist; the generic handler picks them up automatically.
+
+`GlobalExceptionHandler` also handles Spring's own `NoResourceFoundException`
+(returning `404 NOT_FOUND`) — added in Milestone 3B after discovering an unmapped
+route (`GET /api/v1/resources`, before any resource controller existed) fell through
+to the generic handler and incorrectly returned `500`. This is genuinely global, not
+resource-specific: it now applies to any path that matches no controller and no
+static resource, for every domain.
 
 See `docs/api/README.md` for the resulting response shape and stable error codes.
 
@@ -84,6 +97,54 @@ serializing Spring's `Page` type directly. This was a deliberate choice over
 `Pageable` auto-binding specifically so invalid input (negative page, oversized page
 size) produces the project's own consistent `400 INVALID_PAGINATION` error instead of
 whatever Spring's default resolver does with out-of-range values.
+
+## Business Layer Can Precede the HTTP Layer
+
+`resource` (Milestone 3B) has a complete entity/repository/service layer with no
+`{Domain}Controller` at all yet — `ResourceService` is exercised directly by
+integration tests, not through HTTP. In that state, the domain's create/update
+input and read-model types (`CreateResourceCommand`, `UpdateResourceCommand`,
+`ResourceDetails`, `ResourcePage`) are plain business-layer records, not
+`{Domain}CreateRequest`/`{Domain}Response` HTTP DTOs — there is no
+`@RequestBody`/`@Valid` boundary to design them around yet. When a controller is
+added (Milestone 3C for resources), it gets its own HTTP-facing DTOs (with Bean
+Validation annotations, since `@Valid` needs them) that convert to/from these
+existing business-layer types — the business layer does not need to change shape
+retroactively to "become" HTTP-ready.
+
+## Shared Pure Utilities Are Extracted on Second Use, Not Preemptively
+
+`SlugGenerator` (`com.hfxconnect.common.text`) started as `category.CategorySlugGenerator`
+(package-private, Milestone 3A). It moved to `common.text` (public) in Milestone 3B
+only once `resource` needed byte-for-byte the same algorithm — a genuine second
+consumer, not a speculative generalization. The same reasoning applies to any future
+shared logic: duplicate it locally until a second real domain needs it, then extract.
+
+## Cross-Domain Dependencies Are Direct, Not Hidden Behind an Abstraction
+
+`ResourceService` depends directly on `CategoryRepository` (not a `CategoryService`
+method, and not an abstraction layer between domains) to check that a resource's
+category exists and is active. This is a deliberate, minimal choice: `resource`
+legitimately needs to read `category` data, or the entire enforcement of Milestone
+3B's most important business rules would be theatrical rather than real, and the
+project has no repeated pattern yet that would justify a shared cross-domain
+abstraction. If a third domain develops the same kind of dependency on `category` (or
+on `resource`), that repetition — not this first instance — is the signal to consider
+whether an abstraction is actually warranted.
+
+## `saveAndFlush`, Not `save`, When the Race-Condition Catch Must Be Synchronous
+
+`CategoryService.create()` can safely use `categoryRepository.save(category)` and
+catch `DataIntegrityViolationException` synchronously because `Category.id` is
+`GenerationType.IDENTITY` — Hibernate has no choice but to execute the `INSERT`
+immediately inside `save()` to learn the database-assigned id. `CommunityResource.id`
+is a Hibernate-generated `UUID`, assigned in memory before persistence; Hibernate has
+no such forcing requirement and may defer the physical `INSERT` to a later flush,
+which would happen *after* a plain `save()` call's try/catch has already exited.
+`ResourceService.create()` therefore uses `resourceRepository.saveAndFlush(resource)`
+specifically where it needs to catch the constraint violation synchronously. Any
+future `UUID`-keyed entity needing the same synchronous-conflict-catch pattern should
+use `saveAndFlush` for the same reason, not `save`.
 
 ## OpenAPI
 

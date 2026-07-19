@@ -10,9 +10,10 @@ architecture direction (see [system-overview.md](../architecture/system-overview
 and the ADRs in [docs/decisions/](../decisions/)). Milestone 2A added the first real
 code (application shells only). Milestone 2B connected the backend to a real,
 migrated PostgreSQL/PostGIS database. Milestone 3A delivered the first complete
-feature (category management). The talking points below are the ones already
-answerable from what has actually been built; the rest will be added as the
-corresponding milestone is completed.
+feature (category management). Milestone 3B built the resource domain's persistence
+and business layer, deliberately with no public API yet. The talking points below are
+the ones already answerable from what has actually been built; the rest will be added
+as the corresponding milestone is completed.
 
 ## Answerable Now (Milestone 1)
 
@@ -151,6 +152,47 @@ yet. Fixed by registering `EntityManagerFactoryDependsOnPostProcessor("flyway")`
 found at its actual Spring Boot 4.1 location by inspecting jar contents, since it had
 also moved packages — which is the same mechanism the now-removed
 `FlywayAutoConfiguration` used internally for exactly this problem.
+
+## Answerable Now (Milestone 3B)
+
+**Why does `resources.category_id` use `BIGINT` instead of the `UUID` a planning
+document for this milestone suggested?**
+Because `categories.id` is `BIGINT` (decided and merged in Milestone 3A —
+see [ADR-005](../decisions/ADR-005-category-identifiers-and-normalization.md)), and a
+foreign key must match the type of the column it references. Following the suggestion
+literally would have been a type error against an already-applied, unmodifiable
+migration. Corrected during implementation, with the reasoning documented in the
+migration file itself so a future reader doesn't have to guess why it deviates from
+the original brief.
+
+**Why does `ResourceService.create()` use `saveAndFlush()` where `CategoryService.create()`
+uses plain `save()`?**
+`Category.id` uses `GenerationType.IDENTITY`, which forces Hibernate to execute the
+`INSERT` immediately inside `save()` (it has no other way to learn the
+database-assigned id) — that's what makes `CategoryService`'s synchronous
+`DataIntegrityViolationException` catch reliable. `CommunityResource.id` is a
+Hibernate-generated `UUID`, assigned in memory before persistence, so Hibernate has no
+such forcing requirement and could defer the actual `INSERT` to a later flush —
+possibly after the `try`/`catch` around a plain `save()` had already exited, making
+the race-condition catch unreliable. `saveAndFlush()` forces the flush to happen
+inside the `try` block, where it belongs.
+
+**Why is `ResourceServiceIntegrationTest` written against a real database instead of
+mocking `CategoryRepository`, the way `CategoryServiceTest` mocks its own
+repository?**
+`ResourceService`'s most important rules are cross-entity: does the referenced
+category exist, and is it active? A mock can only return what it's told to return —
+it can't meaningfully prove that a real foreign-key relationship and a real "is this
+category active" check behave correctly together. Testing this against a real,
+Testcontainers-provisioned PostgreSQL instance (the same pinned image used in local
+development) proves the actual behavior, not just that the code calls the mock the
+way the test expects.
+
+**Why does website URL validation use an allowlist (`http`/`https` only) instead of
+blocking specific dangerous schemes like `javascript:`?**
+An allowlist is a strictly stronger guarantee: it rejects everything not explicitly
+permitted, including schemes nobody thought to blocklist. A blocklist only ever
+catches the specific patterns someone remembered to write down.
 
 ## To Be Added in Later Milestones
 

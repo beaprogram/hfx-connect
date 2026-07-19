@@ -5,11 +5,12 @@ The Spring Boot application for the HFX Connect REST API. See the
 [docs/architecture/system-overview.md](../docs/architecture/system-overview.md) for
 the intended API and module design.
 
-**Status:** first real feature — category management (Milestone 3A). PostgreSQL/PostGIS
-runs locally via Docker Compose, Flyway manages schema migrations, and
-`/actuator/health` reports live database health. There is no resource domain, no
-authentication, and `POST /api/v1/categories` is not protected yet — see
-[Category API](#category-api-v1categories) below.
+**Status:** category management (Milestone 3A) plus a resource persistence/business
+layer with **no HTTP API yet** (Milestone 3B — see [Resource Domain](#resource-domain-no-http-api-yet)
+below; the public API is Milestone 3C). PostgreSQL/PostGIS runs locally via Docker
+Compose, Flyway manages schema migrations, and `/actuator/health` reports live
+database health. There is no authentication, and `POST /api/v1/categories` is not
+protected yet — see [Category API](#category-api-v1categories) below.
 
 ## Stack
 
@@ -43,7 +44,9 @@ required for standard local development. Flyway runs automatically on startup; s
 `src/main/resources/db/migration/`.
 
 Most paths still return `404` — only `/actuator/health` and `/api/v1/categories` (and
-its sub-routes) are mapped so far.
+its sub-routes) are mapped so far. (An unmapped path correctly returns `404
+NOT_FOUND` — this was a real bug in `GlobalExceptionHandler` until Milestone 3B fixed
+it; see the development log for 2026-07-19.)
 
 ### Overriding the Database Connection
 
@@ -96,6 +99,26 @@ cannot be supplied directly. Duplicate names/slugs (case- and whitespace-insensi
 return `409`; validation failures return `400` with the shape documented in
 `docs/api/README.md`.
 
+## Resource Domain (no HTTP API yet)
+
+Full reference: `docs/milestones/milestone-03b-resource-domain.md`.
+
+`com.hfxconnect.resource` has a complete persistence and business layer —
+`CommunityResource` entity, `ResourceRepository`, `ResourceService` (create, update,
+deactivate, active lookup by slug, active pagination, category-filtered pagination),
+and `ResourceValidation` (normalization and format validation: whitespace, Canadian
+province/postal code, practical phone/email checks, `http`/`https`-only website
+scheme allowlisting) — but **no controller and no `/api/v1/resources` route exist
+yet**. Every behavior is exercised directly by
+`ResourceServiceIntegrationTest`/`ResourceRepositoryIntegrationTest`/`ResourceValidationTest`,
+not HTTP. The public resource API is Milestone 3C's responsibility.
+
+A resource is created under an existing, active category (`categories.id`, a
+`BIGINT` — not the `UUID` a resource's own `id` is; see
+`docs/database/README.md`'s note on `resources.category_id`'s type). Its slug is
+generated once from its name and never changes, even across updates that rename it —
+see [ADR-005](../docs/decisions/ADR-005-category-identifiers-and-normalization.md).
+
 ## Commands
 
 | Command | Purpose |
@@ -128,33 +151,47 @@ backend/
         OpenApiConfig.java                          OpenAPI document metadata
       error/                                             Shared error-handling pattern — see
                                                              docs/architecture/backend-architecture.md
+      text/
+        SlugGenerator.java                          Shared deterministic slug algorithm (used by
+                                                            both category/ and resource/)
     category/                                           Category domain (entity, repository,
-                                                             service, controller, DTOs, slug generator)
+                                                             service, controller, DTOs) — has an HTTP API
+    resource/                                          Resource domain (entity, repository, service,
+                                                             business-layer models, validation) — no HTTP
+                                                             API yet (Milestone 3C)
   src/main/resources/
     application.properties                        Base configuration (env-based DB connection,
                                                              JPA, Actuator)
     db/migration/
       V1__enable_postgis_extension.sql         First Flyway migration
       V2__create_categories_table.sql         Second Flyway migration
+      V3__create_resources_table.sql          Third Flyway migration
   src/test/java/com/hfxconnect/
     AbstractPostgresIntegrationTest.java   Shared Testcontainers setup (public — extended
-                                                             from sub-packages like category/)
+                                                             from sub-packages like category/, resource/)
     HfxConnectApplicationTests.java          Application-context smoke test
     FlywayMigrationIntegrationTest.java     Migration + idempotency tests
     HealthEndpointIntegrationTest.java      Health endpoint tests
+    common/
+      text/SlugGeneratorTest.java                Pure unit tests for the shared slug algorithm
+      error/GlobalExceptionHandlerIntegrationTest.java  Unmapped-route 404 regression test
     category/                                           Category domain tests (unit, repository,
                                                              API integration — see
                                                              docs/milestones/milestone-03a-category-domain.md)
+    resource/                                          Resource domain tests (validation unit tests,
+                                                             repository + service integration tests — see
+                                                             docs/milestones/milestone-03b-resource-domain.md)
 ```
 
-Domain packages not yet needed (`auth/`, `resource/`, `search/`, `moderation/`,
-`event/`, etc., as described in
+Domain packages not yet needed (`auth/`, `search/`, `moderation/`, `event/`, etc., as
+described in
 [system-overview.md](../docs/architecture/system-overview.md#backend-module-structure))
 are added when there's real domain logic to put in them — this avoids empty,
-speculative package scaffolding. `category/` is the first one, and the pattern it
-establishes (entity/repository/service/controller/DTOs, no setters without an update
-endpoint, shared `common/error` exceptions) is documented in
-`docs/architecture/backend-architecture.md` for later domains to follow.
+speculative package scaffolding. `category/` and `resource/` follow the same pattern
+(entity/repository/service, no setters without a real mutation need, shared
+`common/error` exceptions), documented in `docs/architecture/backend-architecture.md`
+for later domains to follow. `resource/` deliberately has no controller yet — see
+[Resource Domain](#resource-domain-no-http-api-yet) above.
 
 ## Troubleshooting
 
