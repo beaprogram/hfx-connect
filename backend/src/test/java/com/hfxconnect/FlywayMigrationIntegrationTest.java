@@ -2,6 +2,7 @@ package com.hfxconnect;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.util.List;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -31,6 +32,17 @@ class FlywayMigrationIntegrationTest extends AbstractPostgresIntegrationTest {
 				"SELECT count(*) FROM pg_extension WHERE extname = 'postgis'", Integer.class);
 
 		assertThat(extensionCount).isEqualTo(1);
+	}
+
+	@Test
+	void allThreeMigrationsAreAppliedExactlyOnceInOrder() {
+		JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
+
+		List<String> appliedVersions = jdbcTemplate.queryForList(
+				"SELECT version FROM flyway_schema_history WHERE success = true ORDER BY installed_rank",
+				String.class);
+
+		assertThat(appliedVersions).containsExactly("1", "2", "3");
 	}
 
 	@Test

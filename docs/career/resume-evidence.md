@@ -7,9 +7,10 @@ project is traceable to real, committed, tested work — not aspiration.
 **Status: early.** Milestone 1 was documentation-only. Milestone 2A added the first
 real, tested code (application shells for both the backend and frontend). Milestone 2B
 connected the backend to a real, migrated PostgreSQL/PostGIS database. Milestone 3A
-delivered the first real feature — category management — end to end. Feature-level
-entries (search, moderation, authentication) will continue to be added as those
-milestones land.
+delivered the first real feature — category management — end to end. Milestone 3B
+built the resource domain's persistence and business layer (no public API yet).
+Feature-level entries (search, moderation, authentication) will continue to be added
+as those milestones land.
 
 ## How an Entry Is Added
 
@@ -251,6 +252,66 @@ uniqueness, centralized error handling, and OpenAPI documentation; wrote 53 auto
 tests spanning unit, database-integration, and full-HTTP-layer coverage against a real
 PostgreSQL/PostGIS instance via Testcontainers; diagnosed and fixed a Spring Boot 4.1
 JPA/Flyway startup-ordering defect through direct classpath investigation.
+
+### Measurements Still Needed
+[MEASURE AFTER DEPLOYMENT]: real API response-time data once deployed (Milestone 12).
+
+## Resource Domain: Persistence and Business Layer
+
+### Product Purpose
+Establishes the backend workflow every future resource listing (food assistance, a
+study space, ...) goes through — category-validated creation, deterministic and
+stable slugging, normalized/validated fields, and active-only visibility once
+deactivated — as a tested, correct foundation before any public API is built on it.
+
+### Technologies Used
+Java 21, Spring Boot 4.1, Spring Data JPA, PostgreSQL check/foreign-key constraints,
+Testcontainers.
+
+### Engineering Complexity
+Identified and corrected a real inconsistency between a planning document and the
+already-merged database schema (a suggested `UUID` category foreign key was
+impossible against the existing `BIGINT` category primary key) rather than following
+it blindly or silently deviating without explanation. Diagnosed a subtle JPA identifier-
+generation-strategy issue: a `save()` call that reliably catches race-condition
+constraint violations for `IDENTITY`-keyed entities does not do so reliably for
+Hibernate-generated `UUID` keys, and fixed it with a deliberate `saveAndFlush()`.
+Diagnosed and fixed a genuine, general-purpose (not resource-specific) production bug
+— unmapped routes returning `500` instead of `404` — discovered through the
+milestone's own required regression testing. Implemented Canadian-specific validation
+(province allowlist, Canada Post postal-code letter exclusions) and allowlist-based
+(not blocklist-based) website-scheme validation, which is a strictly stronger
+security guarantee against dangerous URL schemes.
+
+### Implementation
+`backend/src/main/java/com/hfxconnect/resource/` (entity, repository, service,
+business-layer models, validation, exceptions),
+`backend/src/main/java/com/hfxconnect/common/text/SlugGenerator.java` (extracted
+shared utility), `backend/src/main/resources/db/migration/V3__create_resources_table.sql`.
+
+### Tests
+64 new tests (117 total backend tests): 24 pure unit tests for field
+normalization/validation, 14 real-database repository/constraint tests, 23
+Testcontainers-backed service-integration tests (chosen deliberately over mocking,
+since category-existence/active-state checks are exactly the behavior mocking cannot
+prove), and 2 regression tests guarding the unmapped-route fix. `./mvnw test` and
+`./mvnw verify` both pass. Additionally verified manually against the real local
+docker-compose database: the category/resource relationship, `ON DELETE RESTRICT`,
+and data/migration-history persistence across an ordinary container restart.
+
+### Evidence
+Commits on branch `milestone/03b-resource-domain`; see
+`docs/development-log/2026-07-19.md` for exact commands and observed output.
+
+### Potential Resume Wording
+Designed and implemented a PostgreSQL-backed resource domain (entity, repository,
+service, business-layer validation) for a Spring Boot REST backend, including
+category-relationship business rules, deterministic slug generation, and Canadian
+address/postal-code validation; wrote 64 automated tests (unit, database-integration,
+and service-integration against a real PostgreSQL instance via Testcontainers);
+diagnosed and fixed both a JPA identifier-generation correctness issue and an
+unrelated production routing defect discovered through the work's own regression
+testing.
 
 ### Measurements Still Needed
 [MEASURE AFTER DEPLOYMENT]: real API response-time data once deployed (Milestone 12).

@@ -73,6 +73,18 @@ public class Category {
 		this.updatedAt = updatedAt;
 	}
 
+	/**
+	 * No category endpoint calls this yet (Milestone 3A has no update/deactivate
+	 * API) — it exists because Milestone 3B's resource domain needs a real way
+	 * to produce an inactive category to test "a resource cannot be assigned to
+	 * an inactive category" against, and there was previously no way to create
+	 * one outside a package-private test constructor. Mirrors
+	 * {@code CommunityResource#deactivate()}.
+	 */
+	public void deactivate() {
+		this.active = false;
+	}
+
 	@PrePersist
 	void onCreate() {
 		Instant now = Instant.now();

@@ -12,6 +12,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 /**
  * Translates every exception the API can throw into the single consistent
@@ -64,6 +65,20 @@ public class GlobalExceptionHandler {
 				HttpStatus.BAD_REQUEST.value(),
 				"MALFORMED_REQUEST",
 				"The value for parameter '" + ex.getName() + "' is not valid."));
+	}
+
+	@ExceptionHandler(NoResourceFoundException.class)
+	public ResponseEntity<ApiError> handleNoRouteFound(NoResourceFoundException ex) {
+		// Spring MVC throws this for any request that matches no @RequestMapping
+		// and no static resource — i.e., a genuinely unmapped path (discovered
+		// via GET /api/v1/resources during Milestone 3B verification, since no
+		// resource controller exists yet). Without this handler it fell through
+		// to the generic 500 case below, which is the wrong status for "this
+		// route simply doesn't exist."
+		return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiError.of(
+				HttpStatus.NOT_FOUND.value(),
+				"NOT_FOUND",
+				"The requested endpoint does not exist."));
 	}
 
 	@ExceptionHandler(Exception.class)

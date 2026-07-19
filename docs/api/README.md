@@ -30,7 +30,9 @@ truth if the two ever disagree.
   see `com.hfxconnect.common.error.GlobalExceptionHandler`.
 
 - Stable error codes in use so far: `VALIDATION_ERROR`, `MALFORMED_REQUEST`,
-  `CATEGORY_NOT_FOUND`, `CATEGORY_CONFLICT`, `INVALID_PAGINATION`, `INTERNAL_ERROR`.
+  `NOT_FOUND` (a genuinely unmapped route — e.g. no path exists at all, as opposed to
+  a specific record not being found), `CATEGORY_NOT_FOUND`, `CATEGORY_CONFLICT`,
+  `INVALID_PAGINATION`, `INTERNAL_ERROR`.
 
 ## Pagination
 
@@ -80,3 +82,11 @@ deliberate, documented limitation of this milestone, not an oversight.
 | `404` | No category exists with the given ID or slug |
 | `409` | A category with that name or slug already exists |
 | `500` | Unexpected server error (no internal detail is exposed) |
+
+## Resources
+
+There is no `/api/v1/resources` yet. The `resource` domain has a complete,
+tested persistence and business layer (Milestone 3B —
+`docs/milestones/milestone-03b-resource-domain.md`), but no controller — a request to
+any resource-shaped path currently returns `404 NOT_FOUND` (a genuinely unmapped
+route), not domain data. The public resource API is Milestone 3C.
