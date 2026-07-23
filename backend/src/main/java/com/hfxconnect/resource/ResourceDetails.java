@@ -3,10 +3,21 @@ package com.hfxconnect.resource;
 import java.time.Instant;
 import java.util.UUID;
 
-/** Business-layer read model for a resource. Not an HTTP response DTO — see {@link CreateResourceCommand}. */
+/**
+ * Business-layer read model for a resource. Not an HTTP response DTO — see
+ * {@link CreateResourceCommand}.
+ *
+ * <p>Includes {@code categoryName}/{@code categorySlug} (not just
+ * {@code categoryId}) so callers building a response DTO never need a
+ * separate category lookup — {@link ResourceService}'s read methods use the
+ * {@code *WithCategory} repository queries specifically so this mapping never
+ * triggers a lazy-loading N+1 query.
+ */
 public record ResourceDetails(
 		UUID id,
 		Long categoryId,
+		String categoryName,
+		String categorySlug,
 		String name,
 		String slug,
 		String description,
@@ -30,6 +41,8 @@ public record ResourceDetails(
 		return new ResourceDetails(
 				resource.getId(),
 				resource.getCategory().getId(),
+				resource.getCategory().getName(),
+				resource.getCategory().getSlug(),
 				resource.getName(),
 				resource.getSlug(),
 				resource.getDescription(),
