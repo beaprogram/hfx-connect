@@ -71,10 +71,10 @@ public class GlobalExceptionHandler {
 	public ResponseEntity<ApiError> handleNoRouteFound(NoResourceFoundException ex) {
 		// Spring MVC throws this for any request that matches no @RequestMapping
 		// and no static resource — i.e., a genuinely unmapped path (discovered
-		// via GET /api/v1/resources during Milestone 3B verification, since no
-		// resource controller exists yet). Without this handler it fell through
-		// to the generic 500 case below, which is the wrong status for "this
-		// route simply doesn't exist."
+		// via GET /api/v1/resources during Milestone 3B verification, before any
+		// resource controller existed to map it). Without this handler it fell
+		// through to the generic 500 case below, which is the wrong status for
+		// "this route simply doesn't exist."
 		return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiError.of(
 				HttpStatus.NOT_FOUND.value(),
 				"NOT_FOUND",

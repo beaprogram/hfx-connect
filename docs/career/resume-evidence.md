@@ -315,3 +315,62 @@ testing.
 
 ### Measurements Still Needed
 [MEASURE AFTER DEPLOYMENT]: real API response-time data once deployed (Milestone 12).
+
+## Public Resource API
+
+### Product Purpose
+Exposes the resource domain (built and tested in Milestone 3B) as a real, callable
+REST API — the first time an external client can discover actual community resources
+(food banks, libraries, study spaces), not just categories.
+
+### Technologies Used
+Spring Web MVC, springdoc-openapi, Jakarta Bean Validation, Spring Data JPA
+`@Query`/`JOIN FETCH`.
+
+### Engineering Complexity
+Diagnosed and prevented an N+1 query pattern before it shipped: embedding a category
+summary (name/slug, not just ID) in every resource response would have triggered one
+extra query per resource in a paginated list via `CommunityResource`'s lazy `category`
+association. Fixed with explicit `JOIN FETCH` repository query variants (safe to
+combine with `Pageable` for a to-one relationship, unlike a to-many fetch join would
+be) rather than accepting the N+1 or reaching for an unrelated caching layer.
+Identified and resolved two structural inconsistencies between the task's own
+instructions and already-merged project state — a milestone-numbering conflict and a
+described-but-unbuilt schema — documented rather than silently resolved either
+direction. Refined the error-code design (splitting one combined
+`CATEGORY_UNAVAILABLE` code into `CATEGORY_NOT_FOUND`/`INACTIVE_CATEGORY`) at exactly
+the point those codes first became externally observable, rather than earlier
+(premature) or never (leaving an imprecise combined code live in a public API).
+Fixed a real regression the full test suite caught: a pre-existing test had used the
+soon-to-be-mapped route itself as its "genuinely unmapped path" example.
+
+### Implementation
+`backend/src/main/java/com/hfxconnect/resource/` (`ResourceController`,
+`ResourceCreateRequest`, `ResourceResponse`, `ResourceSummaryResponse`,
+`ResourcePageResponse`, `CategorySummaryResponse`, updated `ResourceRepository`/
+`ResourceService`/`ResourceDetails`),
+`backend/src/main/java/com/hfxconnect/common/error/InvalidSortException.java`.
+
+### Tests
+30 new tests (147 total backend tests): 24 full-HTTP-layer integration tests
+(`ResourceApiIntegrationTest`, via `TestRestTemplate` against the real database) plus
+6 new service-layer tests for sort behavior and the new `getActiveById` method.
+`./mvnw clean verify` passes — confirmed against the Surefire reports directly, not
+hand-summed. Manually verified every scenario against the real local docker-compose
+database before writing the automated tests.
+
+### Evidence
+Commits on branch `milestone/03c-public-resource-api`; see
+`docs/development-log/2026-07-23.md` for exact commands and observed output.
+
+### Potential Resume Wording
+Designed and shipped a public REST API for a Spring Boot resource domain (create,
+paginated/filtered list, detail-by-ID/slug), including embedded-association responses
+with proactive N+1 prevention via JPA fetch joins, allowlisted sorting, and precise
+error-code design; wrote 30 new automated tests (147 total) spanning full-HTTP-layer
+and service-layer coverage; identified and resolved conflicts between task
+instructions and already-shipped project state through direct verification rather
+than assumption.
+
+### Measurements Still Needed
+[MEASURE AFTER DEPLOYMENT]: real API response-time data once deployed (Milestone 12).

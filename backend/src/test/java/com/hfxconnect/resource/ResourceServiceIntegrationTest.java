@@ -7,6 +7,7 @@ import com.hfxconnect.AbstractPostgresIntegrationTest;
 import com.hfxconnect.category.Category;
 import com.hfxconnect.category.CategoryRepository;
 import com.hfxconnect.common.error.InvalidPaginationException;
+import com.hfxconnect.common.error.InvalidSortException;
 import com.hfxconnect.common.error.ValidationException;
 import java.util.Locale;
 import java.util.UUID;
@@ -94,7 +95,7 @@ class ResourceServiceIntegrationTest extends AbstractPostgresIntegrationTest {
 	void rejectsCreationUnderAMissingCategory() {
 		CreateResourceCommand command = validCommand(-1L, "Missing Category Resource");
 
-		assertThatThrownBy(() -> resourceService.create(command)).isInstanceOf(CategoryUnavailableException.class);
+		assertThatThrownBy(() -> resourceService.create(command)).isInstanceOf(CategoryNotFoundException.class);
 
 		assertThat(resourceRepository.count()).isZero();
 	}
@@ -111,7 +112,7 @@ class ResourceServiceIntegrationTest extends AbstractPostgresIntegrationTest {
 		Category category = inactiveCategory("Inactive Category Check");
 		CreateResourceCommand command = validCommand(category.getId(), "Inactive Category Resource");
 
-		assertThatThrownBy(() -> resourceService.create(command)).isInstanceOf(CategoryUnavailableException.class);
+		assertThatThrownBy(() -> resourceService.create(command)).isInstanceOf(InactiveCategoryException.class);
 
 		assertThat(resourceRepository.count()).isZero();
 	}
@@ -177,7 +178,7 @@ class ResourceServiceIntegrationTest extends AbstractPostgresIntegrationTest {
 		ResourceDetails created = resourceService.create(validCommand(category.getId(), "Move To Missing Resource"));
 
 		assertThatThrownBy(() -> resourceService.update(created.id(), validUpdate(-1L)))
-				.isInstanceOf(CategoryUnavailableException.class);
+				.isInstanceOf(CategoryNotFoundException.class);
 	}
 
 	@Test
@@ -187,7 +188,7 @@ class ResourceServiceIntegrationTest extends AbstractPostgresIntegrationTest {
 		ResourceDetails created = resourceService.create(validCommand(category.getId(), "Move To Inactive Resource"));
 
 		assertThatThrownBy(() -> resourceService.update(created.id(), validUpdate(inactiveDestination.getId())))
-				.isInstanceOf(CategoryUnavailableException.class);
+				.isInstanceOf(InactiveCategoryException.class);
 	}
 
 	@Test
@@ -234,7 +235,7 @@ class ResourceServiceIntegrationTest extends AbstractPostgresIntegrationTest {
 		ResourceDetails created = resourceService.create(validCommand(category.getId(), "List Active " + marker));
 		resourceService.deactivate(created.id());
 
-		ResourcePage page = resourceService.listActive(0, 100);
+		ResourcePage page = resourceService.listActive(0, 100, null);
 
 		assertThat(page.content()).extracting(ResourceDetails::name).doesNotContain("List Active " + marker);
 	}
@@ -247,7 +248,7 @@ class ResourceServiceIntegrationTest extends AbstractPostgresIntegrationTest {
 		resourceService.create(validCommand(categoryA.getId(), "In Category A " + marker));
 		resourceService.create(validCommand(categoryB.getId(), "In Category B " + marker));
 
-		ResourcePage page = resourceService.listActiveByCategory(categoryA.getId(), 0, 100);
+		ResourcePage page = resourceService.listActiveByCategory(categoryA.getId(), 0, 100, null);
 
 		assertThat(page.content()).extracting(ResourceDetails::name)
 				.contains("In Category A " + marker)
@@ -256,13 +257,71 @@ class ResourceServiceIntegrationTest extends AbstractPostgresIntegrationTest {
 
 	@Test
 	void listActiveRejectsAnOutOfRangePageSize() {
-		assertThatThrownBy(() -> resourceService.listActive(0, 0)).isInstanceOf(InvalidPaginationException.class);
-		assertThatThrownBy(() -> resourceService.listActive(0, 1000)).isInstanceOf(InvalidPaginationException.class);
+		assertThatThrownBy(() -> resourceService.listActive(0, 0, null)).isInstanceOf(InvalidPaginationException.class);
+		assertThatThrownBy(() -> resourceService.listActive(0, 1000, null)).isInstanceOf(InvalidPaginationException.class);
 	}
 
 	@Test
 	void listActiveRejectsANegativePage() {
-		assertThatThrownBy(() -> resourceService.listActive(-1, 20)).isInstanceOf(InvalidPaginationException.class);
+		assertThatThrownBy(() -> resourceService.listActive(-1, 20, null)).isInstanceOf(InvalidPaginationException.class);
+	}
+
+	@Test
+	void listActiveDefaultsToNameAscending() {
+		Category category = activeCategory("Default Sort Check");
+		String marker = UUID.randomUUID().toString();
+		resourceService.create(validCommand(category.getId(), "B Resource " + marker));
+		resourceService.create(validCommand(category.getId(), "A Resource " + marker));
+
+		ResourcePage page = resourceService.listActiveByCategory(category.getId(), 0, 100, null);
+
+		assertThat(page.content()).extracting(ResourceDetails::name)
+				.containsExactly("A Resource " + marker, "B Resource " + marker);
+	}
+
+	@Test
+	void listActiveSortsByCreatedAtDescendingWhenRequested() {
+		Category category = activeCategory("CreatedAt Sort Check");
+		String marker = UUID.randomUUID().toString();
+		ResourceDetails first = resourceService.create(validCommand(category.getId(), "First " + marker));
+		ResourceDetails second = resourceService.create(validCommand(category.getId(), "Second " + marker));
+
+		ResourcePage page = resourceService.listActiveByCategory(category.getId(), 0, 100, "createdAt");
+
+		assertThat(page.content()).extracting(ResourceDetails::id)
+				.containsSubsequence(second.id(), first.id());
+	}
+
+	@Test
+	void listActiveRejectsAnUnsupportedSortValue() {
+		assertThatThrownBy(() -> resourceService.listActive(0, 20, "notARealField"))
+				.isInstanceOf(InvalidSortException.class);
+	}
+
+	@Test
+	void getActiveByIdReturnsTheCreatedResource() {
+		Category category = activeCategory("Get By Id Check");
+		ResourceDetails created = resourceService.create(validCommand(category.getId(), "Get By Id Resource"));
+
+		ResourceDetails found = resourceService.getActiveById(created.id());
+
+		assertThat(found.id()).isEqualTo(created.id());
+	}
+
+	@Test
+	void getActiveByIdThrowsNotFoundForADeactivatedResource() {
+		Category category = activeCategory("Get By Id Inactive Check");
+		ResourceDetails created = resourceService.create(validCommand(category.getId(), "Get By Id Inactive Resource"));
+		resourceService.deactivate(created.id());
+
+		assertThatThrownBy(() -> resourceService.getActiveById(created.id()))
+				.isInstanceOf(ResourceNotFoundException.class);
+	}
+
+	@Test
+	void getActiveByIdThrowsNotFoundForAnUnknownId() {
+		assertThatThrownBy(() -> resourceService.getActiveById(UUID.randomUUID()))
+				.isInstanceOf(ResourceNotFoundException.class);
 	}
 
 	private Category activeCategory(String namePrefix) {

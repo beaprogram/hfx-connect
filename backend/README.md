@@ -5,12 +5,12 @@ The Spring Boot application for the HFX Connect REST API. See the
 [docs/architecture/system-overview.md](../docs/architecture/system-overview.md) for
 the intended API and module design.
 
-**Status:** category management (Milestone 3A) plus a resource persistence/business
-layer with **no HTTP API yet** (Milestone 3B — see [Resource Domain](#resource-domain-no-http-api-yet)
-below; the public API is Milestone 3C). PostgreSQL/PostGIS runs locally via Docker
-Compose, Flyway manages schema migrations, and `/actuator/health` reports live
-database health. There is no authentication, and `POST /api/v1/categories` is not
-protected yet — see [Category API](#category-api-v1categories) below.
+**Status:** category management (Milestone 3A) and a public resource API (Milestone
+3C, built on the persistence/business layer Milestone 3B added) — see
+[Category API](#category-api-v1categories) and
+[Resource API](#resource-api-v1resources) below. PostgreSQL/PostGIS runs locally via
+Docker Compose, Flyway manages schema migrations, and `/actuator/health` reports live
+database health. There is no authentication, and `POST` on both APIs is unprotected.
 
 ## Stack
 
@@ -43,10 +43,11 @@ which match `docker-compose.yml`'s defaults exactly — no environment variables
 required for standard local development. Flyway runs automatically on startup; see
 `src/main/resources/db/migration/`.
 
-Most paths still return `404` — only `/actuator/health` and `/api/v1/categories` (and
-its sub-routes) are mapped so far. (An unmapped path correctly returns `404
-NOT_FOUND` — this was a real bug in `GlobalExceptionHandler` until Milestone 3B fixed
-it; see the development log for 2026-07-19.)
+Most paths still return `404` — only `/actuator/health`, `/api/v1/categories`, and
+`/api/v1/resources` (and each of their sub-routes) are mapped so far. (An unmapped
+path correctly returns `404 NOT_FOUND` — this was a real bug in
+`GlobalExceptionHandler` until Milestone 3B fixed it; see the development log for
+2026-07-19.)
 
 ### Overriding the Database Connection
 
@@ -99,25 +100,49 @@ cannot be supplied directly. Duplicate names/slugs (case- and whitespace-insensi
 return `409`; validation failures return `400` with the shape documented in
 `docs/api/README.md`.
 
-## Resource Domain (no HTTP API yet)
+## Resource API (`/api/v1/resources`)
 
-Full reference: `docs/milestones/milestone-03b-resource-domain.md`.
+Full reference: `docs/api/README.md` and
+`docs/milestones/milestone-03c-public-resource-api.md`.
 
-`com.hfxconnect.resource` has a complete persistence and business layer —
-`CommunityResource` entity, `ResourceRepository`, `ResourceService` (create, update,
-deactivate, active lookup by slug, active pagination, category-filtered pagination),
-and `ResourceValidation` (normalization and format validation: whitespace, Canadian
-province/postal code, practical phone/email checks, `http`/`https`-only website
-scheme allowlisting) — but **no controller and no `/api/v1/resources` route exist
-yet**. Every behavior is exercised directly by
-`ResourceServiceIntegrationTest`/`ResourceRepositoryIntegrationTest`/`ResourceValidationTest`,
-not HTTP. The public resource API is Milestone 3C's responsibility.
+**`POST /api/v1/resources` is not protected by authentication yet**, identical to the
+Category API's own limitation. **There is no update or delete endpoint** —
+`ResourceService.update`/`deactivate` exist and are fully tested (Milestone 3B) but
+are not exposed over HTTP in this milestone. Public reads only ever see active
+resources: a deactivated resource returns `404` from every read endpoint, the same as
+a nonexistent one.
+
+```bash
+# Create (categoryId must reference an existing, active category)
+curl -X POST http://localhost:8080/api/v1/resources \
+  -H "Content-Type: application/json" \
+  -d '{
+    "categoryId": 1,
+    "name": "Halifax Central Library",
+    "description": "A full-service public library with free WiFi and study rooms.",
+    "addressLine1": "5381 Spring Garden Rd",
+    "city": "Halifax",
+    "province": "NS",
+    "postalCode": "B3J 2K9",
+    "costType": "FREE"
+  }'
+
+# Get by ID or slug (404 if deactivated or unknown)
+curl http://localhost:8080/api/v1/resources/{id}
+curl http://localhost:8080/api/v1/resources/slug/halifax-central-library
+
+# Paginated, active-only list; optional categoryId filter; sort=name (default) or createdAt
+curl "http://localhost:8080/api/v1/resources?categoryId=1&sort=createdAt&size=20"
+```
 
 A resource is created under an existing, active category (`categories.id`, a
 `BIGINT` — not the `UUID` a resource's own `id` is; see
 `docs/database/README.md`'s note on `resources.category_id`'s type). Its slug is
 generated once from its name and never changes, even across updates that rename it —
 see [ADR-005](../docs/decisions/ADR-005-category-identifiers-and-normalization.md).
+`com.hfxconnect.resource.ResourceValidation` normalizes and validates whitespace,
+Canadian province/postal code, practical phone/email checks, and allowlists
+`http`/`https` website schemes.
 
 ## Commands
 
@@ -155,10 +180,10 @@ backend/
         SlugGenerator.java                          Shared deterministic slug algorithm (used by
                                                             both category/ and resource/)
     category/                                           Category domain (entity, repository,
-                                                             service, controller, DTOs) — has an HTTP API
+                                                             service, controller, DTOs)
     resource/                                          Resource domain (entity, repository, service,
-                                                             business-layer models, validation) — no HTTP
-                                                             API yet (Milestone 3C)
+                                                             business-layer models, validation, controller,
+                                                             HTTP DTOs) — controller added in Milestone 3C
   src/main/resources/
     application.properties                        Base configuration (env-based DB connection,
                                                              JPA, Actuator)
@@ -179,8 +204,9 @@ backend/
                                                              API integration — see
                                                              docs/milestones/milestone-03a-category-domain.md)
     resource/                                          Resource domain tests (validation unit tests,
-                                                             repository + service integration tests — see
-                                                             docs/milestones/milestone-03b-resource-domain.md)
+                                                             repository + service + API integration tests —
+                                                             see docs/milestones/milestone-03b-resource-domain.md
+                                                             and milestone-03c-public-resource-api.md)
 ```
 
 Domain packages not yet needed (`auth/`, `search/`, `moderation/`, `event/`, etc., as
@@ -188,10 +214,9 @@ described in
 [system-overview.md](../docs/architecture/system-overview.md#backend-module-structure))
 are added when there's real domain logic to put in them — this avoids empty,
 speculative package scaffolding. `category/` and `resource/` follow the same pattern
-(entity/repository/service, no setters without a real mutation need, shared
-`common/error` exceptions), documented in `docs/architecture/backend-architecture.md`
-for later domains to follow. `resource/` deliberately has no controller yet — see
-[Resource Domain](#resource-domain-no-http-api-yet) above.
+(entity/repository/service/controller/DTOs, no setters without a real mutation need,
+shared `common/error` exceptions), documented in
+`docs/architecture/backend-architecture.md` for later domains to follow.
 
 ## Troubleshooting
 

@@ -11,9 +11,10 @@ and the ADRs in [docs/decisions/](../decisions/)). Milestone 2A added the first 
 code (application shells only). Milestone 2B connected the backend to a real,
 migrated PostgreSQL/PostGIS database. Milestone 3A delivered the first complete
 feature (category management). Milestone 3B built the resource domain's persistence
-and business layer, deliberately with no public API yet. The talking points below are
-the ones already answerable from what has actually been built; the rest will be added
-as the corresponding milestone is completed.
+and business layer, deliberately with no public API yet. Milestone 3C added that
+public API. The talking points below are the ones already answerable from what has
+actually been built; the rest will be added as the corresponding milestone is
+completed.
 
 ## Answerable Now (Milestone 1)
 
@@ -193,6 +194,55 @@ blocking specific dangerous schemes like `javascript:`?**
 An allowlist is a strictly stronger guarantee: it rejects everything not explicitly
 permitted, including schemes nobody thought to blocklist. A blocklist only ever
 catches the specific patterns someone remembered to write down.
+
+## Answerable Now (Milestone 3C)
+
+**How does the resource API avoid an N+1 query when every response embeds a category
+summary (name and slug, not just an ID)?**
+`CommunityResource.category` is a lazy `@ManyToOne`. Calling `.getId()` on an
+uninitialized lazy proxy is free — Hibernate proxies know their own ID without a
+query — but `.getName()`/`.getSlug()` would trigger a real query, once per resource,
+turning a 20-item list page into 21 queries. `ResourceRepository` has explicit
+`JOIN FETCH` query variants used specifically by the read paths that build a response
+(`findByIdWithCategory`, `findByActiveWithCategory`, etc.), each with its own
+`countQuery` since Spring Data can't reliably derive one for a fetch-joined `@Query`.
+This is safe to combine with pagination because `category` is a to-one relationship —
+a to-many fetch join combined with `Pageable` would silently paginate in memory
+instead of in the database, a well-known Hibernate pitfall this design avoids by
+construction, not by remembering not to do it.
+
+**Why does a resource creation request that references a nonexistent category return
+`404`, while one referencing an inactive category returns `400`?**
+They're different failure modes on purpose: `CATEGORY_NOT_FOUND` (404) means the
+category ID doesn't correspond to any row at all — closer to "this specific thing
+doesn't exist," the traditional meaning of 404. `INACTIVE_CATEGORY` (400) means the
+category is real, but the request isn't allowed to use it — closer to "this request is
+invalid," a 400. Splitting what was one combined `CategoryUnavailableException`
+(Milestone 3B) into two exceptions was safe to do exactly at this point, because this
+milestone is what first makes either code observable over HTTP — nothing before it
+depended on the old combined code.
+
+**Why doesn't the public resource list support filtering by `active` or
+`verificationStatus`, even though the Category API supports an `active` filter?**
+Two different, deliberate reasons, not an oversight: every resource today is
+`UNVERIFIED` (no mutator exists yet — that's Milestone 9's moderation workflow), so a
+`verificationStatus` filter would have exactly one meaningful value and provide no
+real utility. `active` is different — exposing it publicly would let anyone browse
+deactivated resource listings, which may represent contact/location information that
+was deliberately taken down, with no authentication boundary yet to restrict that to
+staff. Categories don't carry the same sensitivity, so their existing `active` filter
+was a reasonable choice at the time; resources warranted a different one.
+
+**Why does this milestone's documentation include a section explaining that it isn't
+the "Milestone 3B" its own initiating instructions called it?**
+The instructions asked for work on branch `milestone/03b-resource-domain`, labeled
+"Milestone 3B" — but that exact milestone (resource persistence, no HTTP) was already
+completed and merged in a prior session, and more than a dozen already-committed
+files independently referred to "Milestone 3C" as the public-API milestone. Silently
+building a second, differently-scoped "Milestone 3B" would have left the project's
+own documentation internally contradictory. Proceeding as Milestone 3C and explaining
+why, prominently, in the milestone document itself (not buried in a commit message)
+keeps the project's history honest and legible to whoever reads it next.
 
 ## To Be Added in Later Milestones
 

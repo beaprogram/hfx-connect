@@ -17,7 +17,9 @@ one begins.
 | 1 | `milestone/01-project-foundation` | Problem, vision, personas, scope, user stories, repository and documentation foundation |
 | 2A | `milestone/02a-application-initialization` | Spring Boot + Next.js scaffolding, quality tooling, accessible frontend shell |
 | 2B | `milestone/02b-database-environment` | Docker Compose PostgreSQL/PostGIS, Flyway, env-based backend DB config, health endpoint |
-| 3 | `milestone/03-resource-domain` | Category and resource persistence, DTOs, validation, REST API |
+| 3A | `milestone/03a-category-domain` | Category persistence, DTOs, validation, REST API |
+| 3B | `milestone/03b-resource-domain` | Resource persistence and business layer (entity, service, validation — no HTTP API) |
+| 3C | `milestone/03c-public-resource-api` | Public resource REST API (controller, DTOs) on top of Milestone 3B's business layer |
 | 4 | `milestone/04-public-frontend` | Public resource list, detail pages, application shell |
 | 5 | `milestone/05-authentication` | Registration, login, roles, backend authorization, protected routes |
 | 6 | `milestone/06-search-and-filtering` | Keyword/category search, structured hours, open-now logic, URL filter state |

@@ -3,8 +3,10 @@ package com.hfxconnect.resource;
 import com.hfxconnect.category.Category;
 import com.hfxconnect.category.CategoryRepository;
 import com.hfxconnect.common.error.InvalidPaginationException;
+import com.hfxconnect.common.error.InvalidSortException;
 import com.hfxconnect.common.error.ValidationException;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageRequest;
@@ -20,14 +22,24 @@ import org.springframework.transaction.annotation.Transactional;
  * {@code docs/architecture/backend-architecture.md} for the layering pattern
  * this follows (the same one {@code CategoryService} established).
  *
- * <p>There is deliberately no controller depending on this service yet
- * (Milestone 3C) — every method here is exercised directly by
- * {@code ResourceServiceIntegrationTest} instead of through HTTP.
+ * <p>Public read methods ({@link #getActiveById}, {@link #getActiveBySlug},
+ * {@link #listActive}, {@link #listActiveByCategory}) only ever see active
+ * resources — deactivated resources are treated as not found, the same
+ * "public-style" visibility rule {@code ResourceController} relies on.
  */
 @Service
 public class ResourceService {
 
 	static final int MAX_PAGE_SIZE = 100;
+
+	/**
+	 * Allowlisted values for the public {@code sort} query parameter — see
+	 * {@code docs/api/README.md}. Arbitrary entity-field sorting is
+	 * deliberately not permitted (it would leak internal field names into the
+	 * public contract and let callers request expensive sorts with no index
+	 * support).
+	 */
+	private static final Set<String> ALLOWED_SORT_VALUES = Set.of("name", "createdAt");
 
 	private final ResourceRepository resourceRepository;
 	private final CategoryRepository categoryRepository;
@@ -105,20 +117,29 @@ public class ResourceService {
 	}
 
 	@Transactional(readOnly = true)
+	public ResourceDetails getActiveById(UUID id) {
+		CommunityResource resource = resourceRepository.findByIdWithCategory(id)
+				.filter(CommunityResource::isActive)
+				.orElseThrow(() -> ResourceNotFoundException.byId(id));
+		return ResourceDetails.from(resource);
+	}
+
+	@Transactional(readOnly = true)
 	public ResourceDetails getActiveBySlug(String slug) {
-		CommunityResource resource = resourceRepository.findBySlugAndActiveTrue(slug)
+		CommunityResource resource = resourceRepository.findBySlugAndActiveTrueWithCategory(slug)
 				.orElseThrow(() -> ResourceNotFoundException.bySlug(slug));
 		return ResourceDetails.from(resource);
 	}
 
 	@Transactional(readOnly = true)
-	public ResourcePage listActive(int page, int size) {
-		return ResourcePage.from(resourceRepository.findByActive(true, pageable(page, size)));
+	public ResourcePage listActive(int page, int size, String sort) {
+		return ResourcePage.from(resourceRepository.findByActiveWithCategory(true, pageable(page, size, sort)));
 	}
 
 	@Transactional(readOnly = true)
-	public ResourcePage listActiveByCategory(Long categoryId, int page, int size) {
-		return ResourcePage.from(resourceRepository.findByCategoryIdAndActive(categoryId, true, pageable(page, size)));
+	public ResourcePage listActiveByCategory(Long categoryId, int page, int size, String sort) {
+		return ResourcePage.from(
+				resourceRepository.findByCategoryIdAndActiveWithCategory(categoryId, true, pageable(page, size, sort)));
 	}
 
 	private CommunityResource findRequiredById(UUID id) {
@@ -131,21 +152,39 @@ public class ResourceService {
 					Map.of("categoryId", "Category is required."));
 		}
 		Category category = categoryRepository.findById(categoryId)
-				.orElseThrow(() -> CategoryUnavailableException.missing(categoryId));
+				.orElseThrow(() -> CategoryNotFoundException.forId(categoryId));
 		if (!category.isActive()) {
-			throw CategoryUnavailableException.inactive(categoryId);
+			throw InactiveCategoryException.forId(categoryId);
 		}
 		return category;
 	}
 
-	private static Pageable pageable(int page, int size) {
+	private static Pageable pageable(int page, int size, String sort) {
 		if (page < 0) {
 			throw new InvalidPaginationException("page must not be negative.");
 		}
 		if (size < 1 || size > MAX_PAGE_SIZE) {
 			throw new InvalidPaginationException("size must be between 1 and " + MAX_PAGE_SIZE + ".");
 		}
-		return PageRequest.of(page, size, Sort.by("name").ascending());
+		return PageRequest.of(page, size, resolveSort(sort));
+	}
+
+	/**
+	 * {@code sort=name} (the default) sorts ascending; {@code sort=createdAt}
+	 * sorts newest-first, since a chronological listing is far more useful
+	 * read newest-to-oldest than the reverse. No separate direction
+	 * parameter is exposed — two fixed, documented behaviors are simpler to
+	 * use and to test than a direction/field combinatorial surface, and
+	 * nothing in the product requirements justifies more yet.
+	 */
+	private static Sort resolveSort(String sort) {
+		if (sort == null || sort.isBlank() || "name".equals(sort)) {
+			return Sort.by("name").ascending();
+		}
+		if ("createdAt".equals(sort)) {
+			return Sort.by("createdAt").descending();
+		}
+		throw new InvalidSortException("sort must be one of " + ALLOWED_SORT_VALUES + " (got '" + sort + "').");
 	}
 
 }

@@ -4,8 +4,9 @@
 > pattern in practice. Describes what the codebase actually does, and is the
 > reference every later domain (resources, organizations, events, ...) should follow
 > for consistency, not a new design each time. Updated in Milestone 3B, which added a
-> second domain (`resource`) and, deliberately, no controller for it yet — see
-> "Business Layer Can Precede the HTTP Layer" below.
+> second domain (`resource`) and, deliberately, no controller for it yet, and again in
+> Milestone 3C, which added that controller — see "Business Layer Can Precede the HTTP
+> Layer" below.
 
 ## Layering
 
@@ -92,25 +93,68 @@ guarantor of a uniqueness rule the database can enforce directly.
 
 List endpoints accept plain `page`/`size` query parameters (not Spring's `Pageable`
 auto-binding), validated explicitly against a documented maximum
-(`CategoryService.MAX_PAGE_SIZE`), and return an explicit page DTO rather than
-serializing Spring's `Page` type directly. This was a deliberate choice over
-`Pageable` auto-binding specifically so invalid input (negative page, oversized page
-size) produces the project's own consistent `400 INVALID_PAGINATION` error instead of
-whatever Spring's default resolver does with out-of-range values.
+(`CategoryService.MAX_PAGE_SIZE`/`ResourceService.MAX_PAGE_SIZE`), and return an
+explicit page DTO rather than serializing Spring's `Page` type directly. This was a
+deliberate choice over `Pageable` auto-binding specifically so invalid input (negative
+page, oversized page size) produces the project's own consistent `400
+INVALID_PAGINATION` error instead of whatever Spring's default resolver does with
+out-of-range values.
+
+Resources additionally accept a `sort` parameter, but not as free-form Spring `Sort`
+binding either: `ResourceService` validates it against a fixed allowlist (`name`,
+`createdAt`) and rejects anything else with `400 INVALID_SORT`
+(`InvalidSortException`). The same reasoning as pagination applies — arbitrary
+caller-specified sort would leak internal field names into the public contract and let
+callers request sorts with no index support; categories don't have this parameter at
+all yet simply because nothing has needed it, not because of a different design
+philosophy.
 
 ## Business Layer Can Precede the HTTP Layer
 
-`resource` (Milestone 3B) has a complete entity/repository/service layer with no
-`{Domain}Controller` at all yet — `ResourceService` is exercised directly by
-integration tests, not through HTTP. In that state, the domain's create/update
-input and read-model types (`CreateResourceCommand`, `UpdateResourceCommand`,
-`ResourceDetails`, `ResourcePage`) are plain business-layer records, not
-`{Domain}CreateRequest`/`{Domain}Response` HTTP DTOs — there is no
-`@RequestBody`/`@Valid` boundary to design them around yet. When a controller is
-added (Milestone 3C for resources), it gets its own HTTP-facing DTOs (with Bean
-Validation annotations, since `@Valid` needs them) that convert to/from these
-existing business-layer types — the business layer does not need to change shape
-retroactively to "become" HTTP-ready.
+`resource` had a complete entity/repository/service layer with no `{Domain}Controller`
+at all for one full milestone (3B) — `ResourceService` was exercised directly by
+integration tests, not through HTTP. Its business-layer create/update input and
+read-model types (`CreateResourceCommand`, `UpdateResourceCommand`, `ResourceDetails`,
+`ResourcePage`) were plain records, not `{Domain}CreateRequest`/`{Domain}Response` HTTP
+DTOs — there was no `@RequestBody`/`@Valid` boundary to design them around yet.
+
+Milestone 3C added `ResourceController`, confirming this played out exactly as
+planned: new HTTP-facing DTOs (`ResourceCreateRequest`, with Bean Validation
+annotations; `ResourceResponse`; `ResourceSummaryResponse`; `ResourcePageResponse`)
+were added *alongside* the existing business-layer types, converting to/from them
+(`ResourceCreateRequest.toCommand()`, `ResourceResponse.from(ResourceDetails)`) —
+`CreateResourceCommand`, `ResourceDetails`, etc. did not change shape retroactively.
+Note that `ResourceController` still doesn't expose `ResourceService.update`/
+`deactivate` — a business-layer method existing and being fully tested does not
+obligate a controller to expose it; that remains its own scope decision per endpoint,
+made when (and if) a real HTTP need exists.
+
+Not every business-layer type became an HTTP DTO one-for-one: `ResourceResponse`
+embeds a `CategorySummaryResponse` (id/name/slug) built from
+`ResourceDetails.categoryName`/`categorySlug` fields that exist specifically to
+support that embedding — see "Fetch-Join to Avoid N+1..." below — while
+`ResourceSummaryResponse` (used only in list results) is deliberately smaller than
+`ResourceDetails`, omitting fields that only matter once a specific resource has been
+opened. The business-layer/HTTP-layer split is real, not just a formality: they are
+allowed to diverge in shape when the presentation need differs from the domain need.
+
+## Fetch-Join to Avoid N+1 When a Response Embeds a Lazy Association
+
+`CommunityResource.category` is `FetchType.LAZY`. Calling `.getId()` on a lazy proxy
+is free (JPA proxies know their own ID without a query), but Milestone 3C's
+`ResourceResponse`/`ResourceSummaryResponse` also need `category.getName()`/
+`getSlug()` — calling those on an uninitialized proxy would trigger one extra query
+*per resource*, turning a single paginated list request into 1+N queries. Rather than
+accept that or reach for an unrelated caching layer, `ResourceRepository` has explicit
+`JOIN FETCH` query variants (`findByIdWithCategory`,
+`findBySlugAndActiveTrueWithCategory`, `findByActiveWithCategory`,
+`findByCategoryIdAndActiveWithCategory`) used specifically by `ResourceService`'s
+public read methods (`getActiveById`, `getActiveBySlug`, `listActive`,
+`listActiveByCategory`) — a `ManyToOne` fetch join never multiplies result rows, so
+it's safe to combine with `Pageable`, unlike a `OneToMany`/`ManyToMany` fetch join
+would be. The plain (non-fetch) repository methods remain for paths that never touch
+`category`'s name/slug (`create`'s duplicate check, `update`/`deactivate`'s lookup by
+ID).
 
 ## Shared Pure Utilities Are Extracted on Second Use, Not Preemptively
 

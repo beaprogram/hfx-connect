@@ -66,9 +66,10 @@ suggested a `UUID` foreign key. That is inconsistent with `categories.id`, which
 `BIGINT` (an already-applied, unmodifiable migration) — a foreign key must match its
 referenced column's type. `category_id` is `BIGINT`.
 
-The `resources` table has no HTTP API yet — no `ResourceController` exists.
-`com.hfxconnect.resource.ResourceService` is exercised directly by automated tests;
-the public API is Milestone 3C's responsibility.
+The `resources` table is now exposed publicly through `ResourceController`
+(`/api/v1/resources` — Milestone 3C, see `docs/api/README.md`) for creation and
+active-only reads; `update`/`deactivate` remain business-layer-only (no HTTP
+endpoint), exercised directly by automated tests.
 
 A full entity-relationship diagram will be added here once a third related table
 exists and a diagram would meaningfully show relationships beyond a single foreign
