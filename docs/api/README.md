@@ -9,6 +9,11 @@ available whenever the backend is running:
 This file summarizes what exists; the running OpenAPI document is the source of
 truth if the two ever disagree.
 
+Browser-based clients (the Milestone 4 frontend) call this API cross-origin;
+see `backend/README.md#cors` and
+[ADR-006](../decisions/ADR-006-frontend-backend-connectivity.md) for the CORS
+allowlist that makes that possible.
+
 ## Conventions
 
 - All endpoints are versioned under `/api/v1/`.

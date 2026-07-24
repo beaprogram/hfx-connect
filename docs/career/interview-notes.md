@@ -12,9 +12,9 @@ code (application shells only). Milestone 2B connected the backend to a real,
 migrated PostgreSQL/PostGIS database. Milestone 3A delivered the first complete
 feature (category management). Milestone 3B built the resource domain's persistence
 and business layer, deliberately with no public API yet. Milestone 3C added that
-public API. The talking points below are the ones already answerable from what has
-actually been built; the rest will be added as the corresponding milestone is
-completed.
+public API. Milestone 4 built the first real public frontend over both APIs. The
+talking points below are the ones already answerable from what has actually been
+built; the rest will be added as the corresponding milestone is completed.
 
 ## Answerable Now (Milestone 1)
 
@@ -243,6 +243,66 @@ building a second, differently-scoped "Milestone 3B" would have left the project
 own documentation internally contradictory. Proceeding as Milestone 3C and explaining
 why, prominently, in the milestone document itself (not buried in a commit message)
 keeps the project's history honest and legible to whoever reads it next.
+
+## Answerable Now (Milestone 4)
+
+**Why does the resource list use TanStack Query at all, instead of just a plain
+Server Component reading `searchParams`?**
+A pure Server Component would genuinely be simpler, and that trade-off is written
+down explicitly in `docs/architecture/frontend-architecture.md` rather than hidden.
+TanStack Query was used anyway because it gives filter/sort/pagination state a
+single, consistent representation (`isPending`/`isError`/`isSuccess`) that the
+loading/empty/error-state requirements map onto directly, and because it's what makes
+the "no infinite retry loops" and "stable query keys" requirements meaningful at all
+— a plain Server Component has no concept of either. The page still does a real
+server-side `prefetchQuery` + `<HydrationBoundary>` first, so the trade-off doesn't
+cost the first paint anything — verified directly against the rendered HTML, not
+assumed.
+
+**Why does the Zod schema for a resource have no `accessibility` field, when the
+task brief asked for an accessibility-information section on the detail page?**
+The live backend's own OpenAPI document — checked directly, not assumed — has no such
+field on `ResourceResponse`. Building a UI section for data the API cannot supply
+would mean either inventing a value or silently defaulting one in, both of which
+violate the same "no fabricated values" rule the brief itself states elsewhere.
+Documented as a deliberate omission (`docs/wireframes/resource-detail.md`) rather than
+silently skipped.
+
+**How does the category/sort filter work with JavaScript disabled?**
+It's a real `<form method="get" action="/resources">` with named `<select>`
+elements and a visible "Apply" submit button — a browser with no JavaScript at all
+still submits it as a normal GET navigation and every control works. With
+JavaScript enabled, an `onChange` handler intercepts that same form and calls
+`router.push` instead, for an instant client-side transition — but that's an
+enhancement layered on top of a working baseline, not a replacement for it.
+
+**What CORS decision did this milestone make, and why not just allow `*`?**
+The frontend and backend are different origins even in local development
+(`:3000` vs `:8080`), so the browser's own same-origin policy blocks the frontend's
+client-side requests unless the backend explicitly allows it. A wildcard (`*`) was
+rejected because the backend's `POST` endpoints are still unauthenticated — a
+wildcard would let any website's JavaScript create categories/resources through a
+visitor's browser, a strictly worse version of a limitation that's already documented
+and accepted for same-origin requests. Instead, `WebCorsConfig` allows only an
+explicit, environment-configured origin list, verified with both an automated test and
+a real preflight request. See [ADR-006](../decisions/ADR-006-frontend-backend-connectivity.md)
+for the full reasoning, including why a Next.js proxy layer was considered and not
+chosen.
+
+**What happened with the disk-space issue mid-milestone, and how was it handled?**
+The development machine's internal disk filled to near-capacity partway through the
+session, which degraded filesystem performance badly enough that `npm test`,
+`tsc --noEmit`, and even reading a small tracked file started hanging indefinitely —
+confirmed to be a disk problem, not a code problem, by reproducing the same hang with
+completely unrelated tools and by watching a stuck process's CPU usage stay near zero
+for minutes (genuinely blocked, not computing). Rather than guessing at what might be
+safe to delete on someone else's machine, the issue was reported plainly, and — with
+explicit direction — the project was relocated to external storage, verified
+byte-for-byte identical to the original before being treated as the new working
+copy. This is the kind of engineering judgment call — recognizing an environment
+problem is not the same class of problem as a code bug, and requires a different kind
+of response (verification and explicit authorization, not unilateral action) — that's
+easy to get wrong under time pressure.
 
 ## To Be Added in Later Milestones
 

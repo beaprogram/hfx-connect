@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { MobileNav } from "@/components/navigation/mobile-nav";
 
 export function SiteHeader() {
   return (
@@ -10,9 +11,15 @@ export function SiteHeader() {
         >
           HFX Connect
         </Link>
-        <span className="hidden text-sm text-slate-500 sm:inline">
-          Halifax community resources
-        </span>
+        <nav aria-label="Primary" className="hidden sm:block">
+          <Link
+            href="/resources"
+            className="rounded-sm text-sm font-medium text-slate-700 hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+          >
+            Browse resources
+          </Link>
+        </nav>
+        <MobileNav />
       </div>
     </header>
   );

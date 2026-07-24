@@ -1,0 +1,105 @@
+import { z } from "zod";
+
+/**
+ * Schemas mirror the real backend contract exactly, verified against the live
+ * `/v3/api-docs` document (not written from memory) before this file existed —
+ * see docs/architecture/frontend-architecture.md. Nothing here is invented:
+ * notably, `ResourceResponseSchema` has no `accessibility` or `lastVerifiedAt`
+ * field because the backend does not return one (see the resource-detail
+ * wireframe's "A Note on Scope").
+ *
+ * Optional business fields use `.nullish()` rather than `.nullable()`: Jackson
+ * on the backend serializes absent optional fields as an explicit JSON `null`
+ * (confirmed against a running backend), but `.nullish()` also tolerates a
+ * missing key entirely, which is a strictly safer assumption for something
+ * this frontend does not control.
+ */
+
+export const costTypeSchema = z.enum(["FREE", "LOW_COST", "PAID", "UNKNOWN"]);
+export type CostType = z.infer<typeof costTypeSchema>;
+
+export const verificationStatusSchema = z.enum(["UNVERIFIED", "VERIFIED"]);
+export type VerificationStatus = z.infer<typeof verificationStatusSchema>;
+
+export const categorySummarySchema = z.object({
+  id: z.number(),
+  name: z.string(),
+  slug: z.string(),
+});
+export type CategorySummary = z.infer<typeof categorySummarySchema>;
+
+export const categoryResponseSchema = z.object({
+  id: z.number(),
+  name: z.string(),
+  slug: z.string(),
+  description: z.string().nullish(),
+  active: z.boolean(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type CategoryResponse = z.infer<typeof categoryResponseSchema>;
+
+export const categoryPageResponseSchema = z.object({
+  content: z.array(categoryResponseSchema),
+  page: z.number(),
+  size: z.number(),
+  totalElements: z.number(),
+  totalPages: z.number(),
+});
+export type CategoryPageResponse = z.infer<typeof categoryPageResponseSchema>;
+
+export const resourceSummaryResponseSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  slug: z.string(),
+  city: z.string().nullish(),
+  province: z.string().nullish(),
+  costType: costTypeSchema,
+  verificationStatus: verificationStatusSchema,
+  active: z.boolean(),
+  category: categorySummarySchema,
+  createdAt: z.string(),
+});
+export type ResourceSummaryResponse = z.infer<typeof resourceSummaryResponseSchema>;
+
+export const resourceResponseSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  slug: z.string(),
+  description: z.string().nullish(),
+  addressLine1: z.string().nullish(),
+  addressLine2: z.string().nullish(),
+  city: z.string().nullish(),
+  province: z.string().nullish(),
+  postalCode: z.string().nullish(),
+  phone: z.string().nullish(),
+  email: z.string().nullish(),
+  websiteUrl: z.string().nullish(),
+  costType: costTypeSchema,
+  costDetails: z.string().nullish(),
+  eligibility: z.string().nullish(),
+  verificationStatus: verificationStatusSchema,
+  active: z.boolean(),
+  category: categorySummarySchema,
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type ResourceResponse = z.infer<typeof resourceResponseSchema>;
+
+export const resourcePageResponseSchema = z.object({
+  content: z.array(resourceSummaryResponseSchema),
+  page: z.number(),
+  size: z.number(),
+  totalElements: z.number(),
+  totalPages: z.number(),
+});
+export type ResourcePageResponse = z.infer<typeof resourcePageResponseSchema>;
+
+export const apiErrorSchema = z.object({
+  timestamp: z.string().nullish(),
+  status: z.number(),
+  code: z.string(),
+  message: z.string(),
+  fieldErrors: z.record(z.string(), z.string()).nullish(),
+});
+export type ApiErrorBody = z.infer<typeof apiErrorSchema>;

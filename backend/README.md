@@ -5,12 +5,13 @@ The Spring Boot application for the HFX Connect REST API. See the
 [docs/architecture/system-overview.md](../docs/architecture/system-overview.md) for
 the intended API and module design.
 
-**Status:** category management (Milestone 3A) and a public resource API (Milestone
-3C, built on the persistence/business layer Milestone 3B added) — see
-[Category API](#category-api-v1categories) and
-[Resource API](#resource-api-v1resources) below. PostgreSQL/PostGIS runs locally via
-Docker Compose, Flyway manages schema migrations, and `/actuator/health` reports live
-database health. There is no authentication, and `POST` on both APIs is unprotected.
+**Status:** category management (Milestone 3A), a public resource API (Milestone 3C,
+built on the persistence/business layer Milestone 3B added), and CORS support for the
+Milestone 4 public frontend — see [Category API](#category-api-v1categories),
+[Resource API](#resource-api-v1resources), and [CORS](#cors) below. PostgreSQL/PostGIS
+runs locally via Docker Compose, Flyway manages schema migrations, and
+`/actuator/health` reports live database health. There is no authentication, and
+`POST` on both APIs is unprotected.
 
 ## Stack
 
@@ -70,6 +71,18 @@ visible to unauthenticated requests (`management.endpoint.health.show-details=wh
 — component-level detail (which would reveal datasource/connection internals) is
 withheld until authenticated requests are possible (Milestone 5). Only the `health`
 endpoint is exposed; no other Actuator endpoints are enabled.
+
+## CORS
+
+The Milestone 4 frontend calls this API directly from the browser, so
+`/api/v1/**` allows cross-origin requests from a configured allowlist — see
+`com.hfxconnect.common.config.WebCorsConfig` and
+[ADR-006](../docs/decisions/ADR-006-frontend-backend-connectivity.md). Allowed
+origins come from `CORS_ALLOWED_ORIGINS` (comma-separated), defaulting to
+`http://localhost:3000` — no configuration is needed for standard local
+development with the frontend on its own default port. There is no `"*"`
+wildcard; a production deployment must set `CORS_ALLOWED_ORIGINS` to the real
+deployed frontend origin(s).
 
 ## Category API (`/api/v1/categories`)
 
@@ -174,6 +187,8 @@ backend/
                                                             before JPA (see ADR-004 and this file's
                                                             Javadoc)
         OpenApiConfig.java                          OpenAPI document metadata
+        WebCorsConfig.java                          CORS allowlist for the frontend origin
+                                                             (Milestone 4) — see ADR-006
       error/                                             Shared error-handling pattern — see
                                                              docs/architecture/backend-architecture.md
       text/
