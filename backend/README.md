@@ -182,9 +182,13 @@ Email is normalized (trimmed, lowercased) before the uniqueness check — a
 differently-cased duplicate returns `409 USER_CONFLICT`, same as an exact one.
 Passwords are hashed with BCrypt (strength 12 —
 [ADR-007](../docs/decisions/ADR-007-user-identity-and-password-hashing.md)) before
-storage; the response never includes a password or its hash. Every account is
-created as `USER`/`ACTIVE`/unverified — a `role` or other privilege field in the
-request body has no effect, by design (see
+storage; the response never includes a password or its hash. Password policy: at
+least 8 characters, **at most 72 bytes when UTF-8 encoded** (not 72 characters —
+BCrypt's own limit is a byte limit; a password made of multibyte-Unicode characters
+can exceed it well under 72 characters, and is rejected with the normal `400
+VALIDATION_ERROR` shape rather than ever reaching the hasher — see ADR-007's
+2026-07-24 correction). Every account is created as `USER`/`ACTIVE`/unverified — a
+`role` or other privilege field in the request body has no effect, by design (see
 `docs/architecture/backend-architecture.md`'s "Preventing Privilege Escalation
 Structurally" section).
 

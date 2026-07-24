@@ -112,3 +112,47 @@ change or a status migration.
   hashes keep validating (BCrypt hashes self-identify their algorithm via their
   `$2a$`/`$2b$` prefix) while new hashes use the new algorithm, avoiding a
   disruptive mass password reset.
+
+## Correction — 2026-07-24: Password Length Is Bounded in Bytes, Not Characters
+
+`RegistrationValidation`'s maximum password length was originally enforced as
+`password.length() > 72` — a Java `char` (UTF-16 code unit) count. This was wrong:
+BCrypt's underlying algorithm accepts at most 72 **bytes**, and most non-ASCII
+characters (accented letters, CJK characters, emoji, ...) encode to more than one
+UTF-8 byte each. A password with exactly 72 Java `char`s made of such characters
+could exceed 72 bytes while passing the old check, reach
+`BCryptPasswordEncoder.encode(...)` uncaught, and throw `IllegalArgumentException`
+there instead — which `GlobalExceptionHandler` has no specific handler for, so it
+would have fallen through to the generic `500 INTERNAL_ERROR` handler. Verified
+empirically (a real `BCryptPasswordEncoder.encode(...)` call with a 72-character,
+144-byte password threw exactly this exception) before writing the fix, not assumed.
+
+**Fix:** compare `password.getBytes(StandardCharsets.UTF_8).length` against 72, not
+`password.length()`. The minimum-length policy (8 characters) is unaffected — it is
+a usability floor, not a hashing-algorithm constraint, and a `char`-based comparison
+is the correct thing to check there. The user-facing validation message states the
+limit in bytes and gives a plain-language example (accented letters/emoji use more
+than one byte) without naming BCrypt or any other implementation detail.
+
+**Also investigated as part of this correction:** rejecting (rather than silently
+ignoring) a `role`/`status`/`emailVerified`/`passwordHash` field submitted in the
+registration request body with `400`, instead of the original ignore-and-discard
+behavior. A class-level `@JsonIgnoreProperties(ignoreUnknown = false)` — the
+standard Jackson mechanism for this — was implemented and verified empirically
+(a running instance, real `curl` requests) to have **no effect** in this project's
+specific stack: Spring Boot 4.1's Jackson auto-configuration globally disables
+`FAIL_ON_UNKNOWN_PROPERTIES` by default, and for this project's Jackson 3.x
+(`tools.jackson`) record-based request-body deserialization, that global default is
+not overridden by the per-class annotation, unlike Jackson 2's classic bean
+deserialization where the same annotation reliably takes precedence. Achieving
+strict rejection would require flipping
+`spring.jackson.deserialization.fail-on-unknown-properties` globally, which would
+also change how the Category and Resource APIs parse unrecognized request-body
+fields — a change with a blast radius beyond this fix's scope. **Decision:** keep
+the original ignore-and-discard behavior (`@JsonIgnoreProperties(ignoreUnknown =
+true)`), since privilege escalation is already structurally impossible regardless
+(`RegistrationRequest` has no field for any of these values to bind to), and
+document and test that chosen behavior explicitly (see `RegistrationRequest`'s
+Javadoc and `UserApiIntegrationTest`'s `submitting*FieldHasNoEffect*` tests). A
+global switch to strict rejection remains open to revisit in a dedicated,
+appropriately-scoped change.

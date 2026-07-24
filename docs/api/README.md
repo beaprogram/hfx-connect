@@ -139,9 +139,11 @@ Full detail: `docs/milestones/milestone-05a-user-registration.md`. Summary:
 Registration email is normalized (trimmed, lowercased) before the uniqueness check,
 so `User@Example.org` and `user@example.org` cannot both register. Passwords are
 hashed with BCrypt (strength 12) before storage — the response never includes a
-password or its hash. See
-[ADR-007](../decisions/ADR-007-user-identity-and-password-hashing.md) for the full
-password-hashing and account-status design.
+password or its hash. Password policy: at least 8 characters, and **at most 72
+bytes when encoded as UTF-8** (not 72 characters — BCrypt's limit is a byte limit,
+and a multibyte-Unicode password can exceed it well under 72 characters; see
+[ADR-007](../decisions/ADR-007-user-identity-and-password-hashing.md)'s 2026-07-24
+correction). A small set of the most common leaked passwords is also rejected.
 
 **No login endpoint exists yet.** Registering an account does not authenticate the
 caller — there is no access token, refresh token, or session to receive. Login is

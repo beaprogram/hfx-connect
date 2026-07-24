@@ -35,7 +35,7 @@ public class AuthController {
 		this.registrationService = registrationService;
 	}
 
-	@Operation(summary = "Register a new account", description = "Always creates a USER-role, ACTIVE account with emailVerified=false — see ADR-007. Any role or privilege field submitted in the request body is ignored, not honored. Does not log the caller in.")
+	@Operation(summary = "Register a new account", description = "Always creates a USER-role, ACTIVE account with emailVerified=false — see ADR-007. Submitting role, status, emailVerified, passwordHash, or any other unrecognized field has no effect — it is ignored, not honored. Does not log the caller in.")
 	@ApiResponses({
 			@ApiResponse(responseCode = "201", description = "Account created"),
 			@ApiResponse(responseCode = "400", description = "Validation failure", content = @Content(schema = @Schema(implementation = ApiError.class))),

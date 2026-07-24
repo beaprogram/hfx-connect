@@ -214,15 +214,26 @@ auto-configuration's side effects would outrun the current milestone's scope.
 `RegistrationRequest` (Milestone 5A) has no `role` or `status` field at all — there
 is no field for a caller-supplied privilege value to bind to, so the question "can
 a request escalate its own privilege" is answered by the DTO's shape, not by a
-runtime check that could later be forgotten or bypassed. It is additionally
-annotated `@JsonIgnoreProperties(ignoreUnknown = true)`, so a client submitting an
-unrecognized field (a stray `role`, `status`, or anything else) is deterministically
-ignored by Jackson rather than depending on whatever the project's global
-`ObjectMapper` configuration happens to do (which this project has never
-customized). `RegistrationService` always constructs a `User` via the two-argument
-constructor that hardcodes `Role.USER`/`AccountStatus.ACTIVE` — there is no
-constructor overload, setter, or code path that accepts a caller-supplied role at
-all. Any future privilege-adjacent input (e.g. an admin-only field on some other
+runtime check that could later be forgotten or bypassed. `RegistrationService`
+always constructs a `User` via the two-argument constructor that hardcodes
+`Role.USER`/`AccountStatus.ACTIVE` — there is no constructor overload, setter, or
+code path that accepts a caller-supplied role at all. This structural guarantee is
+what actually matters; it holds regardless of how the surrounding JSON is parsed.
+
+`RegistrationRequest` is also annotated `@JsonIgnoreProperties(ignoreUnknown =
+true)` — self-documenting, but not what's doing the work here. A stricter
+`ignoreUnknown = false` (rejecting an unrecognized field with `400` instead of
+silently discarding it) was tried and verified empirically to have **no effect** on
+this project's Jackson 3.x (`tools.jackson`)/Spring Boot 4.1 stack: Spring Boot's
+Jackson auto-configuration globally disables `FAIL_ON_UNKNOWN_PROPERTIES` by
+default, and for record-based request bodies specifically, that global default was
+not overridden by the per-class annotation the way it reliably would be for a
+classic Jackson 2 bean. See ADR-007's 2026-07-24 correction for the full
+investigation. The practical lesson: don't assume a per-class Jackson annotation
+is controlling behavior just because it's present and looks correct — verify
+against a real request, especially on a newer Jackson major version.
+
+Any future privilege-adjacent input (e.g. an admin-only field on some other
 endpoint) should default to this same structural approach — no field to bind to,
 not a field plus a runtime guard — before reaching for a runtime check as a
 second line of defense.

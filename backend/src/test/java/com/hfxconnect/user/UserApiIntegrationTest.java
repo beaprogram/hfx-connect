@@ -189,16 +189,107 @@ class UserApiIntegrationTest extends AbstractPostgresIntegrationTest {
 		assertThat(response.getBody()).contains("\"code\":\"MALFORMED_REQUEST\"");
 	}
 
+	/**
+	 * Documents and locks in the project's deliberately chosen behavior for
+	 * privilege-bearing fields (see {@link RegistrationRequest}'s Javadoc for
+	 * why strict rejection was investigated and not implemented for this
+	 * project's specific Jackson 3.x/Spring Boot 4.1 stack): submitting one
+	 * has no effect and does not fail the request — privilege escalation is
+	 * impossible regardless, since {@link RegistrationRequest} has no field
+	 * for any of these values to bind to in the first place.
+	 */
 	@Test
-	void attemptingToSubmitARoleFieldDoesNotEscalatePrivilege() {
-		String email = "no-escalation-" + UUID.randomUUID() + "@example.org";
+	void submittingARoleFieldHasNoEffectAndDoesNotEscalatePrivilege() {
+		String email = "no-escalation-role-" + UUID.randomUUID() + "@example.org";
 		HttpEntity<String> request = jsonEntity(
-				"{\"email\":\"" + email + "\",\"password\":\"" + VALID_PASSWORD + "\",\"role\":\"ADMIN\",\"status\":\"ACTIVE\"}");
+				"{\"email\":\"" + email + "\",\"password\":\"" + VALID_PASSWORD + "\",\"role\":\"ADMIN\"}");
 
 		ResponseEntity<UserResponse> response = restTemplate.postForEntity("/api/v1/auth/register", request, UserResponse.class);
 
 		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
 		assertThat(response.getBody().role()).isEqualTo(Role.USER);
+	}
+
+	@Test
+	void submittingAStatusFieldHasNoEffect() {
+		String email = "no-escalation-status-" + UUID.randomUUID() + "@example.org";
+		HttpEntity<String> request = jsonEntity(
+				"{\"email\":\"" + email + "\",\"password\":\"" + VALID_PASSWORD + "\",\"status\":\"SUSPENDED\"}");
+
+		ResponseEntity<UserResponse> response = restTemplate.postForEntity("/api/v1/auth/register", request, UserResponse.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+		assertThat(response.getBody().status()).isEqualTo(AccountStatus.ACTIVE);
+	}
+
+	@Test
+	void submittingAnEmailVerifiedFieldHasNoEffect() {
+		String email = "no-escalation-verified-" + UUID.randomUUID() + "@example.org";
+		HttpEntity<String> request = jsonEntity(
+				"{\"email\":\"" + email + "\",\"password\":\"" + VALID_PASSWORD + "\",\"emailVerified\":true}");
+
+		ResponseEntity<UserResponse> response = restTemplate.postForEntity("/api/v1/auth/register", request, UserResponse.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+		assertThat(response.getBody().emailVerified()).isFalse();
+	}
+
+	@Test
+	void submittingAPasswordHashFieldHasNoEffectAndTheRealPasswordIsStillHashedNormally() {
+		String email = "no-escalation-hash-" + UUID.randomUUID() + "@example.org";
+		String forgedHash = "$2a$12$forgedforgedforgedforgedforgedforgedforgedforgedforgedfor";
+		HttpEntity<String> request = jsonEntity(
+				"{\"email\":\"" + email + "\",\"password\":\"" + VALID_PASSWORD + "\",\"passwordHash\":\"" + forgedHash + "\"}");
+
+		ResponseEntity<UserResponse> response = restTemplate.postForEntity("/api/v1/auth/register", request, UserResponse.class);
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+
+		JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
+		String storedHash = jdbcTemplate.queryForObject(
+				"SELECT password_hash FROM users WHERE normalized_email = ?", String.class, email);
+		assertThat(storedHash).isNotEqualTo(forgedHash);
+	}
+
+	@Test
+	void aPrivilegeFieldInTheRequestDoesNotLeakInternalDetails() {
+		String email = "no-escalation-leak-check-" + UUID.randomUUID() + "@example.org";
+		HttpEntity<String> request = jsonEntity(
+				"{\"email\":\"" + email + "\",\"password\":\"" + VALID_PASSWORD + "\",\"role\":\"ADMIN\"}");
+
+		ResponseEntity<String> response = restTemplate.postForEntity("/api/v1/auth/register", request, String.class);
+
+		assertThat(response.getBody().toLowerCase()).doesNotContain(
+				"exception", "stacktrace", "com.fasterxml", "com.hfxconnect", "unrecognizedpropertyexception");
+	}
+
+	@Test
+	void anOversizedByteLengthPasswordIsRejectedWithTheStandardValidationErrorShape() {
+		// 72 repetitions of 'é' (2 bytes each in UTF-8): 72 Java chars, but
+		// 144 UTF-8 bytes — exceeds BCrypt's 72-byte limit despite satisfying
+		// a naive 72-character check.
+		String oversizedPassword = "é".repeat(72);
+		String email = "byte-limit-api-" + UUID.randomUUID() + "@example.org";
+
+		ResponseEntity<String> response = restTemplate.postForEntity(
+				"/api/v1/auth/register", registrationRequest(email, oversizedPassword), String.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+		assertThat(response.getBody()).contains("\"code\":\"VALIDATION_ERROR\"");
+		assertThat(response.getBody()).contains("\"password\"");
+		assertThat(response.getBody()).contains("\"timestamp\"");
+		assertThat(response.getBody().toLowerCase()).doesNotContain(
+				"exception", "stacktrace", "illegalargumentexception", "bcrypt", "com.hfxconnect");
+	}
+
+	@Test
+	void aSeventyTwoByteAsciiPasswordIsAcceptedThroughTheFullApi() {
+		String password = "a1" + "b".repeat(70);
+		String email = "byte-limit-accept-" + UUID.randomUUID() + "@example.org";
+
+		ResponseEntity<UserResponse> response = restTemplate.postForEntity(
+				"/api/v1/auth/register", registrationRequest(email, password), UserResponse.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
 	}
 
 	@Test

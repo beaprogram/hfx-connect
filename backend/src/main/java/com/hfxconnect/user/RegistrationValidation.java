@@ -1,6 +1,7 @@
 package com.hfxconnect.user;
 
 import com.hfxconnect.common.error.ValidationException;
+import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -23,13 +24,19 @@ final class RegistrationValidation {
 	static final int PASSWORD_MIN_LENGTH = 8;
 
 	/**
-	 * BCrypt silently truncates input beyond 72 bytes — accepting a longer
-	 * password would mean two different long passwords that share the same
-	 * first 72 bytes hash identically. Rejecting anything over the limit
-	 * up front is more honest than a password policy the hash function
-	 * would quietly ignore part of.
+	 * BCrypt's underlying algorithm accepts at most 72 <em>bytes</em> of
+	 * input, not 72 Java {@code char}s — {@code BCryptPasswordEncoder.encode}
+	 * throws {@code IllegalArgumentException} for anything longer (verified
+	 * directly against the real encoder, not assumed). A Java {@code char}
+	 * count is the wrong thing to compare against this limit: most non-ASCII
+	 * characters (accented letters, CJK characters, emoji, ...) encode to
+	 * more than one UTF-8 byte each, so a password with 72 {@code char}s can
+	 * still exceed 72 bytes. Comparing the actual UTF-8-encoded byte length
+	 * against this limit is what actually prevents an oversized password
+	 * from ever reaching the encoder and throwing there instead of failing
+	 * validation cleanly.
 	 */
-	static final int PASSWORD_MAX_LENGTH = 72;
+	static final int PASSWORD_MAX_BYTES = 72;
 
 	private static final Pattern EMAIL_PATTERN = Pattern.compile("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$");
 
@@ -94,8 +101,11 @@ final class RegistrationValidation {
 			errors.put("password", "Password must be at least " + PASSWORD_MIN_LENGTH + " characters.");
 			return;
 		}
-		if (password.length() > PASSWORD_MAX_LENGTH) {
-			errors.put("password", "Password must be at most " + PASSWORD_MAX_LENGTH + " characters.");
+		int byteLength = password.getBytes(StandardCharsets.UTF_8).length;
+		if (byteLength > PASSWORD_MAX_BYTES) {
+			errors.put("password", "Password must be at most " + PASSWORD_MAX_BYTES
+					+ " bytes when encoded as UTF-8 (some characters, such as accented letters, "
+					+ "symbols, or emoji, use more than one byte each).");
 			return;
 		}
 		if (password.isBlank()) {

@@ -202,13 +202,47 @@ split into 5A/5B/5C), root `README.md`, and career-evidence/interview-notes upda
 | `User.id` being a Hibernate-generated `UUID` (like `CommunityResource.id`, unlike `Category.id`) means a plain `save()` would not reliably surface the duplicate-email race condition synchronously | Used `saveAndFlush`, the same fix `ResourceService.create()` already established for exactly this reason — and caught a real test bug during development where a repository test used plain `save()` and the constraint-violation assertion silently failed to trigger until switched to `saveAndFlush` |
 | A locally native PostgreSQL install already listening on port 5432 (pre-existing on this machine, previously undocumented as encountered in this specific session) intercepted the backend's connection to the docker-compose database during manual verification, surfacing as `role "hfx_connect" does not exist` | Diagnosed via `lsof -nP -iTCP:5432 -sTCP:LISTEN` per `backend/README.md`'s already-documented troubleshooting entry for this exact symptom, then verified with the documented `POSTGRES_PORT`/`DB_PORT` override rather than guessing |
 
+## Post-Milestone Security Correction — 2026-07-24
+
+Before merging, a pre-merge security review found that the password-length policy
+was enforced with `password.length() > 72` — a Java `char` count, not a byte count.
+BCrypt's underlying algorithm accepts at most 72 **bytes**; a Unicode password with
+72 or fewer characters made of multibyte characters (accented letters, CJK
+characters, emoji, ...) could exceed 72 UTF-8 bytes while passing the old check,
+reach `BCryptPasswordEncoder.encode(...)` uncaught, and throw
+`IllegalArgumentException` there — which falls through to a generic `500
+INTERNAL_ERROR` rather than the intended `400 VALIDATION_ERROR`. Confirmed
+empirically (a real `BCryptPasswordEncoder` call with such a password did throw)
+before fixing. Corrected to compare the actual UTF-8-encoded byte length; see
+ADR-007's 2026-07-24 correction for full detail, alternatives, and reasoning.
+
+The same review also asked whether privilege-bearing fields (`role`, `status`,
+`emailVerified`, `passwordHash`) submitted in the registration request body should
+be rejected with `400` instead of silently ignored. Strict rejection
+(`@JsonIgnoreProperties(ignoreUnknown = false)`) was implemented and verified
+empirically to have no effect on this project's Jackson 3.x/Spring Boot 4.1 stack —
+achieving it would require a global Jackson configuration change affecting the
+Category and Resource APIs too, out of scope for this focused fix. The original
+ignore-and-discard behavior was kept (privilege escalation remains structurally
+impossible regardless) and is now explicitly documented and tested for all four
+fields — see ADR-007's correction and `UserApiIntegrationTest`.
+
+11 new tests were added by this correction (5 in the new `RegistrationValidationTest`
+for the byte-limit fix; 6 net new in `UserApiIntegrationTest` — 2 for the byte limit
+at the full-API level, and the single old role-escalation test replaced by 5 that
+document and lock in the ignore-and-discard privilege-field behavior for `role`,
+`status`, `emailVerified`, and `passwordHash` individually plus a no-leakage check),
+bringing the backend suite from 186 to **197**, per `./mvnw clean verify`'s
+authoritative report.
+
 ## Completion Summary
 
 All planned Milestone 5A deliverables were completed and verified twice — once via
-37 new automated tests (11 repository/database, 8 service, 18 API integration, all
-either against the real `postgis/postgis:17-3.5` image or a real `BCryptPasswordEncoder`)
-alongside the full existing 149-test suite (186/186 total), and again via a full
-manual pass against the actual local docker-compose database, including direct
-database inspection to confirm password hashing and the absence of any plaintext.
-No login, tokens, roles, or protected routes were introduced, consistent with the
-milestone's explicit scope — those remain 5B and 5C.
+automated tests (repository/database, service, and API integration, either against
+the real `postgis/postgis:17-3.5` image or a real `BCryptPasswordEncoder`) alongside
+the full pre-existing suite, and again via a full manual pass against the actual
+local docker-compose database, including direct database inspection to confirm
+password hashing and the absence of any plaintext. A pre-merge security review
+caught and fixed a real password-byte-limit defect (see the correction above) before
+this branch was merged. No login, tokens, roles, or protected routes were
+introduced, consistent with the milestone's explicit scope — those remain 5B and 5C.
