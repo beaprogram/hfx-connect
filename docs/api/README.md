@@ -40,7 +40,8 @@ allowlist that makes that possible.
   `RESOURCE_NOT_FOUND`, `RESOURCE_CONFLICT`, `INACTIVE_CATEGORY` (a resource
   referenced a real category that exists but is inactive — distinct from
   `CATEGORY_NOT_FOUND`, where the referenced category doesn't exist at all),
-  `INVALID_PAGINATION`, `INVALID_SORT`, `INTERNAL_ERROR`.
+  `USER_CONFLICT` (duplicate email at registration), `INVALID_PAGINATION`,
+  `INVALID_SORT`, `INTERNAL_ERROR`.
 
 ## Pagination
 
@@ -125,4 +126,35 @@ see `docs/milestones/milestone-03c-public-resource-api.md`.
 | `400` | Validation failure, malformed JSON, invalid pagination/sort, or an inactive category (`INACTIVE_CATEGORY`) |
 | `404` | No active resource exists with the given ID/slug, or the referenced category doesn't exist (`CATEGORY_NOT_FOUND`) |
 | `409` | A resource with that (derived) slug already exists |
+| `500` | Unexpected server error (no internal detail is exposed) |
+
+## Auth — `/api/v1/auth`
+
+Full detail: `docs/milestones/milestone-05a-user-registration.md`. Summary:
+
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/api/v1/auth/register` | Register an account. Always creates a `USER`-role, `ACTIVE`, unverified account — any `role` or other privilege field submitted in the request body is silently ignored, never honored. Does not log the caller in. |
+
+Registration email is normalized (trimmed, lowercased) before the uniqueness check,
+so `User@Example.org` and `user@example.org` cannot both register. Passwords are
+hashed with BCrypt (strength 12) before storage — the response never includes a
+password or its hash. Password policy: at least 8 characters, and **at most 72
+bytes when encoded as UTF-8** (not 72 characters — BCrypt's limit is a byte limit,
+and a multibyte-Unicode password can exceed it well under 72 characters; see
+[ADR-007](../decisions/ADR-007-user-identity-and-password-hashing.md)'s 2026-07-24
+correction). A small set of the most common leaked passwords is also rejected.
+
+**No login endpoint exists yet.** Registering an account does not authenticate the
+caller — there is no access token, refresh token, or session to receive. Login is
+Milestone 5B. **No route in the API is protected by authentication or authorization
+yet** — that is Milestone 5C.
+
+### Status codes
+
+| Status | Meaning |
+|---|---|
+| `201` | Account created; response body is the safe account representation (no password/hash) |
+| `400` | Validation failure (missing/malformed email, missing/weak/common password) or malformed JSON |
+| `409` | An account with that (case-insensitively normalized) email already exists |
 | `500` | Unexpected server error (no internal detail is exposed) |

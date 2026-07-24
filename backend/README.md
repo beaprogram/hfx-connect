@@ -6,19 +6,23 @@ The Spring Boot application for the HFX Connect REST API. See the
 the intended API and module design.
 
 **Status:** category management (Milestone 3A), a public resource API (Milestone 3C,
-built on the persistence/business layer Milestone 3B added), and CORS support for the
-Milestone 4 public frontend — see [Category API](#category-api-v1categories),
-[Resource API](#resource-api-v1resources), and [CORS](#cors) below. PostgreSQL/PostGIS
-runs locally via Docker Compose, Flyway manages schema migrations, and
-`/actuator/health` reports live database health. There is no authentication, and
-`POST` on both APIs is unprotected.
+built on the persistence/business layer Milestone 3B added), CORS support for the
+Milestone 4 public frontend, and account registration (Milestone 5A) — see
+[Category API](#category-api-v1categories), [Resource API](#resource-api-v1resources),
+[CORS](#cors), and [Auth API](#auth-api-v1auth) below. PostgreSQL/PostGIS runs locally
+via Docker Compose, Flyway manages schema migrations, and `/actuator/health` reports
+live database health. There is still no login, tokens, or role-based authorization —
+registering an account does not log the caller in, and `POST` on the Category/Resource
+APIs remains unprotected.
 
 ## Stack
 
 Java 21, Spring Boot 4.1 (`spring-boot-starter-webmvc`, `spring-boot-starter-data-jpa`,
 `spring-boot-starter-validation`, `spring-boot-starter-actuator`), PostgreSQL JDBC
-driver, Flyway, springdoc-openapi, Maven (via the Maven Wrapper — no local Maven
-installation required).
+driver, Flyway, springdoc-openapi, `spring-security-crypto` (password hashing only —
+see [ADR-007](../docs/decisions/ADR-007-user-identity-and-password-hashing.md); not
+the full `spring-boot-starter-security`), Maven (via the Maven Wrapper — no local
+Maven installation required).
 
 ## Local Development
 
@@ -44,8 +48,9 @@ which match `docker-compose.yml`'s defaults exactly — no environment variables
 required for standard local development. Flyway runs automatically on startup; see
 `src/main/resources/db/migration/`.
 
-Most paths still return `404` — only `/actuator/health`, `/api/v1/categories`, and
-`/api/v1/resources` (and each of their sub-routes) are mapped so far. (An unmapped
+Most paths still return `404` — only `/actuator/health`, `/api/v1/categories`,
+`/api/v1/resources`, and `/api/v1/auth/register` (and each of their sub-routes) are
+mapped so far. (An unmapped
 path correctly returns `404 NOT_FOUND` — this was a real bug in
 `GlobalExceptionHandler` until Milestone 3B fixed it; see the development log for
 2026-07-19.)
@@ -69,8 +74,8 @@ database connection are healthy, and a non-2xx status with `"status":"DOWN"` whe
 database is unreachable. Only the top-level status and default health groups are
 visible to unauthenticated requests (`management.endpoint.health.show-details=when-authorized`)
 — component-level detail (which would reveal datasource/connection internals) is
-withheld until authenticated requests are possible (Milestone 5). Only the `health`
-endpoint is exposed; no other Actuator endpoints are enabled.
+withheld until authenticated requests are possible (Milestone 5B/5C). Only the
+`health` endpoint is exposed; no other Actuator endpoints are enabled.
 
 ## CORS
 
@@ -157,6 +162,36 @@ see [ADR-005](../docs/decisions/ADR-005-category-identifiers-and-normalization.m
 Canadian province/postal code, practical phone/email checks, and allowlists
 `http`/`https` website schemes.
 
+## Auth API (`/api/v1/auth`)
+
+Full reference: `docs/api/README.md` and
+`docs/milestones/milestone-05a-user-registration.md`.
+
+**Registering an account does not log the caller in** — there is no login endpoint,
+access token, refresh token, or session yet (Milestone 5B). **No route in the API is
+protected by authentication yet** (Milestone 5C).
+
+```bash
+# Register
+curl -X POST http://localhost:8080/api/v1/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email": "student@example.org", "password": "a-genuinely-unique-passphrase"}'
+```
+
+Email is normalized (trimmed, lowercased) before the uniqueness check — a
+differently-cased duplicate returns `409 USER_CONFLICT`, same as an exact one.
+Passwords are hashed with BCrypt (strength 12 —
+[ADR-007](../docs/decisions/ADR-007-user-identity-and-password-hashing.md)) before
+storage; the response never includes a password or its hash. Password policy: at
+least 8 characters, **at most 72 bytes when UTF-8 encoded** (not 72 characters —
+BCrypt's own limit is a byte limit; a password made of multibyte-Unicode characters
+can exceed it well under 72 characters, and is rejected with the normal `400
+VALIDATION_ERROR` shape rather than ever reaching the hasher — see ADR-007's
+2026-07-24 correction). Every account is created as `USER`/`ACTIVE`/unverified — a
+`role` or other privilege field in the request body has no effect, by design (see
+`docs/architecture/backend-architecture.md`'s "Preventing Privilege Escalation
+Structurally" section).
+
 ## Commands
 
 | Command | Purpose |
@@ -189,6 +224,8 @@ backend/
         OpenApiConfig.java                          OpenAPI document metadata
         WebCorsConfig.java                          CORS allowlist for the frontend origin
                                                              (Milestone 4) — see ADR-006
+        PasswordEncoderConfig.java             BCryptPasswordEncoder bean (Milestone 5A) —
+                                                             see ADR-007
       error/                                             Shared error-handling pattern — see
                                                              docs/architecture/backend-architecture.md
       text/
@@ -199,6 +236,9 @@ backend/
     resource/                                          Resource domain (entity, repository, service,
                                                              business-layer models, validation, controller,
                                                              HTTP DTOs) — controller added in Milestone 3C
+    user/                                                 User domain (entity, repository, service,
+                                                             validation, controller, DTOs) — registration only
+                                                             (Milestone 5A); login/roles are 5B/5C
   src/main/resources/
     application.properties                        Base configuration (env-based DB connection,
                                                              JPA, Actuator)
@@ -206,6 +246,7 @@ backend/
       V1__enable_postgis_extension.sql         First Flyway migration
       V2__create_categories_table.sql         Second Flyway migration
       V3__create_resources_table.sql          Third Flyway migration
+      V4__create_users_table.sql               Fourth Flyway migration
   src/test/java/com/hfxconnect/
     AbstractPostgresIntegrationTest.java   Shared Testcontainers setup (public — extended
                                                              from sub-packages like category/, resource/)
@@ -222,15 +263,18 @@ backend/
                                                              repository + service + API integration tests —
                                                              see docs/milestones/milestone-03b-resource-domain.md
                                                              and milestone-03c-public-resource-api.md)
+    user/                                                 User domain tests (repository, service, API
+                                                             integration — see
+                                                             docs/milestones/milestone-05a-user-registration.md)
 ```
 
-Domain packages not yet needed (`auth/`, `search/`, `moderation/`, `event/`, etc., as
+Domain packages not yet needed (`search/`, `moderation/`, `event/`, etc., as
 described in
 [system-overview.md](../docs/architecture/system-overview.md#backend-module-structure))
 are added when there's real domain logic to put in them — this avoids empty,
-speculative package scaffolding. `category/` and `resource/` follow the same pattern
-(entity/repository/service/controller/DTOs, no setters without a real mutation need,
-shared `common/error` exceptions), documented in
+speculative package scaffolding. `category/`, `resource/`, and `user/` follow the same
+pattern (entity/repository/service/controller/DTOs, no setters without a real mutation
+need, shared `common/error` exceptions), documented in
 `docs/architecture/backend-architecture.md` for later domains to follow.
 
 ## Troubleshooting
@@ -274,6 +318,17 @@ where the `docker` CLI reaches it from the host:
 ```bash
 export DOCKER_HOST="unix://$HOME/.colima/default/docker.sock"
 export TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock
+./mvnw test
+```
+
+**`Container startup failed for image testcontainers/ryuk:0.14.0`.** Testcontainers'
+resource-reaper sidecar (Ryuk) can fail to start under Colima even once `DOCKER_HOST`
+above is set correctly — encountered during Milestone 5A. Disabling it is safe for
+local development (the shared singleton container this project uses is already
+long-lived and cleaned up by the JVM exiting, not by Ryuk specifically):
+
+```bash
+export TESTCONTAINERS_RYUK_DISABLED=true
 ./mvnw test
 ```
 

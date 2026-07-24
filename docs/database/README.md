@@ -2,13 +2,14 @@
 
 ## Current Schema
 
-As of Milestone 3B, the schema contains three Flyway migrations:
+As of Milestone 5A, the schema contains four Flyway migrations:
 
 | Version | File | Purpose |
 |---|---|---|
 | 1 | `backend/src/main/resources/db/migration/V1__enable_postgis_extension.sql` | Enables the PostGIS extension as a tracked, versioned migration rather than relying on the local Docker image's implicit initialization, so it is guaranteed present in every environment Flyway migrates (local, CI, and the managed production database in Milestone 12) |
 | 2 | `backend/src/main/resources/db/migration/V2__create_categories_table.sql` | Creates the `categories` table |
 | 3 | `backend/src/main/resources/db/migration/V3__create_resources_table.sql` | Creates the `resources` table |
+| 4 | `backend/src/main/resources/db/migration/V4__create_users_table.sql` | Creates the `users` table |
 
 ### `categories`
 
@@ -75,6 +76,29 @@ A full entity-relationship diagram will be added here once a third related table
 exists and a diagram would meaningfully show relationships beyond a single foreign
 key.
 
+### `users`
+
+A registered HFX Connect account. `id` is `UUID`, matching `resources`' reasoning,
+not `categories`': users are numerous and self-registered over time by many
+independent actors — see
+[ADR-007](../decisions/ADR-007-user-identity-and-password-hashing.md).
+
+| Column | Type | Constraints |
+|---|---|---|
+| `id` | `UUID` | Primary key |
+| `email` | `VARCHAR(180)` | `NOT NULL`, non-blank — stored as submitted (trimmed only), for display |
+| `normalized_email` | `VARCHAR(180)` | `NOT NULL`, `UNIQUE` — lowercased, trimmed form of `email`; the authoritative uniqueness key (mirrors `categories.normalized_name`) |
+| `password_hash` | `VARCHAR(200)` | `NOT NULL`, non-blank — a BCrypt hash (strength 12), never plaintext |
+| `role` | `VARCHAR(20)` | `NOT NULL`, one of `USER`/`ORGANIZATION`/`MODERATOR`/`ADMIN`, defaults to `USER`. Registration (Milestone 5A) only ever writes `USER` — the other values are reserved for Milestone 5C/organization/moderation work |
+| `status` | `VARCHAR(30)` | `NOT NULL`, one of `ACTIVE`/`PENDING_VERIFICATION`/`SUSPENDED`/`DEACTIVATED`, defaults to `ACTIVE`. Registration only ever writes `ACTIVE` — see ADR-007 for why, not `PENDING_VERIFICATION` |
+| `email_verified` | `BOOLEAN` | `NOT NULL`, defaults to `FALSE` — independent of `status`; always `false` after registration since no email-delivery mechanism exists yet |
+| `created_at` | `TIMESTAMPTZ` | `NOT NULL`, defaults to `now()` |
+| `updated_at` | `TIMESTAMPTZ` | `NOT NULL`, defaults to `now()` |
+
+The `users` table is exposed publicly only through `AuthController`'s
+`POST /api/v1/auth/register` (Milestone 5A — see `docs/api/README.md`). There is no
+read, update, login, or delete endpoint yet.
+
 ## Database Engine
 
 PostgreSQL 17 with the PostGIS 3.5 extension, via the `postgis/postgis:17-3.5` Docker
@@ -99,6 +123,6 @@ creating or altering a table itself.
 
 The remaining entities anticipated by the product requirements are listed in
 [docs/architecture/system-overview.md](../architecture/system-overview.md#data-model-direction):
-`users`, `organizations`, `operating_hours`, `saved_resources`, `resource_reports`,
+`organizations`, `operating_hours`, `saved_resources`, `resource_reports`,
 `resource_submissions`, `events`, and `resource_history`. These will be introduced as
 real Flyway migrations in later milestones.

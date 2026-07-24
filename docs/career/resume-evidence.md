@@ -9,8 +9,10 @@ real, tested code (application shells for both the backend and frontend). Milest
 connected the backend to a real, migrated PostgreSQL/PostGIS database. Milestone 3A
 delivered the first real feature — category management — end to end. Milestone 3B
 built the resource domain's persistence and business layer (no public API yet).
-Feature-level entries (search, moderation, authentication) will continue to be added
-as those milestones land.
+Milestone 4 shipped the first real public frontend. Milestone 5A added user
+registration (persistence, password hashing, validation) — login/tokens (5B) and
+roles/authorization (5C) are not built yet. Feature-level entries (search,
+moderation) will continue to be added as those milestones land.
 
 ## How an Entry Is Added
 
@@ -447,3 +449,78 @@ mid-project infrastructure failure (disk exhaustion) without losing any work.
 ### Measurements Still Needed
 [MEASURE AFTER DEPLOYMENT]: real Lighthouse/Core Web Vitals scores and API
 response-time data once deployed (Milestone 12).
+
+## User Registration Foundation
+
+### Product Purpose
+Every authenticated capability the product plans (saved resources, submissions,
+organization management, moderation) needs an account to belong to. This is the
+first of three deliberately separated authentication sub-milestones (5A/5B/5C) —
+the account itself, before login/tokens or roles/authorization exist.
+
+### Technologies Used
+Spring Data JPA, Flyway, BCrypt (`spring-security-crypto`'s `BCryptPasswordEncoder`,
+strength 12 — not the full `spring-boot-starter-security`), Bean Validation,
+springdoc-openapi, JUnit 5, Mockito, Testcontainers (real `postgis/postgis:17-3.5`).
+
+### Engineering Complexity
+Chose `spring-security-crypto` deliberately over `spring-boot-starter-security` to
+get password hashing without the starter's auto-configured, default-secured filter
+chain — which would have broken the explicit requirement that the existing
+unauthenticated Category/Resource APIs keep working — documented as
+[ADR-007](../decisions/ADR-007-user-identity-and-password-hashing.md), including why
+strength-12 BCrypt over the default and over Argon2id for this milestone. Designed
+account status (`ACTIVE`, not `PENDING_VERIFICATION`) around a real constraint: no
+email-delivery mechanism exists yet, so gating new accounts behind a status they
+could never leave would make them permanently unusable — solved by keeping
+`emailVerified` as an independent column instead of collapsing verification into
+status. Prevented privilege escalation structurally rather than by runtime check:
+`RegistrationRequest` has no `role` field for a value to bind to at all, plus
+`@JsonIgnoreProperties(ignoreUnknown = true)` so a submitted one is deterministically
+ignored — verified with both an automated test and a live `curl` request. Applied
+the project's established `saveAndFlush`-for-UUID-keys race-safety pattern
+(`ResourceService`'s own precedent) to the new domain, and caught a real test bug
+during development where a repository test used plain `save()` and its
+constraint-violation assertion silently never fired until switched to
+`saveAndFlush`. Diagnosed two Colima-specific Testcontainers environment failures
+(missing `DOCKER_HOST`, then a failing Ryuk resource-reaper sidecar) and a
+previously-encountered local port-5432 conflict during manual verification, none of
+which were code defects, and documented the fixes in `backend/README.md`'s
+Troubleshooting section rather than working around them silently.
+
+### Implementation
+`backend/src/main/java/com/hfxconnect/user/` (`User`, `Role`, `AccountStatus`,
+`UserRepository`, `RegistrationValidation`, `RegistrationRequest`, `UserResponse`,
+`UserConflictException`, `RegistrationService`, `AuthController`),
+`backend/src/main/java/com/hfxconnect/common/config/PasswordEncoderConfig.java`,
+`backend/src/main/resources/db/migration/V4__create_users_table.sql`.
+
+### Tests
+37 new backend tests (11 repository/database — real PostgreSQL constraints, not
+mocks; 8 service unit tests — mocked repository and password encoder for
+deterministic race-condition/hashing-path coverage; 18 full HTTP-layer API
+integration tests, including a real `BCryptPasswordEncoder`) alongside the existing
+149 (186 total, 0 failures). Two real test-authoring bugs were caught and fixed
+before commit — a missing `saveAndFlush` that silently prevented a constraint-violation
+assertion from ever firing, and a test email containing the literal word "password"
+that broke its own leak-detection assertion. Manual verification against the real
+database directly inspected the `users` table to confirm a genuine BCrypt hash is
+stored and that no plaintext password ever appears.
+
+### Evidence
+Commits on branch `milestone/05a-user-registration`; see
+`docs/development-log/2026-07-24.md` for the full session record and
+`docs/milestones/milestone-05a-user-registration.md` for acceptance criteria.
+
+### Potential Resume Wording
+Designed and implemented a secure account-registration foundation for a Spring
+Boot/PostgreSQL REST API, including BCrypt password hashing with a deliberately
+scoped dependency choice that avoided prematurely securing existing public
+endpoints, database-level race-safe uniqueness enforcement, and structural
+(schema-level, not just runtime-checked) prevention of privilege escalation through
+request input; documented the design trade-offs as an ADR and wrote 37 automated
+tests spanning database, service, and full HTTP-layer integration coverage.
+
+### Measurements Still Needed
+[MEASURE AFTER DEPLOYMENT]: registration endpoint latency under real BCrypt cost
+once deployed (Milestone 12).

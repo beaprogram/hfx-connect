@@ -19,10 +19,12 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
  * {@code docs/decisions/ADR-006-frontend-backend-connectivity.md} for why
  * direct browser-to-backend CORS was chosen over a Next.js proxy layer.
  *
- * <p>There is no Spring Security dependency in this project yet (Milestone 5
- * introduces authentication) — this is a plain Spring MVC CORS mapping, not a
- * security-filter-chain configuration, and {@code allowCredentials} is left
- * {@code false} since no cookie/session-based request is ever made.
+ * <p>There is no {@code spring-boot-starter-security} filter chain in this
+ * project yet (Milestone 5A added only {@code spring-security-crypto} for
+ * password hashing — see ADR-007; login/tokens are 5B) — this is a plain
+ * Spring MVC CORS mapping, not a security-filter-chain configuration, and
+ * {@code allowCredentials} is left {@code false} since no cookie/session-based
+ * request is ever made.
  */
 @Configuration
 public class WebCorsConfig implements WebMvcConfigurer {

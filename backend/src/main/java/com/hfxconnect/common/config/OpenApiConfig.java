@@ -13,7 +13,7 @@ public class OpenApiConfig {
 		return new OpenAPI().info(new Info()
 				.title("HFX Connect API")
 				.description("REST API for the HFX Connect community-resource platform. "
-						+ "Endpoints not yet covered by authentication (Milestone 5) are called out explicitly in their own description.")
+						+ "Endpoints not yet covered by authentication (Milestone 5C) are called out explicitly in their own description.")
 				.version("v1"));
 	}
 
