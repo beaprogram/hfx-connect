@@ -25,7 +25,7 @@ import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
  *
  * <p><strong>Temporary security limitation:</strong> write endpoints
  * ({@code POST}) are not protected yet. Authentication and role-based
- * authorization are introduced in Milestone 5; until then, anyone who can
+ * authorization are introduced in Milestone 5C; until then, anyone who can
  * reach this API can create categories. This is a known, deliberate,
  * documented limitation of this milestone — not an oversight — and is
  * restated in {@code docs/milestones/milestone-03a-category-domain.md} and
@@ -42,7 +42,7 @@ public class CategoryController {
 		this.categoryService = categoryService;
 	}
 
-	@Operation(summary = "Create a category", description = "The slug is always derived from the name and cannot be supplied directly. Not protected by authentication yet (Milestone 5).")
+	@Operation(summary = "Create a category", description = "The slug is always derived from the name and cannot be supplied directly. Not protected by authentication yet (Milestone 5C).")
 	@ApiResponses({
 			@ApiResponse(responseCode = "201", description = "Category created"),
 			@ApiResponse(responseCode = "400", description = "Validation failure", content = @Content(schema = @Schema(implementation = ApiError.class))),

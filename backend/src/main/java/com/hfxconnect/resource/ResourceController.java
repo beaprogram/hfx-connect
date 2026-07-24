@@ -29,13 +29,13 @@ import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
  * the same way a genuinely nonexistent one would (see
  * {@code ResourceService}'s {@code getActive*}/{@code listActive*} methods).
  * There is no way to list or fetch inactive resources publicly yet; that is
- * an administrative capability that needs the authorization Milestone 5
+ * an administrative capability that needs the authorization Milestone 5C
  * introduces, not something this unsecured milestone should expose.
  *
  * <p><strong>Temporary security limitation:</strong> {@code POST} is not
  * protected yet — anyone who can reach this API can create a resource. This
  * mirrors {@code CategoryController}'s exact same documented limitation and
- * is resolved the same way, in Milestone 5.
+ * is resolved the same way, in Milestone 5C.
  *
  * <p>There is deliberately no update or delete endpoint here — see
  * {@code docs/milestones/milestone-03c-public-resource-api.md} for why
@@ -53,7 +53,7 @@ public class ResourceController {
 		this.resourceService = resourceService;
 	}
 
-	@Operation(summary = "Create a resource", description = "Must reference an existing, active category. The slug is derived from the name. New resources always start UNVERIFIED. Not protected by authentication yet (Milestone 5).")
+	@Operation(summary = "Create a resource", description = "Must reference an existing, active category. The slug is derived from the name. New resources always start UNVERIFIED. Not protected by authentication yet (Milestone 5C).")
 	@ApiResponses({
 			@ApiResponse(responseCode = "201", description = "Resource created"),
 			@ApiResponse(responseCode = "400", description = "Validation failure, or the category is inactive", content = @Content(schema = @Schema(implementation = ApiError.class))),
@@ -91,7 +91,7 @@ public class ResourceController {
 		return ResourceResponse.from(resourceService.getActiveBySlug(slug));
 	}
 
-	@Operation(summary = "List active resources", description = "Paginated. Always active-only — there is no way to include inactive resources in this public listing yet (that needs Milestone 5 authorization). Page size is capped at " + ResourceService.MAX_PAGE_SIZE + ". sort defaults to name ascending; sort=createdAt sorts newest-first.")
+	@Operation(summary = "List active resources", description = "Paginated. Always active-only — there is no way to include inactive resources in this public listing yet (that needs Milestone 5C authorization). Page size is capped at " + ResourceService.MAX_PAGE_SIZE + ". sort defaults to name ascending; sort=createdAt sorts newest-first.")
 	@ApiResponses({
 			@ApiResponse(responseCode = "200", description = "Resource page"),
 			@ApiResponse(responseCode = "400", description = "Invalid page, size, or sort value", content = @Content(schema = @Schema(implementation = ApiError.class)))
