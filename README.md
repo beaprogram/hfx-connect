@@ -9,20 +9,24 @@ newcomer services, recreation, and events — that are currently scattered acros
 municipal websites, organization pages, and social media, and adds transparent
 verification so users can trust what they find.
 
-**Project status: Milestone 4 (Public Frontend) complete.** The backend has two working
-REST APIs: categories (Milestone 3A —
-[backend/README.md](backend/README.md#category-api-apiv1categories)) and resources
+**Project status: Milestone 5A (User Registration Foundation) complete.** The backend
+has three working REST APIs: categories (Milestone 3A —
+[backend/README.md](backend/README.md#category-api-apiv1categories)), resources
 (Milestone 3C, built on the persistence/business layer Milestone 3B added —
-[backend/README.md](backend/README.md#resource-api-apiv1resources)). The frontend
-(Milestone 4) is now a real public browsing experience — a homepage, a filterable/
-sortable/paginated resource list, and a resource detail page, all consuming those APIs
-directly from the browser (see [backend/README.md](backend/README.md#cors) for the
-CORS configuration that makes that possible). There is still no authentication, no
-resource-creation UI, and no search/maps. See [docs/milestones/](docs/milestones/) for
-exactly what each milestone delivered, and
-[docs/development-workflow.md](docs/development-workflow.md) for the full 12-milestone
-roadmap. A baseline GitHub Actions workflow verifies the backend and frontend on pull
-requests; deployment automation remains part of the later release milestone.
+[backend/README.md](backend/README.md#resource-api-apiv1resources)), and account
+registration (Milestone 5A —
+[docs/api/README.md](docs/api/README.md#auth-apiv1auth)). The frontend (Milestone 4)
+is a real public browsing experience — a homepage, a filterable/sortable/paginated
+resource list, and a resource detail page, all consuming those APIs directly from the
+browser (see [backend/README.md](backend/README.md#cors) for the CORS configuration
+that makes that possible). Registering an account does not yet log the caller in —
+there is still no login, tokens, roles, protected routes, resource-creation UI, or
+search/maps. See [docs/milestones/](docs/milestones/) for exactly what each milestone
+delivered, and [docs/development-workflow.md](docs/development-workflow.md) for the
+full 12-milestone roadmap (Milestone 5 is split into 5A/5B/5C, the same way Milestone 3
+was split into 3A/3B/3C). A baseline GitHub Actions workflow verifies the backend and
+frontend on pull requests; deployment automation remains part of the later release
+milestone.
 
 ## The Problem
 
@@ -48,10 +52,12 @@ own approved listings and events; and let moderators and administrators review
 submissions and reports, manage verification status, and maintain an audit history.
 
 The public browsing slice of this (browse, filter by category, sort, view detail) is
-now real — see [Local Setup](#local-setup) to run it. Search, maps, saved resources,
-submissions, organization/moderator tooling, and authentication are not implemented
-yet. There is no update/delete endpoint on either backend API yet either. Everything
-else in this section describes the plan, not the current state.
+now real — see [Local Setup](#local-setup) to run it. Account registration
+(`POST /api/v1/auth/register`) is real too, but does not yet log the caller in.
+Search, maps, saved resources, submissions, organization/moderator tooling, login,
+tokens, and role-based authorization are not implemented yet. There is no update/
+delete endpoint on any backend API yet either. Everything else in this section
+describes the plan, not the current state.
 
 ## Technology Stack
 
@@ -183,30 +189,42 @@ Runs on [http://localhost:3000](http://localhost:3000) and expects the backend a
 - [Milestone 3B: Resource Persistence and Business Layer](docs/milestones/milestone-03b-resource-domain.md)
 - [Milestone 3C: Public Resource API](docs/milestones/milestone-03c-public-resource-api.md)
 - [Milestone 4: Public Frontend](docs/milestones/milestone-04-public-frontend.md)
+- [Milestone 5A: User Registration Foundation](docs/milestones/milestone-05a-user-registration.md)
 - [Wireframes](docs/wireframes/)
 - [API Documentation](docs/api/README.md)
 - [Database Documentation](docs/database/)
 - [Backend Architecture](docs/architecture/backend-architecture.md)
 - [Frontend Architecture](docs/architecture/frontend-architecture.md)
 - [ADR-006: Frontend-Backend Connectivity (CORS)](docs/decisions/ADR-006-frontend-backend-connectivity.md)
+- [ADR-007: User Identity and Password Hashing](docs/decisions/ADR-007-user-identity-and-password-hashing.md)
 - [Development Log](docs/development-log/)
 - [Resume Evidence](docs/career/resume-evidence.md)
 - [Interview Notes](docs/career/interview-notes.md)
 
-## Known Limitations (as of Milestone 4)
+## Known Limitations (as of Milestone 5A)
 
 - `POST /api/v1/categories` and `POST /api/v1/resources` have no authentication or
   authorization yet — anyone who can reach the API can create a category or resource
-  (Milestone 5 adds authentication). The frontend does not expose any create/update/
+  (Milestone 5C adds authorization). The frontend does not expose any create/update/
   delete UI regardless.
-- Neither API has an update or delete endpoint. `ResourceService.update`/`deactivate`
-  exist and are fully tested but aren't exposed over HTTP yet.
+- Registering an account (`POST /api/v1/auth/register`) does not log the caller in —
+  there is no login endpoint, access token, refresh token, or session yet
+  (Milestone 5B). No route in the API is protected by authentication yet
+  (Milestone 5C).
+- Newly-registered accounts are always `emailVerified: false` — no email-delivery
+  mechanism exists to verify them, a deliberate, documented limitation (see
+  [ADR-007](docs/decisions/ADR-007-user-identity-and-password-hashing.md)), not a bug.
+- No user-facing endpoint (read, update, delete, password reset) exists beyond
+  registration itself.
+- Neither the Category nor Resource API has an update or delete endpoint.
+  `ResourceService.update`/`deactivate` exist and are fully tested but aren't exposed
+  over HTTP yet.
 - The public resource list has no `verificationStatus` filter (nothing has ever been
   `VERIFIED` yet — Milestone 9) and no `active` override (would let anyone browse
   deactivated listings with no authentication boundary to gate it behind). The
   frontend accordingly exposes no controls for either.
 - No free-text search, distance/geospatial filtering, maps, saved resources,
-  submissions, moderation, organizations, or authentication exist yet (Milestones 5-10).
+  submissions, moderation, or organizations exist yet (Milestones 5B/5C, 6-10).
 - No deployment workflow or hosted environment exists yet; CI currently verifies the
   backend and frontend only.
 - Frontend responsive/visual verification for Milestone 4 was code-review- and

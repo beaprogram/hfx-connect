@@ -21,7 +21,9 @@ one begins.
 | 3B | `milestone/03b-resource-domain` | Resource persistence and business layer (entity, service, validation — no HTTP API) |
 | 3C | `milestone/03c-public-resource-api` | Public resource REST API (controller, DTOs) on top of Milestone 3B's business layer |
 | 4 | `milestone/04-public-frontend` | Public resource list, detail pages, application shell |
-| 5 | `milestone/05-authentication` | Registration, login, roles, backend authorization, protected routes |
+| 5A | `milestone/05a-user-registration` | User persistence, password hashing, validation, duplicate-account prevention, registration API |
+| 5B | `milestone/05b-login-and-tokens` | Login, access tokens, refresh cookies, logout |
+| 5C | `milestone/05c-roles-and-authorization` | Roles, backend authorization, protected frontend routes |
 | 6 | `milestone/06-search-and-filtering` | Keyword/category search, structured hours, open-now logic, URL filter state |
 | 7 | `milestone/07-geospatial-search` | PostGIS nearby queries, map, marker clustering, list/map sync |
 | 8 | `milestone/08-user-features` | Saved resources, submissions, correction reports |

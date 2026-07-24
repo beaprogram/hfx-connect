@@ -6,7 +6,10 @@
 > for consistency, not a new design each time. Updated in Milestone 3B, which added a
 > second domain (`resource`) and, deliberately, no controller for it yet, and again in
 > Milestone 3C, which added that controller — see "Business Layer Can Precede the HTTP
-> Layer" below.
+> Layer" below. Updated again in Milestone 5A, which added a third domain (`user`)
+> and the project's first security-adjacent dependency — see "Adding a
+> Security-Adjacent Capability Without Adding Security's Auto-Configuration" and
+> "Preventing Privilege Escalation Structurally, Not by Convention" below.
 
 ## Layering
 
@@ -189,6 +192,40 @@ which would happen *after* a plain `save()` call's try/catch has already exited.
 specifically where it needs to catch the constraint violation synchronously. Any
 future `UUID`-keyed entity needing the same synchronous-conflict-catch pattern should
 use `saveAndFlush` for the same reason, not `save`.
+
+## Adding a Security-Adjacent Capability Without Adding Security's Auto-Configuration
+
+Milestone 5A needed password hashing (`PasswordEncoder`/`BCryptPasswordEncoder`)
+without needing — or wanting — the behavior that normally comes attached to it.
+`spring-boot-starter-security` auto-configures a default `SecurityFilterChain` that
+secures every endpoint by default; adding it a full milestone before Milestone
+5B/5C actually builds authentication would have auto-secured the still-public
+Category/Resource APIs this project's own milestones intentionally left open, and
+implemented the wrong thing at the wrong time. `spring-security-crypto` (the same
+Spring Security project, but only its hashing/crypto classes) has no such
+auto-configuration and no filter chain — see `PasswordEncoderConfig` and
+[ADR-007](../decisions/ADR-007-user-identity-and-password-hashing.md). The general
+pattern: pull in the narrowest module that provides the class you actually need,
+not the "starter" that bundles it with unrelated auto-configuration, when the
+auto-configuration's side effects would outrun the current milestone's scope.
+
+## Preventing Privilege Escalation Structurally, Not by Convention
+
+`RegistrationRequest` (Milestone 5A) has no `role` or `status` field at all — there
+is no field for a caller-supplied privilege value to bind to, so the question "can
+a request escalate its own privilege" is answered by the DTO's shape, not by a
+runtime check that could later be forgotten or bypassed. It is additionally
+annotated `@JsonIgnoreProperties(ignoreUnknown = true)`, so a client submitting an
+unrecognized field (a stray `role`, `status`, or anything else) is deterministically
+ignored by Jackson rather than depending on whatever the project's global
+`ObjectMapper` configuration happens to do (which this project has never
+customized). `RegistrationService` always constructs a `User` via the two-argument
+constructor that hardcodes `Role.USER`/`AccountStatus.ACTIVE` — there is no
+constructor overload, setter, or code path that accepts a caller-supplied role at
+all. Any future privilege-adjacent input (e.g. an admin-only field on some other
+endpoint) should default to this same structural approach — no field to bind to,
+not a field plus a runtime guard — before reaching for a runtime check as a
+second line of defense.
 
 ## OpenAPI
 

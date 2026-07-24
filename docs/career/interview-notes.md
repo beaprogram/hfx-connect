@@ -12,9 +12,11 @@ code (application shells only). Milestone 2B connected the backend to a real,
 migrated PostgreSQL/PostGIS database. Milestone 3A delivered the first complete
 feature (category management). Milestone 3B built the resource domain's persistence
 and business layer, deliberately with no public API yet. Milestone 3C added that
-public API. Milestone 4 built the first real public frontend over both APIs. The
-talking points below are the ones already answerable from what has actually been
-built; the rest will be added as the corresponding milestone is completed.
+public API. Milestone 4 built the first real public frontend over both APIs.
+Milestone 5A added user registration — persistence, password hashing, validation —
+deliberately without login, tokens, or roles, which are 5B and 5C. The talking
+points below are the ones already answerable from what has actually been built; the
+rest will be added as the corresponding milestone is completed.
 
 ## Answerable Now (Milestone 1)
 
@@ -304,10 +306,57 @@ problem is not the same class of problem as a code bug, and requires a different
 of response (verification and explicit authorization, not unilateral action) — that's
 easy to get wrong under time pressure.
 
+## Answerable Now (Milestone 5A)
+
+**Why add `spring-security-crypto` instead of `spring-boot-starter-security` just to
+get `BCryptPasswordEncoder`?** The full starter auto-configures a default security
+filter chain that secures every endpoint unless explicitly permitted — adding it now
+would have auto-secured the still-public, still-unauthenticated Category/Resource
+APIs a full milestone before Milestone 5B/5C actually builds the real authentication
+those endpoints are waiting for. `spring-security-crypto` is the same project, but
+just the hashing/crypto classes, with no filter chain and no auto-configuration —
+verified directly by confirming the existing Category/Resource APIs still return
+`200` in an integration test after adding the dependency, not just assumed. See
+[ADR-007](../decisions/ADR-007-user-identity-and-password-hashing.md).
+
+**Why is a newly-registered account `ACTIVE` instead of `PENDING_VERIFICATION`, given
+`emailVerified` is always `false`?** Because no email-delivery mechanism exists in
+this project yet. A `PENDING_VERIFICATION` account with no real way to leave that
+state would be permanently unusable — worse than an account that's simply
+unverified. `emailVerified` is deliberately its own column, independent of `status`,
+specifically so a real verification flow can be added later by flipping one boolean
+rather than needing a status migration or a fabricated verification endpoint (which
+the milestone brief explicitly ruled out).
+
+**How is privilege escalation through the registration request actually prevented —
+is there a check somewhere that strips out a `role` field?** No — there's no field to
+strip, because `RegistrationRequest` was never given one. There is no code path,
+constructor, or setter anywhere in the `user` package that accepts a caller-supplied
+role at all; `RegistrationService` always calls the two-argument `User` constructor
+that hardcodes `Role.USER`. The DTO is also `@JsonIgnoreProperties(ignoreUnknown =
+true)`, so a client that submits an unrecognized `role` field is ignored
+deterministically rather than depending on whatever the project's default Jackson
+configuration happens to do. Verified with both an automated test and a live `curl`
+request submitting `"role":"ADMIN"`, confirming the created account is `USER`
+regardless.
+
+**Why does `User.id` use `UUID` instead of the `BIGINT` identity column `categories`
+uses?** Same reasoning ADR-005 already established for `resources`: users are
+numerous and self-registered over time by many independent actors, and a sequential
+integer ID would let one account estimate the total user count or enumerate other
+accounts by incrementing a value. This also meant reusing `ResourceService`'s
+`saveAndFlush` (not `save`) pattern for the duplicate-email race condition, since a
+Hibernate-generated UUID doesn't force a synchronous `INSERT` the way an `IDENTITY`
+column does — and a repository test written with plain `save()` during this
+milestone silently failed to catch the constraint violation until switched to
+`saveAndFlush`, a direct, reproducible demonstration of why that distinction matters
+in practice, not just in theory.
+
 ## To Be Added in Later Milestones
 
-- How authentication tokens and refresh cookies work (Milestone 5).
-- How authorization is enforced server-side, independent of the frontend (Milestone 5).
+- How login, access tokens, and refresh cookies work (Milestone 5B).
+- How authorization is enforced server-side, independent of the frontend
+  (Milestone 5C).
 - How moderation approval and audit-history writes are made transactional (Milestone
   9).
 - How geographic search is kept fast as content grows (Milestone 7).
