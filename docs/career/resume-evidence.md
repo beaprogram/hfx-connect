@@ -374,3 +374,76 @@ than assumption.
 
 ### Measurements Still Needed
 [MEASURE AFTER DEPLOYMENT]: real API response-time data once deployed (Milestone 12).
+
+## Public Frontend
+
+### Product Purpose
+The first HFX Connect interface a real visitor can use: browse Halifax community
+resources by category, sort and paginate results, and view full resource detail —
+all backed by the real Category and Resource APIs, with no hard-coded data.
+
+### Technologies Used
+Next.js App Router (Server + Client Components), TypeScript strict mode, Tailwind
+CSS, TanStack Query (server-side prefetch/hydration), Zod (runtime response
+validation), Jest + React Testing Library.
+
+### Engineering Complexity
+Designed a typed API client (`getJson`) that centralizes query encoding, non-2xx
+error mapping, and Zod schema validation, rather than scattering `fetch` calls across
+components — a malformed or unexpected backend response fails safely into a generic
+error state instead of rendering broken data or crashing. Verified every Zod schema
+against the live backend's OpenAPI document before writing it, which caught that the
+backend has no `accessibility` field on a resource despite the task brief describing
+one — deliberately not implemented rather than fabricated, and documented as such.
+Implemented the TanStack-Query-with-Next.js-App-Router server-prefetch/hydration
+pattern so the initial page load already contains real data (verified directly
+against the rendered HTML) while client-side interactions (filter/sort/pagination)
+stay fully cached and query-key-scoped. Built the category/sort filter as a
+progressive-enhancement `<form>` that works with JavaScript disabled and is
+enhanced (not replaced) by client-side navigation when available. Diagnosed a
+same-origin browser restriction (CORS) and resolved it on the backend with a
+minimal, environment-configured allowlist (`WebCorsConfig`) rather than a wildcard
+or an unnecessary proxy layer — documented as [ADR-006](../decisions/ADR-006-frontend-backend-connectivity.md)
+with the rejected alternatives and why. Debugged and fixed a real, pre-existing
+`next/jest` module-resolution bug (`nextJest is not a function`) by tracing it to a
+CommonJS/ESM interop mismatch specific to this Node/Next.js version combination,
+rather than working around it superficially. Diagnosed a mid-session disk-space
+exhaustion that was silently degrading filesystem performance system-wide (not a
+code defect), and safely relocated the entire project — application code and full
+git history — to external storage without data loss, verified byte-for-byte before
+treating the new location as canonical.
+
+### Implementation
+`frontend/src/lib/api/` (typed client, per-resource operations),
+`frontend/src/lib/validation/schemas.ts` (Zod), `frontend/src/lib/query/`
+(TanStack Query client/provider/keys/URL-param parsing),
+`frontend/src/app/` (homepage, `/resources`, `/resources/[slug]`),
+`frontend/src/components/` (resources, categories, navigation, feedback),
+`backend/src/main/java/com/hfxconnect/common/config/WebCorsConfig.java`.
+
+### Tests
+82 new frontend tests across 18 suites (API client, formatting, every shared
+component, the resource-list and resource-detail experiences) plus 2 new backend
+CORS tests (149 total backend tests, no regression in the existing 147). Two real
+defects were caught and fixed by the test suite before commit: a duplicate "Reset
+filters" link rendered simultaneously in two places, and an ambiguous test
+assertion. `npm run lint`, `npm run typecheck`, and `npm run build` all pass
+cleanly.
+
+### Evidence
+Commits on branch `milestone/04-public-frontend`; see
+`docs/development-log/2026-07-24.md` for the full, exact sequence including the
+disk-space/SSD-relocation incident.
+
+### Potential Resume Wording
+Built a Next.js App Router public frontend over a Spring Boot REST API, including a
+typed/validated API client (TypeScript + Zod), TanStack Query server-prefetch/
+hydration, URL-driven filter/sort/pagination state, and a fully keyboard-accessible
+UI; resolved a cross-origin browser restriction with a minimal, documented backend
+CORS policy; wrote 82 automated frontend tests that caught two real defects before
+they shipped; diagnosed and worked around both a third-party tooling bug and a
+mid-project infrastructure failure (disk exhaustion) without losing any work.
+
+### Measurements Still Needed
+[MEASURE AFTER DEPLOYMENT]: real Lighthouse/Core Web Vitals scores and API
+response-time data once deployed (Milestone 12).
