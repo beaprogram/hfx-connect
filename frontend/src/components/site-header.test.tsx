@@ -9,4 +9,14 @@ describe("SiteHeader", () => {
 
     expect(brandLink).toHaveAttribute("href", "/");
   });
+
+  it("links to the resource list", () => {
+    render(<SiteHeader />);
+
+    const browseLinks = screen.getAllByRole("link", { name: "Browse resources" });
+    expect(browseLinks.length).toBeGreaterThan(0);
+    for (const link of browseLinks) {
+      expect(link).toHaveAttribute("href", "/resources");
+    }
+  });
 });
