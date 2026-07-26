@@ -9,7 +9,10 @@
 > Layer" below. Updated again in Milestone 5A, which added a third domain (`user`)
 > and the project's first security-adjacent dependency — see "Adding a
 > Security-Adjacent Capability Without Adding Security's Auto-Configuration" and
-> "Preventing Privilege Escalation Structurally, Not by Convention" below.
+> "Preventing Privilege Escalation Structurally, Not by Convention" below. Updated
+> again in Milestone 5B, which added a fourth domain (`auth`) and a real
+> transaction-management discovery — see "A Write That Must Survive an Exception
+> Needs `PROPAGATION_REQUIRES_NEW`, Not `noRollbackFor`" below.
 
 ## Layering
 
@@ -59,8 +62,11 @@ endpoint is built that needs one.
 `com.hfxconnect.common.error` defines the error-handling pattern every domain reuses:
 
 - `ApiException` (abstract) carries an HTTP status and a stable string code.
-  `NotFoundException` (404), `ConflictException` (409), and `BadRequestException`
-  (400) are the concrete bases domain exceptions extend.
+  `NotFoundException` (404), `ConflictException` (409), `BadRequestException`
+  (400), `UnauthorizedException` (401), and `ForbiddenException` (403 — added in
+  Milestone 5B, the first domain to need "authentication succeeded but the
+  account isn't permitted" as distinct from "we don't know who you are") are the
+  concrete bases domain exceptions extend.
 - `ValidationException` is the exception form of a validation failure that Bean
   Validation annotations can't express (for example, "the name isn't blank, but
   normalizes to an empty slug") — it carries the same `fieldErrors` shape a failed
@@ -167,6 +173,13 @@ only once `resource` needed byte-for-byte the same algorithm — a genuine secon
 consumer, not a speculative generalization. The same reasoning applies to any future
 shared logic: duplicate it locally until a second real domain needs it, then extract.
 
+The same pattern played out again in Milestone 5B: email normalization (trim,
+lowercase) started inline inside `user.RegistrationValidation`. It moved to
+`common.text.EmailNormalizer` (public) only once `auth.AuthenticationService`
+(login) needed byte-for-byte the same rule — login and registration must normalize
+identically, or `User@Example.org` could register successfully but fail to log
+back in as `user@example.org`.
+
 ## Cross-Domain Dependencies Are Direct, Not Hidden Behind an Abstraction
 
 `ResourceService` depends directly on `CategoryRepository` (not a `CategoryService`
@@ -192,6 +205,27 @@ which would happen *after* a plain `save()` call's try/catch has already exited.
 specifically where it needs to catch the constraint violation synchronously. Any
 future `UUID`-keyed entity needing the same synchronous-conflict-catch pattern should
 use `saveAndFlush` for the same reason, not `save`.
+
+## A Write That Must Survive an Exception Needs `PROPAGATION_REQUIRES_NEW`, Not `noRollbackFor`
+
+`RefreshSessionService.rotate()` (Milestone 5B) has two branches that revoke a
+session (or an entire rotation family) and then throw — a write that must commit
+even though the method is signaling failure. The first implementation used
+`@Transactional(noRollbackFor = {RefreshTokenReusedException.class, AccountUnavailableException.class})`
+on `rotate()` itself, the standard Spring mechanism for exactly this case. **It
+did not work** — verified only by running the real application against the real
+database and inspecting `refresh_sessions` directly with `psql` between requests
+(this class's own mocked unit tests cannot exercise genuine Spring transaction
+demarcation and could not have caught it): the revocation executed but was still
+rolled back. The fix uses explicit, programmatic transaction control instead — a
+`TransactionTemplate` configured with `PROPAGATION_REQUIRES_NEW`, invoked from
+inside `rotate()`'s own (suspended, unaffected) transaction — so the write commits
+the moment its callback returns, independent of anything that happens afterward,
+including the exception thrown right next to it. See ADR-008's implementation
+note for the full reproduction. **The lesson for any future write-then-throw
+case:** don't trust `noRollbackFor` without verifying against a real transaction
+manager and a real datastore — a mocked unit test genuinely cannot tell you
+whether it works.
 
 ## Adding a Security-Adjacent Capability Without Adding Security's Auto-Configuration
 

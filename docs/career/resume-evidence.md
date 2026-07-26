@@ -10,7 +10,8 @@ connected the backend to a real, migrated PostgreSQL/PostGIS database. Milestone
 delivered the first real feature — category management — end to end. Milestone 3B
 built the resource domain's persistence and business layer (no public API yet).
 Milestone 4 shipped the first real public frontend. Milestone 5A added user
-registration (persistence, password hashing, validation) — login/tokens (5B) and
+registration (persistence, password hashing, validation). Milestone 5B added
+login, JWT access tokens, rotating/reuse-detected refresh sessions, and logout —
 roles/authorization (5C) are not built yet. Feature-level entries (search,
 moderation) will continue to be added as those milestones land.
 
@@ -524,3 +525,91 @@ tests spanning database, service, and full HTTP-layer integration coverage.
 ### Measurements Still Needed
 [MEASURE AFTER DEPLOYMENT]: registration endpoint latency under real BCrypt cost
 once deployed (Milestone 12).
+
+## Login, Token Refresh, and Logout (Authentication Sessions)
+
+### Product Purpose
+A registered account is only useful once its owner can actually log in and stay
+logged in. This is the second of three deliberately separated authentication
+sub-milestones (5A/5B/5C) — real sessions, before request-level authorization
+exists to make use of them.
+
+### Technologies Used
+JJWT 0.12.6 (JWT issuance/validation, HS256), `SecureRandom`-backed opaque
+tokens, SHA-256 hashing, Spring `TransactionTemplate`/`PROPAGATION_REQUIRES_NEW`,
+`ResponseCookie`, Spring MVC CORS (`allowCredentials`), JUnit 5, Mockito
+(including a `SimpleTransactionStatus`-backed transaction-manager mock),
+Testcontainers (real `postgis/postgis:17-3.5`).
+
+### Engineering Complexity
+Designed a two-token authentication model (short-lived signed JWT access token
+in the response body; opaque, SHA-256-hashed, rotating refresh token in an
+`HttpOnly` cookie) where each token's transport was chosen to match the threat
+it's actually exposed to, documented as an ADR including three alternatives
+considered and rejected with reasons. Implemented refresh-token rotation with
+family-wide reuse detection: presenting an already-consumed token revokes every
+session descended from the same login, not just the one presented — a real
+defense against a stolen-token replay, not just single-token invalidation.
+Closed a login timing side channel deliberately: unknown-email and
+wrong-password attempts perform the identical number of BCrypt comparisons (a
+precomputed dummy hash stands in when no account exists), verified with a
+dedicated Mockito interaction test, not just an identical response body.
+**Found and fixed a genuine Spring transaction-management defect** during this
+milestone's own manual verification, not through unit testing (which could not
+have caught it): `@Transactional(noRollbackFor = ...)` did not actually prevent
+a security-critical revocation from being rolled back immediately before the
+exception signaling that revocation was thrown — discovered by running the real
+application against the real database and inspecting `refresh_sessions`
+directly with `psql` between live `curl` requests, then fixed with explicit
+programmatic transaction control (`TransactionTemplate`/`PROPAGATION_REQUIRES_NEW`)
+and re-verified with the same live reproduction. Made cookie `Secure`/`SameSite`
+environment-configured rather than hardcoded, having reasoned through why local
+development (same-site, different ports) and this project's actual production
+topology (genuinely cross-site, per an earlier ADR) require different values.
+Caught and removed a speculative, never-called repository method during a
+deliberate self-review pass against the project's own established conventions,
+before it ever reached a pull request.
+
+### Implementation
+`backend/src/main/java/com/hfxconnect/auth/` (`RefreshSession`+repository,
+`AccessTokenService`, `RefreshTokenGenerator`, `RefreshSessionService`,
+`AuthenticationService`, `RefreshService`, `LogoutService`, DTOs,
+`RefreshCookieConfig`, exception types),
+`backend/src/main/java/com/hfxconnect/common/error/` (`UnauthorizedException`,
+`ForbiddenException`), `backend/src/main/java/com/hfxconnect/common/text/EmailNormalizer.java`,
+`backend/src/main/resources/db/migration/V5__create_refresh_sessions_table.sql`.
+
+### Tests
+76 new tests (10 repository/database against real PostgreSQL constraints and
+cascade-delete behavior; 10 access-token unit tests including signature/
+expiration/issuer/claim-content verification; 7 refresh-token-generator unit
+tests for entropy and hash determinism; 9 refresh-session-service unit tests
+for rotation/reuse-detection logic; 6+3+3 further service unit tests; 27 full
+HTTP-layer integration tests against a real database and real
+`BCryptPasswordEncoder`/JJWT stack, including live cookie-attribute assertions;
+1 CORS-credentials regression test) alongside the existing 197 (272 total, 0
+failures). One speculative repository method was found and removed, with its
+test, during self-review before the branch was pushed.
+
+### Evidence
+Commits on branch `milestone/05b-authentication-sessions`; see
+`docs/development-log/2026-07-26.md` for the full session record, including the
+transaction-rollback discovery, and
+`docs/milestones/milestone-05b-authentication-sessions.md` for acceptance
+criteria.
+
+### Potential Resume Wording
+Designed and implemented a JWT-plus-rotating-refresh-token authentication
+session for a Spring Boot REST API, including family-wide refresh-token reuse
+detection, a timing-safe generic login-failure response, and an
+environment-aware secure-cookie policy reasoned through for both local
+development and a genuinely cross-site production deployment; diagnosed and
+fixed a real Spring transaction-rollback defect discovered only through live,
+full-stack manual verification against a real database — not assumed away by
+an annotation's documented (but, in this stack, incorrect) behavior — and wrote
+76 automated tests spanning token, service, and full HTTP-layer integration
+coverage.
+
+### Measurements Still Needed
+[MEASURE AFTER DEPLOYMENT]: login/refresh endpoint latency under real BCrypt/JWT
+cost once deployed (Milestone 12).

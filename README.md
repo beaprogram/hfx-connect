@@ -9,21 +9,26 @@ newcomer services, recreation, and events — that are currently scattered acros
 municipal websites, organization pages, and social media, and adds transparent
 verification so users can trust what they find.
 
-**Project status: Milestone 5A (User Registration Foundation) complete.** The backend
-has three working REST APIs: categories (Milestone 3A —
+**Project status: Milestone 5B (Login, Token Refresh, and Logout) complete.** The
+backend has three working REST APIs: categories (Milestone 3A —
 [backend/README.md](backend/README.md#category-api-apiv1categories)), resources
 (Milestone 3C, built on the persistence/business layer Milestone 3B added —
-[backend/README.md](backend/README.md#resource-api-apiv1resources)), and account
-registration (Milestone 5A —
-[docs/api/README.md](docs/api/README.md#auth-apiv1auth)). The frontend (Milestone 4)
-is a real public browsing experience — a homepage, a filterable/sortable/paginated
-resource list, and a resource detail page, all consuming those APIs directly from the
-browser (see [backend/README.md](backend/README.md#cors) for the CORS configuration
-that makes that possible). Registering an account does not yet log the caller in —
-there is still no login, tokens, roles, protected routes, resource-creation UI, or
-search/maps. See [docs/milestones/](docs/milestones/) for exactly what each milestone
-delivered, and [docs/development-workflow.md](docs/development-workflow.md) for the
-full 12-milestone roadmap (Milestone 5 is split into 5A/5B/5C, the same way Milestone 3
+[backend/README.md](backend/README.md#resource-api-apiv1resources)), and
+authentication — registration (Milestone 5A) plus login/refresh/logout (Milestone
+5B — [docs/api/README.md](docs/api/README.md#auth-apiv1auth)). A registered user
+can now log in and receive a short-lived access token plus a rotating,
+`HttpOnly`-cookie refresh session — see
+[docs/architecture/security-architecture.md](docs/architecture/security-architecture.md)
+for the full design. The frontend (Milestone 4) is a real public browsing
+experience — a homepage, a filterable/sortable/paginated resource list, and a
+resource detail page, all consuming those APIs directly from the browser (see
+[backend/README.md](backend/README.md#cors) for the CORS configuration that makes
+that possible). There is still no role-based authorization or protected routes —
+no route, including the auth endpoints themselves, requires an access token yet —
+and no frontend login integration, resource-creation UI, or search/maps. See
+[docs/milestones/](docs/milestones/) for exactly what each milestone delivered, and
+[docs/development-workflow.md](docs/development-workflow.md) for the full
+12-milestone roadmap (Milestone 5 is split into 5A/5B/5C, the same way Milestone 3
 was split into 3A/3B/3C). A baseline GitHub Actions workflow verifies the backend and
 frontend on pull requests; deployment automation remains part of the later release
 milestone.
@@ -52,19 +57,20 @@ own approved listings and events; and let moderators and administrators review
 submissions and reports, manage verification status, and maintain an audit history.
 
 The public browsing slice of this (browse, filter by category, sort, view detail) is
-now real — see [Local Setup](#local-setup) to run it. Account registration
-(`POST /api/v1/auth/register`) is real too, but does not yet log the caller in.
-Search, maps, saved resources, submissions, organization/moderator tooling, login,
-tokens, and role-based authorization are not implemented yet. There is no update/
-delete endpoint on any backend API yet either. Everything else in this section
-describes the plan, not the current state.
+now real — see [Local Setup](#local-setup) to run it. Account registration and
+login (`POST /api/v1/auth/register`, `/login`, `/refresh`, `/logout`) are real too.
+Search, maps, saved resources, submissions, organization/moderator tooling, and
+role-based authorization are not implemented yet. There is no update/delete
+endpoint on any backend API yet either, and no frontend integration with the
+auth endpoints. Everything else in this section describes the plan, not the
+current state.
 
 ## Technology Stack
 
 | Layer | Technology |
 |---|---|
 | Frontend | Next.js, React, TypeScript, Tailwind CSS, TanStack Query, React Hook Form, Zod |
-| Backend | Java 21, Spring Boot, Spring Security, Spring Data JPA, Maven |
+| Backend | Java 21, Spring Boot, Spring Security (crypto module only), JJWT, Spring Data JPA, Maven |
 | Database | PostgreSQL with PostGIS |
 | Migrations | Flyway |
 | Testing | JUnit, Mockito, Testcontainers, React Testing Library, Playwright |
@@ -103,7 +109,7 @@ hfx-connect/
   backend/                    Spring Boot application (Category and Resource APIs) — see backend/README.md
   docs/
     product/                  Problem, vision, personas, MVP scope, user stories
-    architecture/          System architecture overview, backend and frontend architecture
+    architecture/          System architecture overview, backend, frontend, and security architecture
     decisions/               Architecture decision records (ADRs)
     wireframes/            Low-fidelity page/state plans written before implementation
     milestones/             One document per milestone: scope, acceptance criteria,
@@ -151,14 +157,19 @@ default local setup). `docker compose down -v` destroys local database data; pla
 
 ```bash
 cd backend
+set -a; source .env; set +a   # JWT_SECRET is required — see below
 ./mvnw spring-boot:run
 ```
 
 Runs on [http://localhost:8080](http://localhost:8080) and connects to the database
 above using matching defaults. Flyway migrates the schema automatically on startup.
-See [backend/README.md](backend/README.md) for environment-variable overrides,
-the health endpoint, and troubleshooting (including a port-conflict scenario
-encountered and resolved while building this milestone).
+**`JWT_SECRET` must be set** (copy `backend/.env.example` to `backend/.env` first) —
+deliberately, `application.properties` has no working default for it, unlike every
+other setting (see [backend/README.md](backend/README.md#required-jwt_secret) for
+why). See [backend/README.md](backend/README.md) for the rest of the
+environment-variable overrides, the health endpoint, and troubleshooting (including
+a port-conflict scenario encountered and resolved while building an earlier
+milestone).
 
 **Frontend** (requires Node.js 20+):
 
@@ -190,32 +201,41 @@ Runs on [http://localhost:3000](http://localhost:3000) and expects the backend a
 - [Milestone 3C: Public Resource API](docs/milestones/milestone-03c-public-resource-api.md)
 - [Milestone 4: Public Frontend](docs/milestones/milestone-04-public-frontend.md)
 - [Milestone 5A: User Registration Foundation](docs/milestones/milestone-05a-user-registration.md)
+- [Milestone 5B: Login, Token Refresh, and Logout](docs/milestones/milestone-05b-authentication-sessions.md)
 - [Wireframes](docs/wireframes/)
 - [API Documentation](docs/api/README.md)
 - [Database Documentation](docs/database/)
 - [Backend Architecture](docs/architecture/backend-architecture.md)
 - [Frontend Architecture](docs/architecture/frontend-architecture.md)
+- [Security Architecture](docs/architecture/security-architecture.md)
 - [ADR-006: Frontend-Backend Connectivity (CORS)](docs/decisions/ADR-006-frontend-backend-connectivity.md)
 - [ADR-007: User Identity and Password Hashing](docs/decisions/ADR-007-user-identity-and-password-hashing.md)
+- [ADR-008: Authentication Session Architecture](docs/decisions/ADR-008-authentication-session-architecture.md)
 - [Development Log](docs/development-log/)
 - [Resume Evidence](docs/career/resume-evidence.md)
 - [Interview Notes](docs/career/interview-notes.md)
 
-## Known Limitations (as of Milestone 5A)
+## Known Limitations (as of Milestone 5B)
 
 - `POST /api/v1/categories` and `POST /api/v1/resources` have no authentication or
   authorization yet — anyone who can reach the API can create a category or resource
   (Milestone 5C adds authorization). The frontend does not expose any create/update/
   delete UI regardless.
-- Registering an account (`POST /api/v1/auth/register`) does not log the caller in —
-  there is no login endpoint, access token, refresh token, or session yet
-  (Milestone 5B). No route in the API is protected by authentication yet
-  (Milestone 5C).
+- **No route in the API is protected by authentication yet** — including the new
+  login/refresh/logout endpoints themselves, none of which require or check an
+  access token. That is Milestone 5C's entire purpose.
+- **No rate limiting exists** — login accepts unlimited attempts. **No
+  access-token revocation exists** — a compromised access token remains valid
+  until it naturally expires (≤15 minutes by default). Both are documented,
+  honest limitations — see
+  [docs/architecture/security-architecture.md](docs/architecture/security-architecture.md).
+- No frontend integration with login/refresh/logout exists yet — they are
+  backend-only endpoints so far.
 - Newly-registered accounts are always `emailVerified: false` — no email-delivery
   mechanism exists to verify them, a deliberate, documented limitation (see
   [ADR-007](docs/decisions/ADR-007-user-identity-and-password-hashing.md)), not a bug.
 - No user-facing endpoint (read, update, delete, password reset) exists beyond
-  registration itself.
+  registration/login/refresh/logout.
 - Neither the Category nor Resource API has an update or delete endpoint.
   `ResourceService.update`/`deactivate` exist and are fully tested but aren't exposed
   over HTTP yet.
@@ -224,9 +244,10 @@ Runs on [http://localhost:3000](http://localhost:3000) and expects the backend a
   deactivated listings with no authentication boundary to gate it behind). The
   frontend accordingly exposes no controls for either.
 - No free-text search, distance/geospatial filtering, maps, saved resources,
-  submissions, moderation, or organizations exist yet (Milestones 5B/5C, 6-10).
+  submissions, moderation, or organizations exist yet (Milestone 5C, 6-10).
 - No deployment workflow or hosted environment exists yet; CI currently verifies the
   backend and frontend only.
+- No automated dependency-vulnerability scanning is configured in this project.
 - Frontend responsive/visual verification for Milestone 4 was code-review- and
   `curl`-based, not a live graphical browser session — no browser-automation tool was
   available in the development environment used for that milestone. See

@@ -7,13 +7,14 @@ the intended API and module design.
 
 **Status:** category management (Milestone 3A), a public resource API (Milestone 3C,
 built on the persistence/business layer Milestone 3B added), CORS support for the
-Milestone 4 public frontend, and account registration (Milestone 5A) — see
-[Category API](#category-api-v1categories), [Resource API](#resource-api-v1resources),
-[CORS](#cors), and [Auth API](#auth-api-v1auth) below. PostgreSQL/PostGIS runs locally
-via Docker Compose, Flyway manages schema migrations, and `/actuator/health` reports
-live database health. There is still no login, tokens, or role-based authorization —
-registering an account does not log the caller in, and `POST` on the Category/Resource
-APIs remains unprotected.
+Milestone 4 public frontend, account registration (Milestone 5A), and login/refresh/
+logout (Milestone 5B) — see [Category API](#category-api-v1categories),
+[Resource API](#resource-api-v1resources), [CORS](#cors), and
+[Auth API](#auth-api-v1auth) below. PostgreSQL/PostGIS runs locally via Docker
+Compose, Flyway manages schema migrations, and `/actuator/health` reports live
+database health. There is still no role-based authorization or protected routes —
+no route, including the auth endpoints themselves, requires an access token yet
+(Milestone 5C), and `POST` on the Category/Resource APIs remains unprotected.
 
 ## Stack
 
@@ -21,8 +22,10 @@ Java 21, Spring Boot 4.1 (`spring-boot-starter-webmvc`, `spring-boot-starter-dat
 `spring-boot-starter-validation`, `spring-boot-starter-actuator`), PostgreSQL JDBC
 driver, Flyway, springdoc-openapi, `spring-security-crypto` (password hashing only —
 see [ADR-007](../docs/decisions/ADR-007-user-identity-and-password-hashing.md); not
-the full `spring-boot-starter-security`), Maven (via the Maven Wrapper — no local
-Maven installation required).
+the full `spring-boot-starter-security`), JJWT 0.12.6 (`jjwt-api`/`jjwt-impl`/
+`jjwt-jackson` — access-token signing/validation, see
+[ADR-008](../docs/decisions/ADR-008-authentication-session-architecture.md)), Maven
+(via the Maven Wrapper — no local Maven installation required).
 
 ## Local Development
 
@@ -44,28 +47,52 @@ Docker-compatible runtime — see the Colima note below) for the database.
 
 The application starts on [http://localhost:8080](http://localhost:8080) and connects
 to the database using the defaults in `src/main/resources/application.properties`,
-which match `docker-compose.yml`'s defaults exactly — no environment variables are
-required for standard local development. Flyway runs automatically on startup; see
-`src/main/resources/db/migration/`.
+which match `docker-compose.yml`'s defaults exactly. **`JWT_SECRET` must be set**
+(see [Required: `JWT_SECRET`](#required-jwt_secret) below) — every other
+environment variable is an optional override with a working default. Flyway runs
+automatically on startup; see `src/main/resources/db/migration/`.
 
 Most paths still return `404` — only `/actuator/health`, `/api/v1/categories`,
-`/api/v1/resources`, and `/api/v1/auth/register` (and each of their sub-routes) are
-mapped so far. (An unmapped
+`/api/v1/resources`, and `/api/v1/auth/{register,login,refresh,logout}` (and each
+of their sub-routes) are mapped so far. (An unmapped
 path correctly returns `404 NOT_FOUND` — this was a real bug in
 `GlobalExceptionHandler` until Milestone 3B fixed it; see the development log for
 2026-07-19.)
 
-### Overriding the Database Connection
+### Required: `JWT_SECRET`
 
-Copy `.env.example` to `.env` and edit it, then export it into your shell before
-running the backend (Spring Boot does not load `.env` files automatically):
+Copy `.env.example` to `.env`, then export it into your shell before running the
+backend (Spring Boot does not load `.env` files automatically):
 
 ```bash
 set -a; source .env; set +a
 ./mvnw spring-boot:run
 ```
 
-Variables: `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USERNAME`, `DB_PASSWORD`.
+`application.properties` has **no fallback default** for `app.jwt.secret` — unlike
+every other setting below, the backend refuses to start at all unless
+`JWT_SECRET` is set to something at least 32 bytes long, in `.env` or any other
+way your shell provides it. This is deliberate (see
+[ADR-008](../docs/decisions/ADR-008-authentication-session-architecture.md)): a
+JWT signing secret with a working default baked into a public repository would
+let anyone who reads the source forge valid access tokens if a real deployment
+ever forgot to override it — a materially worse failure mode than a default
+database password, which is why this one variable doesn't get the same
+convenience default as the others. `.env.example`'s shipped value is an obviously
+insecure placeholder for local development only; generate a real one for any
+non-local environment with `openssl rand -base64 48`.
+
+### Overriding Other Defaults
+
+The remaining variables are all optional overrides — `application.properties`
+falls back to a value matching `docker-compose.yml`'s local defaults for each of
+them if unset: `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USERNAME`, `DB_PASSWORD`,
+`CORS_ALLOWED_ORIGINS`, `JWT_ISSUER`, `JWT_ACCESS_TOKEN_TTL`,
+`JWT_REFRESH_TOKEN_TTL`, `AUTH_COOKIE_SECURE`, `AUTH_COOKIE_SAME_SITE` — see
+`.env.example` for defaults and
+[ADR-008](../docs/decisions/ADR-008-authentication-session-architecture.md) for
+why the cookie variables' correct values differ between local development and
+production.
 
 ## Health Endpoint
 
@@ -74,8 +101,10 @@ database connection are healthy, and a non-2xx status with `"status":"DOWN"` whe
 database is unreachable. Only the top-level status and default health groups are
 visible to unauthenticated requests (`management.endpoint.health.show-details=when-authorized`)
 — component-level detail (which would reveal datasource/connection internals) is
-withheld until authenticated requests are possible (Milestone 5B/5C). Only the
-`health` endpoint is exposed; no other Actuator endpoints are enabled.
+withheld until authenticated *and authorized* requests are possible (Milestone
+5C — login exists as of 5B, but nothing checks an access token on any route yet,
+including this one). Only the `health` endpoint is exposed; no other Actuator
+endpoints are enabled.
 
 ## CORS
 
@@ -164,18 +193,31 @@ Canadian province/postal code, practical phone/email checks, and allowlists
 
 ## Auth API (`/api/v1/auth`)
 
-Full reference: `docs/api/README.md` and
-`docs/milestones/milestone-05a-user-registration.md`.
+Full reference: `docs/api/README.md`,
+`docs/milestones/milestone-05a-user-registration.md`, and
+`docs/milestones/milestone-05b-authentication-sessions.md`. Full security design:
+`docs/architecture/security-architecture.md`.
 
-**Registering an account does not log the caller in** — there is no login endpoint,
-access token, refresh token, or session yet (Milestone 5B). **No route in the API is
-protected by authentication yet** (Milestone 5C).
+**No route in the API is protected by authentication yet** — including the
+`login`/`refresh`/`logout` endpoints below, none of which require or check an
+access token themselves. That is Milestone 5C.
 
 ```bash
 # Register
 curl -X POST http://localhost:8080/api/v1/auth/register \
   -H "Content-Type: application/json" \
   -d '{"email": "student@example.org", "password": "a-genuinely-unique-passphrase"}'
+
+# Log in — sets the refresh cookie via -c (cookie jar file)
+curl -i -c cookies.txt -X POST http://localhost:8080/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email": "student@example.org", "password": "a-genuinely-unique-passphrase"}'
+
+# Refresh — reads the cookie via -b; rotates it (cookies.txt is updated by -c again)
+curl -i -b cookies.txt -c cookies.txt -X POST http://localhost:8080/api/v1/auth/refresh
+
+# Log out — revokes the session and clears the cookie; always 204
+curl -i -b cookies.txt -X POST http://localhost:8080/api/v1/auth/logout
 ```
 
 Email is normalized (trimmed, lowercased) before the uniqueness check — a
@@ -191,6 +233,27 @@ VALIDATION_ERROR` shape rather than ever reaching the hasher — see ADR-007's
 `role` or other privilege field in the request body has no effect, by design (see
 `docs/architecture/backend-architecture.md`'s "Preventing Privilege Escalation
 Structurally" section).
+
+**Login** returns a short-lived (15 min default) signed JWT access token in the
+JSON body and sets a rotating, `HttpOnly` refresh-token cookie
+(`hfx_refresh_token`, 30-day default, scoped to `/api/v1/auth`) — never the
+other way around, and the refresh token is never present in JSON. Unknown email
+and wrong password return the exact same `401 AUTHENTICATION_FAILED` response
+(with a real, timing-mitigated password comparison either way — see ADR-008); a
+correct-credentials login against a non-`ACTIVE` account returns `403
+ACCOUNT_UNAVAILABLE` instead.
+
+**Refresh** reads the cookie only — never the body, query string, or path — and
+rotates it on every success; the previous cookie value becomes permanently
+unusable. Presenting an already-used (rotated or revoked) token revokes every
+session descended from the same original login, not just that one.
+
+**Logout** revokes the matching session and clears the cookie; it is always safe
+and idempotent (`204`, whether or not a valid session was presented) and does not
+require an access token.
+
+**No rate limiting exists** — login accepts unlimited attempts; see
+`docs/architecture/security-architecture.md`'s honest limitations section.
 
 ## Commands
 
@@ -228,25 +291,38 @@ backend/
                                                              see ADR-007
       error/                                             Shared error-handling pattern — see
                                                              docs/architecture/backend-architecture.md
+                                                             (UnauthorizedException/ForbiddenException added
+                                                             in Milestone 5B)
       text/
         SlugGenerator.java                          Shared deterministic slug algorithm (used by
                                                             both category/ and resource/)
+        EmailNormalizer.java                       Shared email-normalization rule (Milestone 5B —
+                                                            used by both user/ and auth/)
     category/                                           Category domain (entity, repository,
                                                              service, controller, DTOs)
     resource/                                          Resource domain (entity, repository, service,
                                                              business-layer models, validation, controller,
                                                              HTTP DTOs) — controller added in Milestone 3C
     user/                                                 User domain (entity, repository, service,
-                                                             validation, controller, DTOs) — registration only
-                                                             (Milestone 5A); login/roles are 5B/5C
+                                                             validation, DTOs) — registration; AuthController
+                                                             (login/refresh/logout added in Milestone 5B) also
+                                                             lives here — see backend-architecture.md's
+                                                             "Cross-Domain Dependencies" section
+    auth/                                                 Authentication-session domain (Milestone 5B):
+                                                             RefreshSession(+repository), AccessTokenService,
+                                                             RefreshTokenGenerator, RefreshSessionService,
+                                                             AuthenticationService, RefreshService, LogoutService,
+                                                             LoginRequest/Response, RefreshCookieConfig,
+                                                             auth-specific exceptions — see ADR-008
   src/main/resources/
     application.properties                        Base configuration (env-based DB connection,
-                                                             JPA, Actuator)
+                                                             JPA, Actuator, JWT/cookie config)
     db/migration/
       V1__enable_postgis_extension.sql         First Flyway migration
       V2__create_categories_table.sql         Second Flyway migration
       V3__create_resources_table.sql          Third Flyway migration
       V4__create_users_table.sql               Fourth Flyway migration
+      V5__create_refresh_sessions_table.sql  Fifth Flyway migration
   src/test/java/com/hfxconnect/
     AbstractPostgresIntegrationTest.java   Shared Testcontainers setup (public — extended
                                                              from sub-packages like category/, resource/)
@@ -256,6 +332,7 @@ backend/
     common/
       text/SlugGeneratorTest.java                Pure unit tests for the shared slug algorithm
       error/GlobalExceptionHandlerIntegrationTest.java  Unmapped-route 404 regression test
+      config/CorsConfigurationIntegrationTest.java  CORS allowlist + credentials regression test
     category/                                           Category domain tests (unit, repository,
                                                              API integration — see
                                                              docs/milestones/milestone-03a-category-domain.md)
@@ -266,15 +343,19 @@ backend/
     user/                                                 User domain tests (repository, service, API
                                                              integration — see
                                                              docs/milestones/milestone-05a-user-registration.md)
+    auth/                                                 Auth-session domain tests (token unit tests,
+                                                             repository, service, full login/refresh/logout
+                                                             API integration — see
+                                                             docs/milestones/milestone-05b-authentication-sessions.md)
 ```
 
 Domain packages not yet needed (`search/`, `moderation/`, `event/`, etc., as
 described in
 [system-overview.md](../docs/architecture/system-overview.md#backend-module-structure))
 are added when there's real domain logic to put in them — this avoids empty,
-speculative package scaffolding. `category/`, `resource/`, and `user/` follow the same
-pattern (entity/repository/service/controller/DTOs, no setters without a real mutation
-need, shared `common/error` exceptions), documented in
+speculative package scaffolding. `category/`, `resource/`, `user/`, and `auth/`
+follow the same pattern (entity/repository/service/controller/DTOs, no setters
+without a real mutation need, shared `common/error` exceptions), documented in
 `docs/architecture/backend-architecture.md` for later domains to follow.
 
 ## Troubleshooting

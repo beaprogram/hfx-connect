@@ -2,7 +2,7 @@
 
 ## Current Schema
 
-As of Milestone 5A, the schema contains four Flyway migrations:
+As of Milestone 5B, the schema contains five Flyway migrations:
 
 | Version | File | Purpose |
 |---|---|---|
@@ -10,6 +10,7 @@ As of Milestone 5A, the schema contains four Flyway migrations:
 | 2 | `backend/src/main/resources/db/migration/V2__create_categories_table.sql` | Creates the `categories` table |
 | 3 | `backend/src/main/resources/db/migration/V3__create_resources_table.sql` | Creates the `resources` table |
 | 4 | `backend/src/main/resources/db/migration/V4__create_users_table.sql` | Creates the `users` table |
+| 5 | `backend/src/main/resources/db/migration/V5__create_refresh_sessions_table.sql` | Creates the `refresh_sessions` table |
 
 ### `categories`
 
@@ -95,9 +96,40 @@ independent actors — see
 | `created_at` | `TIMESTAMPTZ` | `NOT NULL`, defaults to `now()` |
 | `updated_at` | `TIMESTAMPTZ` | `NOT NULL`, defaults to `now()` |
 
-The `users` table is exposed publicly only through `AuthController`'s
-`POST /api/v1/auth/register` (Milestone 5A — see `docs/api/README.md`). There is no
-read, update, login, or delete endpoint yet.
+The `users` table is exposed publicly through `AuthController`'s
+`POST /api/v1/auth/register`, `/login`, `/refresh`, and `/logout` (Milestones 5A/5B
+— see `docs/api/README.md`). There is still no read, update, or delete endpoint.
+
+### `refresh_sessions`
+
+One row per issued (and every rotated-away) refresh token — see
+[ADR-008](../decisions/ADR-008-authentication-session-architecture.md) for the
+full authentication-session design. `id` is `UUID`, matching `users`/`resources`'
+reasoning (numerous, created continuously) — not `categories`'.
+
+| Column | Type | Constraints |
+|---|---|---|
+| `id` | `UUID` | Primary key |
+| `user_id` | `UUID` | `NOT NULL`, `REFERENCES users(id) ON DELETE CASCADE` — a session has no meaning independent of its account (see ADR-008's cascading-deletion decision) |
+| `token_hash` | `VARCHAR(64)` | `NOT NULL`, `UNIQUE`, non-blank — a SHA-256 hex digest of the raw refresh token; **the raw token itself is never stored** |
+| `family_id` | `UUID` | `NOT NULL` — groups every session descended from one original login through however many rotations; used by reuse detection to revoke an entire family at once |
+| `expires_at` | `TIMESTAMPTZ` | `NOT NULL` |
+| `revoked_at` | `TIMESTAMPTZ` | nullable — set on rotation, logout, or reuse-detection's family-wide revocation |
+| `replaced_by_session_id` | `UUID` | nullable, `REFERENCES refresh_sessions(id) ON DELETE SET NULL` — links a rotated-away session to the one that replaced it |
+| `created_at` | `TIMESTAMPTZ` | `NOT NULL`, defaults to `now()` |
+| `last_used_at` | `TIMESTAMPTZ` | nullable — set when a session is successfully used to refresh |
+
+No `user_agent`/`ip_address` columns — nothing in this milestone's product
+requirements needs device or location tracking; see ADR-008 for why this was a
+deliberate omission, not an oversight.
+
+Indexes: `refresh_sessions_user_id_idx` on `(user_id)`, `refresh_sessions_family_id_idx`
+on `(family_id)` (reuse detection's bulk-revoke query), `refresh_sessions_expires_at_idx`
+on `(expires_at)` (a future expired-session cleanup job, not yet built). The `UNIQUE`
+constraint on `token_hash` already provides its own lookup index.
+
+Not exposed as its own resource — only read/written internally by
+`AuthController`'s login/refresh/logout endpoints.
 
 ## Database Engine
 

@@ -1,6 +1,7 @@
 package com.hfxconnect.user;
 
 import com.hfxconnect.common.error.ValidationException;
+import com.hfxconnect.common.text.EmailNormalizer;
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Locale;
@@ -84,7 +85,7 @@ final class RegistrationValidation {
 			errors.put("email", "Email must be at most " + EMAIL_MAX_LENGTH + " characters.");
 			return null;
 		}
-		String normalized = trimmed.toLowerCase(Locale.ROOT);
+		String normalized = EmailNormalizer.normalize(trimmed);
 		if (!EMAIL_PATTERN.matcher(normalized).matches()) {
 			errors.put("email", "Email must be a valid email address.");
 			return null;
