@@ -47,9 +47,10 @@ Docker-compatible runtime — see the Colima note below) for the database.
 
 The application starts on [http://localhost:8080](http://localhost:8080) and connects
 to the database using the defaults in `src/main/resources/application.properties`,
-which match `docker-compose.yml`'s defaults exactly — no environment variables are
-required for standard local development. Flyway runs automatically on startup; see
-`src/main/resources/db/migration/`.
+which match `docker-compose.yml`'s defaults exactly. **`JWT_SECRET` must be set**
+(see [Required: `JWT_SECRET`](#required-jwt_secret) below) — every other
+environment variable is an optional override with a working default. Flyway runs
+automatically on startup; see `src/main/resources/db/migration/`.
 
 Most paths still return `404` — only `/actuator/health`, `/api/v1/categories`,
 `/api/v1/resources`, and `/api/v1/auth/{register,login,refresh,logout}` (and each
@@ -58,20 +59,37 @@ path correctly returns `404 NOT_FOUND` — this was a real bug in
 `GlobalExceptionHandler` until Milestone 3B fixed it; see the development log for
 2026-07-19.)
 
-### Overriding the Database Connection
+### Required: `JWT_SECRET`
 
-Copy `.env.example` to `.env` and edit it, then export it into your shell before
-running the backend (Spring Boot does not load `.env` files automatically):
+Copy `.env.example` to `.env`, then export it into your shell before running the
+backend (Spring Boot does not load `.env` files automatically):
 
 ```bash
 set -a; source .env; set +a
 ./mvnw spring-boot:run
 ```
 
-Variables: `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USERNAME`, `DB_PASSWORD`,
-`CORS_ALLOWED_ORIGINS`, and (Milestone 5B) `JWT_SECRET`, `JWT_ISSUER`,
-`JWT_ACCESS_TOKEN_TTL`, `JWT_REFRESH_TOKEN_TTL`, `AUTH_COOKIE_SECURE`,
-`AUTH_COOKIE_SAME_SITE` — see `.env.example` for defaults and
+`application.properties` has **no fallback default** for `app.jwt.secret` — unlike
+every other setting below, the backend refuses to start at all unless
+`JWT_SECRET` is set to something at least 32 bytes long, in `.env` or any other
+way your shell provides it. This is deliberate (see
+[ADR-008](../docs/decisions/ADR-008-authentication-session-architecture.md)): a
+JWT signing secret with a working default baked into a public repository would
+let anyone who reads the source forge valid access tokens if a real deployment
+ever forgot to override it — a materially worse failure mode than a default
+database password, which is why this one variable doesn't get the same
+convenience default as the others. `.env.example`'s shipped value is an obviously
+insecure placeholder for local development only; generate a real one for any
+non-local environment with `openssl rand -base64 48`.
+
+### Overriding Other Defaults
+
+The remaining variables are all optional overrides — `application.properties`
+falls back to a value matching `docker-compose.yml`'s local defaults for each of
+them if unset: `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USERNAME`, `DB_PASSWORD`,
+`CORS_ALLOWED_ORIGINS`, `JWT_ISSUER`, `JWT_ACCESS_TOKEN_TTL`,
+`JWT_REFRESH_TOKEN_TTL`, `AUTH_COOKIE_SECURE`, `AUTH_COOKIE_SAME_SITE` — see
+`.env.example` for defaults and
 [ADR-008](../docs/decisions/ADR-008-authentication-session-architecture.md) for
 why the cookie variables' correct values differ between local development and
 production.

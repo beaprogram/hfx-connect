@@ -157,14 +157,19 @@ default local setup). `docker compose down -v` destroys local database data; pla
 
 ```bash
 cd backend
+set -a; source .env; set +a   # JWT_SECRET is required — see below
 ./mvnw spring-boot:run
 ```
 
 Runs on [http://localhost:8080](http://localhost:8080) and connects to the database
 above using matching defaults. Flyway migrates the schema automatically on startup.
-See [backend/README.md](backend/README.md) for environment-variable overrides,
-the health endpoint, and troubleshooting (including a port-conflict scenario
-encountered and resolved while building this milestone).
+**`JWT_SECRET` must be set** (copy `backend/.env.example` to `backend/.env` first) —
+deliberately, `application.properties` has no working default for it, unlike every
+other setting (see [backend/README.md](backend/README.md#required-jwt_secret) for
+why). See [backend/README.md](backend/README.md) for the rest of the
+environment-variable overrides, the health endpoint, and troubleshooting (including
+a port-conflict scenario encountered and resolved while building an earlier
+milestone).
 
 **Frontend** (requires Node.js 20+):
 

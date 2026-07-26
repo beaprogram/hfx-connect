@@ -14,7 +14,7 @@
 | Login | `POST /api/v1/auth/login` — generic failure response, timing-mitigated (Milestone 5B — [ADR-008](../decisions/ADR-008-authentication-session-architecture.md)) |
 | Access tokens | Short-lived (15 min default) signed JWT (HS256), issued and validated by `AccessTokenService`, **not yet checked by any endpoint** |
 | Refresh sessions | Opaque, SHA-256-hashed, rotating, reuse-detected, revocable (Milestone 5B) |
-| Logout | Revokes the matching refresh session; idempotent | 
+| Logout | Revokes the matching refresh session; idempotent |
 | CORS | Explicit origin allowlist, credentials enabled only for it, no wildcard |
 | Request-level authorization | **None** — no route, including the auth endpoints themselves, requires or checks anything. Milestone 5C |
 | Rate limiting | **None** — login accepts unlimited attempts |

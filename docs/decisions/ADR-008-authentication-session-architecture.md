@@ -71,19 +71,32 @@ an access token, once issued, is valid until it expires no matter what happens t
 its owning refresh session afterward. The 15-minute lifetime is the actual bound on
 that exposure window, not a token-revocation mechanism.
 
-**Signing secret: `JWT_SECRET`, HMAC-SHA256, externalized, length-validated at
-startup.** A dev-only placeholder ships in `application.properties`/`.env.example`
-(mirroring `DB_PASSWORD`'s and `POSTGRES_PASSWORD`'s own existing dev-default
-pattern), long enough to satisfy the startup length check, so
-`docker compose up -d` + `./mvnw spring-boot:run` keeps working with zero
-configuration for local development — the project's established convention. A
-`@PostConstruct` check in `AccessTokenService` fails application startup with a
-clear message if the configured secret is under 32 bytes (the minimum HMAC-SHA256
-key strength most guidance recommends), so a genuinely too-short secret is caught
-immediately rather than producing a token that's crackable in practice. The secret
-is never regenerated at startup — a new random secret every boot would silently
-invalidate every outstanding access token and refresh session on every deploy,
-which is a worse failure mode than requiring the operator to set one real secret
+**Signing secret: `JWT_SECRET`, HMAC-SHA256, externalized, with no fallback
+default anywhere in tracked configuration.** Unlike `DB_PASSWORD`/
+`CORS_ALLOWED_ORIGINS` (which do have working defaults in
+`application.properties`, matching this project's established local-dev
+convenience convention), `app.jwt.secret=${JWT_SECRET}` has deliberately no
+`:default` — if `JWT_SECRET` is unset, Spring fails to resolve the property and
+the application refuses to start, with a clear error naming the missing
+property. This is a deliberate departure from the DB/CORS convenience
+convention, corrected after initial review: a database password or CORS origin
+default is low-risk (a real production database has its own required
+credentials regardless of what a tracked file says), but a JWT signing secret
+with a working default baked into a public repository's history is a latent
+authentication bypass — if a real deployment ever forgot to set it, the
+application would silently sign tokens with a secret anyone reading the source
+could use to forge valid access tokens. `.env.example` ships an *obviously*
+insecure placeholder value, but only as something a developer must explicitly
+export — never as something `application.properties` falls back to on its own.
+Separately, `Keys.hmacShaKeyFor` (JJWT's own key construction, called from
+`AccessTokenService`'s constructor) rejects any secret under 256 bits (32 bytes)
+immediately, so a genuinely too-short secret is caught at startup too, not just
+a missing one — see `docs/architecture/backend-architecture.md`'s note on why
+this project relies on that library behavior directly rather than duplicating
+the check by hand. The secret is never regenerated at startup — a new random
+secret every boot would silently invalidate every outstanding access token and
+refresh session on every deploy, which is a worse failure mode than requiring
+the operator to set one real secret
 once.
 
 ### Refresh Token: Opaque, SHA-256-Hashed at Rest, Rotated on Every Use
