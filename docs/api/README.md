@@ -40,8 +40,11 @@ allowlist that makes that possible.
   `RESOURCE_NOT_FOUND`, `RESOURCE_CONFLICT`, `INACTIVE_CATEGORY` (a resource
   referenced a real category that exists but is inactive — distinct from
   `CATEGORY_NOT_FOUND`, where the referenced category doesn't exist at all),
-  `USER_CONFLICT` (duplicate email at registration), `INVALID_PAGINATION`,
-  `INVALID_SORT`, `INTERNAL_ERROR`.
+  `USER_CONFLICT` (duplicate email at registration), `AUTHENTICATION_FAILED`
+  (login), `AUTHENTICATION_REQUIRED` (refresh — no cookie presented),
+  `INVALID_REFRESH_TOKEN`, `REFRESH_TOKEN_EXPIRED`, `REFRESH_TOKEN_REUSED`,
+  `ACCOUNT_UNAVAILABLE` (valid credentials/token, non-`ACTIVE` account),
+  `INVALID_PAGINATION`, `INVALID_SORT`, `INTERNAL_ERROR`.
 
 ## Pagination
 
@@ -130,11 +133,15 @@ see `docs/milestones/milestone-03c-public-resource-api.md`.
 
 ## Auth — `/api/v1/auth`
 
-Full detail: `docs/milestones/milestone-05a-user-registration.md`. Summary:
+Full detail: `docs/milestones/milestone-05a-user-registration.md` and
+`docs/milestones/milestone-05b-authentication-sessions.md`. Summary:
 
 | Method | Path | Purpose |
 |---|---|---|
 | `POST` | `/api/v1/auth/register` | Register an account. Always creates a `USER`-role, `ACTIVE`, unverified account — any `role` or other privilege field submitted in the request body is silently ignored, never honored. Does not log the caller in. |
+| `POST` | `/api/v1/auth/login` | Verify email/password, return an access token, and set a rotating refresh token as an `HttpOnly` cookie. |
+| `POST` | `/api/v1/auth/refresh` | Rotate the refresh session (read from the cookie only) and return a new access token and cookie. |
+| `POST` | `/api/v1/auth/logout` | Revoke the session matching the presented cookie, if any, and clear it. Always safe and idempotent. |
 
 Registration email is normalized (trimmed, lowercased) before the uniqueness check,
 so `User@Example.org` and `user@example.org` cannot both register. Passwords are
@@ -145,16 +152,42 @@ and a multibyte-Unicode password can exceed it well under 72 characters; see
 [ADR-007](../decisions/ADR-007-user-identity-and-password-hashing.md)'s 2026-07-24
 correction). A small set of the most common leaked passwords is also rejected.
 
-**No login endpoint exists yet.** Registering an account does not authenticate the
-caller — there is no access token, refresh token, or session to receive. Login is
-Milestone 5B. **No route in the API is protected by authentication or authorization
-yet** — that is Milestone 5C.
+**Login/refresh never return a refresh token in JSON.** It is only ever set as an
+`HttpOnly`, path-scoped (`/api/v1/auth`) `hfx_refresh_token` cookie — see
+[ADR-008](../decisions/ADR-008-authentication-session-architecture.md). The
+response body is:
+
+```json
+{
+  "accessToken": "<JWT>",
+  "tokenType": "Bearer",
+  "expiresIn": 900,
+  "user": { "id": "...", "email": "...", "role": "USER", "status": "ACTIVE", "emailVerified": false }
+}
+```
+
+Unknown email and wrong password are always the exact same `401
+AUTHENTICATION_FAILED` response — the API never reveals whether an email is
+registered. A correct-credentials account that is not `ACTIVE` returns `403
+ACCOUNT_UNAVAILABLE` instead (a real state, distinct from "wrong password"), without
+saying why. Refresh tokens rotate on every successful refresh; presenting an
+already-used token revokes every session descended from the same login, not just
+that one.
+
+**No route in the API is protected by authentication or authorization yet** —
+including the three endpoints above, none of which require or check an access
+token. That is Milestone 5C. **No rate limiting exists** — login accepts unlimited
+attempts; see ADR-008's honest limitations section.
 
 ### Status codes
 
 | Status | Meaning |
 |---|---|
-| `201` | Account created; response body is the safe account representation (no password/hash) |
+| `201` | Account created (`register`); response body is the safe account representation (no password/hash) |
+| `200` | Login or refresh succeeded |
+| `204` | Logout — always, regardless of whether a valid session was presented |
 | `400` | Validation failure (missing/malformed email, missing/weak/common password) or malformed JSON |
-| `409` | An account with that (case-insensitively normalized) email already exists |
+| `401` | `register`: n/a. `login`: invalid credentials (`AUTHENTICATION_FAILED`). `refresh`: missing (`AUTHENTICATION_REQUIRED`), invalid (`INVALID_REFRESH_TOKEN`), expired (`REFRESH_TOKEN_EXPIRED`), or reused (`REFRESH_TOKEN_REUSED`) refresh token |
+| `403` | Credentials or refresh token were valid, but the account is not `ACTIVE` (`ACCOUNT_UNAVAILABLE`) |
+| `409` | An account with that (case-insensitively normalized) email already exists (`register`) |
 | `500` | Unexpected server error (no internal detail is exposed) |

@@ -13,10 +13,12 @@ migrated PostgreSQL/PostGIS database. Milestone 3A delivered the first complete
 feature (category management). Milestone 3B built the resource domain's persistence
 and business layer, deliberately with no public API yet. Milestone 3C added that
 public API. Milestone 4 built the first real public frontend over both APIs.
-Milestone 5A added user registration — persistence, password hashing, validation —
-deliberately without login, tokens, or roles, which are 5B and 5C. The talking
-points below are the ones already answerable from what has actually been built; the
-rest will be added as the corresponding milestone is completed.
+Milestone 5A added user registration — persistence, password hashing, validation.
+Milestone 5B added login, JWT access tokens, rotating/reuse-detected refresh
+sessions, and logout — deliberately without roles or request-level authorization,
+which is 5C. The talking points below are the ones already answerable from what
+has actually been built; the rest will be added as the corresponding milestone is
+completed.
 
 ## Answerable Now (Milestone 1)
 
@@ -352,9 +354,74 @@ milestone silently failed to catch the constraint violation until switched to
 `saveAndFlush`, a direct, reproducible demonstration of why that distinction matters
 in practice, not just in theory.
 
+## Answerable Now (Milestone 5B)
+
+**Why a JWT access token plus a separate opaque refresh token, instead of one
+token doing both jobs?** Because they're exposed to different threats and need
+different transports. The access token is meant to be sent as `Authorization:
+Bearer` on future authenticated requests (Milestone 5C), so it's never placed in
+a cookie — that keeps it out of automatic browser transmission, which is what a
+cookie-based credential would otherwise be vulnerable to (CSRF). The refresh
+token, conversely, is never returned in JSON and is only ever an `HttpOnly`
+cookie, specifically so it can never be read by JavaScript — including a
+malicious script from an XSS payload. Using one token for both roles would mean
+picking the worse transport for at least one of the two threats. See
+[ADR-008](../decisions/ADR-008-authentication-session-architecture.md).
+
+**Why BCrypt for passwords but SHA-256 for refresh tokens — isn't that
+inconsistent?** No — they defend against different things. BCrypt's deliberate
+slowness and salting exist to make offline brute-forcing a *low-entropy,
+human-chosen* secret expensive; a refresh token is 256 bits of uniformly random
+data a human never chose, so there's nothing to "guess" faster from a stolen
+hash — the only realistic attack is stealing the raw token itself, which hashing
+protects the database against (a leaked table reveals no usable tokens) without
+needing BCrypt's deliberate CPU cost on every single refresh request.
+
+**How does refresh-token rotation actually stop a stolen token from being
+useful?** Every successful refresh immediately revokes the token that was just
+presented and issues a brand-new one — so a stolen copy of an already-rotated
+token is simply dead on arrival. The interesting case is a *race*: if an
+attacker uses the stolen token before its legitimate owner does, the legitimate
+owner's own next refresh attempt is what gets detected — presenting a token that
+turns out to already be revoked — and at that point every session descended
+from the same original login is revoked, not just the one that failed,
+forcing a fresh login everywhere. This was verified against the real database
+during development, not just asserted: a live `curl`+`psql` reproduction showed
+the exact sequence of rows changing state in real time.
+
+**What actually went wrong with `noRollbackFor`, and how was it found?**
+`RefreshSessionService.rotate()` needs to revoke a session (or an entire
+rotation family) and *then* throw an exception signaling failure — a write
+that must survive even though the method is reporting an error. The
+straightforward fix, `@Transactional(noRollbackFor = SpecificException.class)`,
+is the standard, documented Spring mechanism for exactly this. It didn't work
+in this project's stack — confirmed only by running the real application
+against the real database and watching `refresh_sessions` with `psql` between
+live requests, since a mocked unit test cannot exercise genuine Spring
+transaction demarcation at all and would have shown the code "passing" while
+the actual persisted behavior was wrong. The fix uses explicit, programmatic
+transaction control instead (`TransactionTemplate` with
+`PROPAGATION_REQUIRES_NEW`), which commits independently of whatever happens to
+the surrounding transaction afterward — no annotation-behavior assumption
+required. This is the kind of defect that specifically requires full-stack
+manual verification to catch, not just unit or even mocked-integration tests.
+
+**Why is the refresh cookie's `Secure`/`SameSite` policy different between
+local development and production, instead of one fixed value?** Because the
+*correct* value genuinely differs. Locally, the frontend and backend are
+different origins but the same *site* (`localhost` regardless of port), where
+`SameSite=Lax` cookies still flow on cross-origin requests, and plain HTTP is
+normal, so `Secure=false` is required (browsers drop `Secure` cookies over
+HTTP entirely). In this project's real production topology — a Vercel frontend
+and a Render backend, genuinely different registrable domains — that's
+cross-*site*, where `SameSite=Lax` cookies are not sent on cross-site
+`fetch`/XHR at all, only top-level navigation. Production needs
+`SameSite=None` with `Secure=true` instead, which is only safe paired with the
+project's explicit CORS origin allowlist (never a wildcard). Hardcoding either
+value would silently break one environment or the other.
+
 ## To Be Added in Later Milestones
 
-- How login, access tokens, and refresh cookies work (Milestone 5B).
 - How authorization is enforced server-side, independent of the frontend
   (Milestone 5C).
 - How moderation approval and audit-history writes are made transactional (Milestone
