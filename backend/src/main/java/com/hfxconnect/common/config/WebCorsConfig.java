@@ -21,10 +21,21 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
  *
  * <p>There is no {@code spring-boot-starter-security} filter chain in this
  * project yet (Milestone 5A added only {@code spring-security-crypto} for
- * password hashing — see ADR-007; login/tokens are 5B) — this is a plain
- * Spring MVC CORS mapping, not a security-filter-chain configuration, and
- * {@code allowCredentials} is left {@code false} since no cookie/session-based
- * request is ever made.
+ * password hashing — see ADR-007) — this is a plain Spring MVC CORS mapping,
+ * not a security-filter-chain configuration.
+ *
+ * <p>{@code allowCredentials} is {@code true} as of Milestone 5B: login,
+ * refresh, and logout set/read the {@code hfx_refresh_token} cookie, and a
+ * browser never sends or exposes a cookie on a cross-origin {@code fetch}
+ * unless both the request specifies {@code credentials: 'include'} <em>and</em>
+ * the server's CORS response includes {@code Access-Control-Allow-Credentials: true}
+ * — without this, refresh/logout would silently never receive the cookie at
+ * all from the frontend's own separate origin. This is not a weakening of the
+ * policy: {@code allowedOrigins} remains an explicit, environment-configured
+ * allowlist with no {@code "*"} wildcard, which is required for
+ * {@code allowCredentials(true)} to even be legal — Spring throws at startup
+ * if the two are combined with a wildcard origin. See
+ * {@code docs/decisions/ADR-008-authentication-session-architecture.md}.
  */
 @Configuration
 public class WebCorsConfig implements WebMvcConfigurer {
@@ -41,7 +52,7 @@ public class WebCorsConfig implements WebMvcConfigurer {
 				.allowedOrigins(allowedOrigins)
 				.allowedMethods("GET", "POST")
 				.allowedHeaders("Content-Type")
-				.allowCredentials(false)
+				.allowCredentials(true)
 				.maxAge(3600);
 	}
 
