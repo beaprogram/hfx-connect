@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 import { QueryProvider } from "@/lib/query/query-provider";
+import { AuthProvider } from "@/lib/auth/auth-provider";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -28,11 +29,13 @@ export default function RootLayout({
           Skip to main content
         </a>
         <QueryProvider>
-          <SiteHeader />
-          <main id="main-content" className="flex flex-1 flex-col">
-            {children}
-          </main>
-          <SiteFooter />
+          <AuthProvider>
+            <SiteHeader />
+            <main id="main-content" className="flex flex-1 flex-col">
+              {children}
+            </main>
+            <SiteFooter />
+          </AuthProvider>
         </QueryProvider>
       </body>
     </html>

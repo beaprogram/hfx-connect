@@ -95,6 +95,36 @@ export const resourcePageResponseSchema = z.object({
 });
 export type ResourcePageResponse = z.infer<typeof resourcePageResponseSchema>;
 
+export const roleSchema = z.enum(["USER", "ORGANIZATION", "MODERATOR", "ADMIN"]);
+export type Role = z.infer<typeof roleSchema>;
+
+export const accountStatusSchema = z.enum(["ACTIVE", "PENDING_VERIFICATION", "SUSPENDED", "DEACTIVATED"]);
+export type AccountStatus = z.infer<typeof accountStatusSchema>;
+
+export const userResponseSchema = z.object({
+  id: z.string(),
+  email: z.string(),
+  role: roleSchema,
+  status: accountStatusSchema,
+  emailVerified: z.boolean(),
+  createdAt: z.string(),
+});
+export type UserResponse = z.infer<typeof userResponseSchema>;
+
+/**
+ * The access token is a JWT string, but nothing on the frontend decodes or
+ * trusts its claims — `expiresIn` (seconds from issuance) is the one number
+ * the auth provider actually tracks, per ADR-009's "Access-Token Refresh
+ * Behavior" and "Token Expiry Handling" sections.
+ */
+export const loginResponseSchema = z.object({
+  accessToken: z.string(),
+  tokenType: z.string(),
+  expiresIn: z.number(),
+  user: userResponseSchema,
+});
+export type LoginResponse = z.infer<typeof loginResponseSchema>;
+
 export const apiErrorSchema = z.object({
   timestamp: z.string().nullish(),
   status: z.number(),

@@ -26,6 +26,8 @@ function buildUrl(path: string, params?: QueryParams): string {
 interface GetJsonOptions {
   params?: QueryParams;
   signal?: AbortSignal;
+  /** Attaches `Authorization: Bearer <accessToken>` — for endpoints that require a signed-in caller (e.g. `/api/v1/users/me`). */
+  accessToken?: string;
 }
 
 /**
@@ -37,20 +39,85 @@ interface GetJsonOptions {
 export async function getJson<T>(path: string, schema: ZodType<T>, options: GetJsonOptions = {}): Promise<T> {
   const url = buildUrl(path, options.params);
 
-  let response: Response;
+  const response = await sendRequest(url, {
+    signal: options.signal,
+    cache: "no-store",
+    headers: authorizedHeaders({ Accept: "application/json" }, options.accessToken),
+  });
+
+  return parseJsonResponse(response, path, schema);
+}
+
+interface JsonRequestOptions {
+  signal?: AbortSignal;
+  /**
+   * `"include"` sends and allows receiving the `hfx_refresh_token` cookie on
+   * a cross-origin request — required for login/refresh/logout, and only
+   * legal because the backend's CORS policy allows credentials for this
+   * exact configured origin, never a wildcard (ADR-006, ADR-008).
+   */
+  credentials?: RequestCredentials;
+  /** Attaches `Authorization: Bearer <accessToken>` for authenticated operations. */
+  accessToken?: string;
+  /** Omit entirely for a request with no body (e.g. refresh, logout). */
+  body?: unknown;
+}
+
+/**
+ * The single place every POST-with-a-JSON-response request goes through —
+ * the `postJson` counterpart to {@link getJson}. Used for register, login,
+ * and refresh, each of which return a real body the caller needs validated.
+ */
+export async function postJson<T>(path: string, schema: ZodType<T>, options: JsonRequestOptions = {}): Promise<T> {
+  const url = buildUrl(path);
+  const response = await sendJsonRequest(url, options);
+  return parseJsonResponse(response, path, schema);
+}
+
+/**
+ * The `postJson` counterpart for a request with no meaningful response body
+ * (logout returns `204 No Content`).
+ */
+export async function postNoContent(path: string, options: JsonRequestOptions = {}): Promise<void> {
+  const url = buildUrl(path);
+  const response = await sendJsonRequest(url, options);
+  if (!response.ok) {
+    throw await toApiRequestError(response);
+  }
+}
+
+function sendJsonRequest(url: string, options: JsonRequestOptions): Promise<Response> {
+  const headers = authorizedHeaders({ Accept: "application/json" }, options.accessToken);
+  let requestBody: string | undefined;
+  if (options.body !== undefined) {
+    headers["Content-Type"] = "application/json";
+    requestBody = JSON.stringify(options.body);
+  }
+  return sendRequest(url, {
+    method: "POST",
+    headers,
+    body: requestBody,
+    credentials: options.credentials,
+    signal: options.signal,
+  });
+}
+
+function authorizedHeaders(base: Record<string, string>, accessToken: string | undefined): Record<string, string> {
+  return accessToken ? { ...base, Authorization: `Bearer ${accessToken}` } : base;
+}
+
+async function sendRequest(url: string, init: RequestInit): Promise<Response> {
   try {
-    response = await fetch(url, {
-      signal: options.signal,
-      cache: "no-store",
-      headers: { Accept: "application/json" },
-    });
+    return await fetch(url, init);
   } catch (cause) {
     if (isAbortError(cause)) {
       throw cause;
     }
     throw new ApiRequestError("Could not reach the HFX Connect API.", 0);
   }
+}
 
+async function parseJsonResponse<T>(response: Response, path: string, schema: ZodType<T>): Promise<T> {
   if (!response.ok) {
     throw await toApiRequestError(response);
   }
