@@ -1,9 +1,12 @@
 package com.hfxconnect.common.config;
 
+import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.web.servlet.config.annotation.CorsRegistry;
-import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 /**
  * Allows the public frontend (a separate origin — Next.js runs on its own
@@ -19,26 +22,26 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
  * {@code docs/decisions/ADR-006-frontend-backend-connectivity.md} for why
  * direct browser-to-backend CORS was chosen over a Next.js proxy layer.
  *
- * <p>There is no {@code spring-boot-starter-security} filter chain in this
- * project yet (Milestone 5A added only {@code spring-security-crypto} for
- * password hashing — see ADR-007) — this is a plain Spring MVC CORS mapping,
- * not a security-filter-chain configuration.
+ * <p><strong>Exposed as a {@link CorsConfigurationSource} bean, not a
+ * {@code WebMvcConfigurer.addCorsMappings} implementation</strong>, as of
+ * Milestone 5C: {@code SecurityConfig}'s {@code SecurityFilterChain} needs a
+ * {@code CorsConfigurationSource} to delegate to (Spring Security's
+ * {@code HttpSecurity.cors()} does not read {@code WebMvcConfigurer}
+ * registrations), and the security filter chain now covers every request
+ * (including plain public {@code GET}s), so this one bean is the single CORS
+ * policy definition for the whole application — see ADR-009.
  *
- * <p>{@code allowCredentials} is {@code true} as of Milestone 5B: login,
- * refresh, and logout set/read the {@code hfx_refresh_token} cookie, and a
- * browser never sends or exposes a cookie on a cross-origin {@code fetch}
- * unless both the request specifies {@code credentials: 'include'} <em>and</em>
- * the server's CORS response includes {@code Access-Control-Allow-Credentials: true}
- * — without this, refresh/logout would silently never receive the cookie at
- * all from the frontend's own separate origin. This is not a weakening of the
- * policy: {@code allowedOrigins} remains an explicit, environment-configured
- * allowlist with no {@code "*"} wildcard, which is required for
- * {@code allowCredentials(true)} to even be legal — Spring throws at startup
- * if the two are combined with a wildcard origin. See
- * {@code docs/decisions/ADR-008-authentication-session-architecture.md}.
+ * <p>{@code allowedHeaders} includes {@code Authorization} as of Milestone
+ * 5C — required for the browser to send the Bearer access token
+ * cross-origin at all; without it, the CORS preflight itself rejects the
+ * real request before it reaches the backend. {@code allowCredentials}
+ * remains {@code true} (Milestone 5B — refresh/logout's cookie), which
+ * remains legal only because {@code allowedOrigins} stays an explicit,
+ * environment-configured allowlist with no {@code "*"} wildcard — Spring
+ * throws at startup if the two are combined with a wildcard origin.
  */
 @Configuration
-public class WebCorsConfig implements WebMvcConfigurer {
+public class WebCorsConfig {
 
 	private final String[] allowedOrigins;
 
@@ -46,14 +49,18 @@ public class WebCorsConfig implements WebMvcConfigurer {
 		this.allowedOrigins = allowedOrigins;
 	}
 
-	@Override
-	public void addCorsMappings(CorsRegistry registry) {
-		registry.addMapping("/api/v1/**")
-				.allowedOrigins(allowedOrigins)
-				.allowedMethods("GET", "POST")
-				.allowedHeaders("Content-Type")
-				.allowCredentials(true)
-				.maxAge(3600);
+	@Bean
+	public CorsConfigurationSource corsConfigurationSource() {
+		CorsConfiguration configuration = new CorsConfiguration();
+		configuration.setAllowedOrigins(List.of(allowedOrigins));
+		configuration.setAllowedMethods(List.of("GET", "POST"));
+		configuration.setAllowedHeaders(List.of("Content-Type", "Authorization"));
+		configuration.setAllowCredentials(true);
+		configuration.setMaxAge(3600L);
+
+		UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+		source.registerCorsConfiguration("/api/v1/**", configuration);
+		return source;
 	}
 
 }
