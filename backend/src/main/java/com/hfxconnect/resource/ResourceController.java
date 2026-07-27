@@ -7,6 +7,7 @@ import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import java.net.URI;
@@ -32,17 +33,18 @@ import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
  * an administrative capability that needs the authorization Milestone 5C
  * introduces, not something this unsecured milestone should expose.
  *
- * <p><strong>Temporary security limitation:</strong> {@code POST} is not
- * protected yet — anyone who can reach this API can create a resource. This
- * mirrors {@code CategoryController}'s exact same documented limitation and
- * is resolved the same way, in Milestone 5C.
+ * <p>{@code POST} requires a Bearer access token belonging to an
+ * {@code ADMIN} or {@code MODERATOR} account (Milestone 5C — see ADR-009 and
+ * {@code SecurityConfig}). {@code ORGANIZATION} accounts cannot create
+ * resources yet — organization ownership/verification doesn't exist (see
+ * ADR-009); that is Milestone 10's concern.
  *
  * <p>There is deliberately no update or delete endpoint here — see
  * {@code docs/milestones/milestone-03c-public-resource-api.md} for why
  * {@code ResourceService.update}/{@code deactivate} (both already
  * implemented and tested since Milestone 3B) are not exposed over HTTP yet.
  */
-@Tag(name = "Resources", description = "Public resource directory. POST is temporarily unsecured; only active resources are ever visible — see class-level Javadoc.")
+@Tag(name = "Resources", description = "Public resource directory. POST requires an ADMIN or MODERATOR access token; only active resources are ever visible — see class-level Javadoc.")
 @RestController
 @RequestMapping("/api/v1/resources")
 public class ResourceController {
@@ -53,10 +55,13 @@ public class ResourceController {
 		this.resourceService = resourceService;
 	}
 
-	@Operation(summary = "Create a resource", description = "Must reference an existing, active category. The slug is derived from the name. New resources always start UNVERIFIED. Not protected by authentication yet (Milestone 5C).")
+	@Operation(summary = "Create a resource", description = "Must reference an existing, active category. The slug is derived from the name. New resources always start UNVERIFIED. Requires a Bearer access token for an ADMIN or MODERATOR account.")
+	@SecurityRequirement(name = "bearerAuth")
 	@ApiResponses({
 			@ApiResponse(responseCode = "201", description = "Resource created"),
 			@ApiResponse(responseCode = "400", description = "Validation failure, or the category is inactive", content = @Content(schema = @Schema(implementation = ApiError.class))),
+			@ApiResponse(responseCode = "401", description = "Missing or invalid access token", content = @Content(schema = @Schema(implementation = ApiError.class))),
+			@ApiResponse(responseCode = "403", description = "Authenticated, but not an ADMIN or MODERATOR account", content = @Content(schema = @Schema(implementation = ApiError.class))),
 			@ApiResponse(responseCode = "404", description = "No category exists with the given categoryId", content = @Content(schema = @Schema(implementation = ApiError.class))),
 			@ApiResponse(responseCode = "409", description = "A resource with this (derived) slug already exists", content = @Content(schema = @Schema(implementation = ApiError.class)))
 	})
