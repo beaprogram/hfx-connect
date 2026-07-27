@@ -76,10 +76,11 @@ class ResourceServiceIntegrationTest extends AbstractPostgresIntegrationTest {
 	void rejectsANameThatCannotProduceASlug() {
 		Category category = activeCategory("Empty Slug Check");
 		CreateResourceCommand command = withName(validCommand(category.getId(), "placeholder"), "&&&");
+		long countBefore = resourceRepository.count();
 
 		assertThatThrownBy(() -> resourceService.create(command)).isInstanceOf(ValidationException.class);
 
-		assertThat(resourceRepository.count()).isZero();
+		assertThat(resourceRepository.count()).isEqualTo(countBefore);
 	}
 
 	@Test
@@ -94,10 +95,11 @@ class ResourceServiceIntegrationTest extends AbstractPostgresIntegrationTest {
 	@Test
 	void rejectsCreationUnderAMissingCategory() {
 		CreateResourceCommand command = validCommand(-1L, "Missing Category Resource");
+		long countBefore = resourceRepository.count();
 
 		assertThatThrownBy(() -> resourceService.create(command)).isInstanceOf(CategoryNotFoundException.class);
 
-		assertThat(resourceRepository.count()).isZero();
+		assertThat(resourceRepository.count()).isEqualTo(countBefore);
 	}
 
 	@Test
@@ -111,10 +113,11 @@ class ResourceServiceIntegrationTest extends AbstractPostgresIntegrationTest {
 	void rejectsCreationUnderAnInactiveCategory() {
 		Category category = inactiveCategory("Inactive Category Check");
 		CreateResourceCommand command = validCommand(category.getId(), "Inactive Category Resource");
+		long countBefore = resourceRepository.count();
 
 		assertThatThrownBy(() -> resourceService.create(command)).isInstanceOf(InactiveCategoryException.class);
 
-		assertThat(resourceRepository.count()).isZero();
+		assertThat(resourceRepository.count()).isEqualTo(countBefore);
 	}
 
 	@Test
@@ -223,9 +226,10 @@ class ResourceServiceIntegrationTest extends AbstractPostgresIntegrationTest {
 		Category category = activeCategory("Dangerous Website Check");
 		CreateResourceCommand command = withWebsite(
 				validCommand(category.getId(), "Dangerous Website Resource"), "javascript:alert(1)");
+		long countBefore = resourceRepository.count();
 
 		assertThatThrownBy(() -> resourceService.create(command)).isInstanceOf(ValidationException.class);
-		assertThat(resourceRepository.count()).isZero();
+		assertThat(resourceRepository.count()).isEqualTo(countBefore);
 	}
 
 	@Test

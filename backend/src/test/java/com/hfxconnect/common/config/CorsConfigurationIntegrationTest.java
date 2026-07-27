@@ -54,6 +54,19 @@ class CorsConfigurationIntegrationTest extends AbstractPostgresIntegrationTest {
 	}
 
 	@Test
+	void preflightForAProtectedRouteAllowsTheAuthorizationHeader() {
+		HttpHeaders headers = new HttpHeaders();
+		headers.setOrigin("http://localhost:3000");
+		headers.set("Access-Control-Request-Method", "GET");
+		headers.set("Access-Control-Request-Headers", "Authorization");
+
+		ResponseEntity<Void> response = restTemplate.exchange("/api/v1/users/me", HttpMethod.OPTIONS,
+				new HttpEntity<>(headers), Void.class);
+
+		assertThat(response.getHeaders().getAccessControlAllowHeaders()).contains("Authorization");
+	}
+
+	@Test
 	void preflightFromAnUnconfiguredOriginIsRejected() {
 		HttpHeaders headers = new HttpHeaders();
 		headers.setOrigin("https://not-the-real-frontend.example.com");
