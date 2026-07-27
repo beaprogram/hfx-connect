@@ -6,8 +6,12 @@ documentation.
 
 **Status:** public browsing experience (Milestone 4) — a homepage, a filterable/sortable
 paginated resource list, and a resource detail page, all backed by the real Category and
-Resource APIs (Milestones 3A/3C). No authentication, saved resources, submissions, maps,
-or search exist yet — those are introduced starting in Milestone 5 onward.
+Resource APIs (Milestones 3A/3C) — plus real authentication (Milestone 5C): `/login`,
+`/register`, and a protected `/dashboard`, with an in-memory access token and
+refresh-cookie-based session restoration. See
+[docs/architecture/frontend-architecture.md](../docs/architecture/frontend-architecture.md#authentication-architecture)
+for the full design. Saved resources, submissions, maps, search, and
+role-specific dashboards are not implemented yet.
 
 ## Stack
 
@@ -80,15 +84,23 @@ frontend/
         [slug]/
           page.tsx                     Resource detail
           loading.tsx, not-found.tsx, error.tsx
+      login/page.tsx           Login (Milestone 5C)
+      register/page.tsx       Registration — does not log the caller in (Milestone 5C)
+      dashboard/page.tsx     Protected: the current authenticated account (Milestone 5C)
     components/
       categories/               Category card/grid
       resources/                Resource card/grid, filter form, pagination, detail
-      navigation/                Mobile disclosure nav
+      navigation/                Mobile disclosure nav (auth-aware as of Milestone 5C)
+      auth/                          Login/register forms, dashboard content, the
+                                            protected-route guard, and the auth-aware
+                                            nav link (Milestone 5C)
       feedback/                    Shared badge/empty-state/error components
       site-header.tsx, site-footer.tsx
     lib/
       api/                          Typed API client (client.ts) + one module per
-                                            resource (categories.ts, resources.ts)
+                                            resource (categories.ts, resources.ts, auth.ts)
+      auth/                         AuthProvider/useAuth — the in-memory session
+                                            (Milestone 5C)
       validation/                Zod schemas mirroring the real backend contract
       query/                       TanStack Query client/provider/keys, URL-param parsing
       formatting/               Label/date/address formatting helpers
@@ -100,14 +112,19 @@ frontend/
 
 ## API Integration
 
-All backend calls go through `lib/api/client.ts`'s `getJson` — centralized query-string
-encoding, non-2xx error mapping (`ApiRequestError`), and Zod response-shape validation
-(`ApiResponseShapeError` on a mismatch, so a backend contract drift fails loudly and
-safely instead of rendering broken data). `lib/api/categories.ts` and
-`lib/api/resources.ts` expose the specific operations the frontend actually needs —
-nothing speculative. See `docs/architecture/frontend-architecture.md` for the full
-data-fetching and TanStack Query strategy (server-side prefetch + hydration for the
-initial `/resources` load, client-side `useQuery` for filter/sort/pagination changes).
+All backend calls go through `lib/api/client.ts` — `getJson` (centralized
+query-string encoding, optional `Authorization: Bearer` header), plus
+`postJson`/`postNoContent` (added in Milestone 5C for
+register/login/refresh/logout, which need a request body and/or
+`credentials: "include"` for the refresh cookie). Every one of them maps
+non-2xx responses to `ApiRequestError` and validates response shape with Zod
+(`ApiResponseShapeError` on a mismatch, so a backend contract drift fails
+loudly and safely instead of rendering broken data). `lib/api/categories.ts`,
+`lib/api/resources.ts`, and `lib/api/auth.ts` expose the specific operations
+the frontend actually needs — nothing speculative. See
+`docs/architecture/frontend-architecture.md` for the full data-fetching
+strategy, and its "Authentication Architecture" section specifically for how
+the access token/session are handled.
 
 ## Notes
 

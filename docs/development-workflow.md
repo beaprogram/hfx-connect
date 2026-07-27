@@ -23,7 +23,7 @@ one begins.
 | 4 | `milestone/04-public-frontend` | Public resource list, detail pages, application shell |
 | 5A | `milestone/05a-user-registration` | User persistence, password hashing, validation, duplicate-account prevention, registration API |
 | 5B | `milestone/05b-authentication-sessions` | Login, access tokens, refresh cookies, logout |
-| 5C | `milestone/05c-roles-and-authorization` | Roles, backend authorization, protected frontend routes |
+| 5C | `milestone/05c-role-authorization` | Roles, backend authorization, protected frontend routes |
 | 6 | `milestone/06-search-and-filtering` | Keyword/category search, structured hours, open-now logic, URL filter state |
 | 7 | `milestone/07-geospatial-search` | PostGIS nearby queries, map, marker clustering, list/map sync |
 | 8 | `milestone/08-user-features` | Saved resources, submissions, correction reports |

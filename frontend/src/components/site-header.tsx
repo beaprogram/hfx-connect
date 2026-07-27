@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { MobileNav } from "@/components/navigation/mobile-nav";
+import { AuthNav } from "@/components/auth/auth-nav";
 
 export function SiteHeader() {
   return (
@@ -11,13 +12,14 @@ export function SiteHeader() {
         >
           HFX Connect
         </Link>
-        <nav aria-label="Primary" className="hidden sm:block">
+        <nav aria-label="Primary" className="hidden items-center gap-6 sm:flex">
           <Link
             href="/resources"
             className="rounded-sm text-sm font-medium text-slate-700 hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
           >
             Browse resources
           </Link>
+          <AuthNav />
         </nav>
         <MobileNav />
       </div>

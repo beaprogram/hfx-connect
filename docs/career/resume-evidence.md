@@ -11,9 +11,11 @@ delivered the first real feature — category management — end to end. Milesto
 built the resource domain's persistence and business layer (no public API yet).
 Milestone 4 shipped the first real public frontend. Milestone 5A added user
 registration (persistence, password hashing, validation). Milestone 5B added
-login, JWT access tokens, rotating/reuse-detected refresh sessions, and logout —
-roles/authorization (5C) are not built yet. Feature-level entries (search,
-moderation) will continue to be added as those milestones land.
+login, JWT access tokens, rotating/reuse-detected refresh sessions, and logout.
+Milestone 5C completed the authentication stage: request-level authentication,
+role-based authorization, and a real frontend login/dashboard experience.
+Feature-level entries (search, moderation) will continue to be added as those
+milestones land.
 
 ## How an Entry Is Added
 
@@ -613,3 +615,95 @@ coverage.
 ### Measurements Still Needed
 [MEASURE AFTER DEPLOYMENT]: login/refresh endpoint latency under real BCrypt/JWT
 cost once deployed (Milestone 12).
+
+## Request Authentication and Role-Based Authorization
+
+### Product Purpose
+A logged-in session is only meaningful once the backend actually enforces
+who is allowed to do what. This is the third and final authentication
+sub-milestone (5C) — it makes every earlier session (5A/5B) matter, by
+protecting real routes, and gives the frontend its first real login
+experience.
+
+### Technologies Used
+Spring Security 7.1 (`SecurityFilterChain`, `OncePerRequestFilter`,
+`AuthenticationEntryPoint`, `AccessDeniedHandler`, `@AuthenticationPrincipal`),
+JJWT (unchanged from 5B, now actually validated per request), springdoc-openapi
+(`@SecurityScheme`), React Context (a hand-rolled auth provider, not a
+third-party auth library), TanStack Query, Zod, JUnit 5, `psql`/direct SQL for
+manual role manipulation (no role-management endpoint exists).
+
+### Engineering Complexity
+Designed and implemented the project's first real authorization boundary:
+every authenticated request re-loads the account by the token's subject and
+authorizes using its *current* database role and status — deliberately
+never trusting the JWT's own `role` claim, which can go stale the instant an
+administrator changes an account after a token was already issued. Proved
+this decision live, not just in a unit test: issued a token as `USER`,
+promoted the underlying account to `ADMIN` directly in the database with the
+token left completely unchanged, and confirmed the same token now
+authorizes an `ADMIN`-only action on its very next use — and, symmetrically,
+that suspending an account mid-session revokes access on its next request
+even though the token itself hasn't expired. Chose request-matcher-based
+authorization over `@PreAuthorize`/method security specifically because this
+milestone's policy (two role rules, no per-object ownership logic yet) didn't
+justify a second configuration surface duplicating the same policy — a
+documented, reasoned trade-off, not a default. Diagnosed and fixed a subtle
+Spring Boot auto-configuration hazard before it ever shipped: adding
+`spring-boot-starter-security` with no `UserDetailsService` bean defined
+would have silently auto-configured a default user with a random generated
+password printed to the console on every startup; excluded the offending
+auto-configuration class explicitly and verified its absence. On the
+frontend, implemented an in-memory-only access-token session (never
+`localStorage`/`sessionStorage`, closing an XSS-driven token-theft path a
+naive implementation would leave open) with refresh-cookie-based session
+restoration and single-flight refresh coalescing — necessary because this
+project's refresh tokens rotate on every use, so naïve concurrent refresh
+calls could trigger a false-positive security lockout of the user's own
+session. Also caught and fixed a pre-existing, order-dependent test
+assumption (a test asserting a database table was globally empty, which had
+only ever been true by incidental test-execution order) during this
+milestone's own regression run, rather than leaving it to fail
+unpredictably later.
+
+### Implementation
+`backend/src/main/java/com/hfxconnect/security/` (`JwtAuthenticationFilter`,
+`CurrentUserPrincipal`, `SecurityConfig`, `ApiAuthenticationEntryPoint`,
+`ApiAccessDeniedHandler`), `backend/src/main/java/com/hfxconnect/user/CurrentUserController.java`,
+`frontend/src/lib/auth/auth-provider.tsx`, `frontend/src/lib/api/auth.ts`,
+`frontend/src/components/auth/` (login/register forms, dashboard content,
+protected-route guard, auth-aware nav).
+
+### Tests
+23 new backend tests (a full role × route authorization matrix; token
+validation edge cases — missing/malformed/wrong-signature/expired/
+wrong-issuer/deleted-user/disabled-account; the live stale-role-claim and
+disabled-account-after-issuance proofs; CORS/error-shape regressions)
+alongside the existing 272 (295 total, 0 failures). 38 new frontend tests
+(API client, auth provider — including the single-flight and
+no-storage-write guarantees — login/register forms, dashboard, protected
+route, nav) alongside the existing 82 (120 total, 0 failures). Full manual
+verification of the role matrix, stale-claim, and disabled-account scenarios
+against the real running backend and database, since no role-management
+endpoint exists to reach those states through the API.
+
+### Evidence
+Commits on branch `milestone/05c-role-authorization`; see
+`docs/development-log/2026-07-27.md` for the full session record and
+`docs/milestones/milestone-05c-role-authorization.md` for acceptance
+criteria.
+
+### Potential Resume Wording
+Designed and implemented request-level authentication and role-based
+authorization for a Spring Boot REST API using a custom JWT filter chain,
+deliberately re-validating account role/status against the database on every
+request rather than trusting a signed token's own claims — closing a
+stale-privilege gap and proving the fix with a live database-state
+reproduction, not just a unit test; built the corresponding frontend session
+layer (in-memory token storage, refresh-cookie session restoration,
+single-flight token refresh) to eliminate common JWT-in-the-browser XSS
+exposure; and authored 61 new automated tests across both layers.
+
+### Measurements Still Needed
+[MEASURE AFTER DEPLOYMENT]: authenticated-request latency overhead from the
+per-request database role/status reload, once deployed (Milestone 12).

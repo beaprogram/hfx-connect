@@ -9,23 +9,27 @@ newcomer services, recreation, and events — that are currently scattered acros
 municipal websites, organization pages, and social media, and adds transparent
 verification so users can trust what they find.
 
-**Project status: Milestone 5B (Login, Token Refresh, and Logout) complete.** The
-backend has three working REST APIs: categories (Milestone 3A —
+**Project status: Milestone 5C (Request Authentication, Role Authorization, and
+Protected Frontend Routes) complete.** The backend has three working REST APIs:
+categories (Milestone 3A —
 [backend/README.md](backend/README.md#category-api-apiv1categories)), resources
 (Milestone 3C, built on the persistence/business layer Milestone 3B added —
 [backend/README.md](backend/README.md#resource-api-apiv1resources)), and
-authentication — registration (Milestone 5A) plus login/refresh/logout (Milestone
-5B — [docs/api/README.md](docs/api/README.md#auth-apiv1auth)). A registered user
-can now log in and receive a short-lived access token plus a rotating,
-`HttpOnly`-cookie refresh session — see
+authentication — registration (Milestone 5A), login/refresh/logout (Milestone
+5B), and a current-user endpoint (Milestone 5C —
+[docs/api/README.md](docs/api/README.md#auth-apiv1auth)). Every request is now
+authenticated by a Bearer access token where required, and role-based
+authorization protects category/resource creation — see
 [docs/architecture/security-architecture.md](docs/architecture/security-architecture.md)
-for the full design. The frontend (Milestone 4) is a real public browsing
-experience — a homepage, a filterable/sortable/paginated resource list, and a
-resource detail page, all consuming those APIs directly from the browser (see
-[backend/README.md](backend/README.md#cors) for the CORS configuration that makes
-that possible). There is still no role-based authorization or protected routes —
-no route, including the auth endpoints themselves, requires an access token yet —
-and no frontend login integration, resource-creation UI, or search/maps. See
+for the full design. The frontend now has real authentication: `/login`,
+`/register`, and a protected `/dashboard`, with the access token held only in
+memory (never `localStorage`/`sessionStorage`) and session restoration via the
+`HttpOnly` refresh cookie — see
+[docs/architecture/frontend-architecture.md](docs/architecture/frontend-architecture.md#authentication-architecture).
+The public browsing experience (Milestone 4) — homepage, filterable/sortable/
+paginated resource list, resource detail page — remains fully public and
+unaffected (see [backend/README.md](backend/README.md#cors) for the CORS
+configuration that makes direct browser-to-backend calls possible). See
 [docs/milestones/](docs/milestones/) for exactly what each milestone delivered, and
 [docs/development-workflow.md](docs/development-workflow.md) for the full
 12-milestone roadmap (Milestone 5 is split into 5A/5B/5C, the same way Milestone 3
@@ -57,20 +61,22 @@ own approved listings and events; and let moderators and administrators review
 submissions and reports, manage verification status, and maintain an audit history.
 
 The public browsing slice of this (browse, filter by category, sort, view detail) is
-now real — see [Local Setup](#local-setup) to run it. Account registration and
-login (`POST /api/v1/auth/register`, `/login`, `/refresh`, `/logout`) are real too.
-Search, maps, saved resources, submissions, organization/moderator tooling, and
-role-based authorization are not implemented yet. There is no update/delete
-endpoint on any backend API yet either, and no frontend integration with the
-auth endpoints. Everything else in this section describes the plan, not the
-current state.
+now real — see [Local Setup](#local-setup) to run it. Account registration, login,
+and a protected dashboard (`/login`, `/register`, `/dashboard` on the frontend;
+`POST /api/v1/auth/register`, `/login`, `/refresh`, `/logout`, `GET
+/api/v1/users/me` on the backend) are real too, with backend-enforced
+role-based authorization on category/resource creation. Search, maps, saved
+resources, submissions, organization/moderator tooling, and role-specific
+dashboards are not implemented yet. There is no update/delete endpoint on any
+backend API yet either. Everything else in this section describes the plan,
+not the current state.
 
 ## Technology Stack
 
 | Layer | Technology |
 |---|---|
-| Frontend | Next.js, React, TypeScript, Tailwind CSS, TanStack Query, React Hook Form, Zod |
-| Backend | Java 21, Spring Boot, Spring Security (crypto module only), JJWT, Spring Data JPA, Maven |
+| Frontend | Next.js, React, TypeScript, Tailwind CSS, TanStack Query, Zod |
+| Backend | Java 21, Spring Boot, Spring Security (full `SecurityFilterChain` as of Milestone 5C), JJWT, Spring Data JPA, Maven |
 | Database | PostgreSQL with PostGIS |
 | Migrations | Flyway |
 | Testing | JUnit, Mockito, Testcontainers, React Testing Library, Playwright |
@@ -202,6 +208,7 @@ Runs on [http://localhost:3000](http://localhost:3000) and expects the backend a
 - [Milestone 4: Public Frontend](docs/milestones/milestone-04-public-frontend.md)
 - [Milestone 5A: User Registration Foundation](docs/milestones/milestone-05a-user-registration.md)
 - [Milestone 5B: Login, Token Refresh, and Logout](docs/milestones/milestone-05b-authentication-sessions.md)
+- [Milestone 5C: Request Authentication, Role Authorization, and Protected Frontend Routes](docs/milestones/milestone-05c-role-authorization.md)
 - [Wireframes](docs/wireframes/)
 - [API Documentation](docs/api/README.md)
 - [Database Documentation](docs/database/)
@@ -211,31 +218,38 @@ Runs on [http://localhost:3000](http://localhost:3000) and expects the backend a
 - [ADR-006: Frontend-Backend Connectivity (CORS)](docs/decisions/ADR-006-frontend-backend-connectivity.md)
 - [ADR-007: User Identity and Password Hashing](docs/decisions/ADR-007-user-identity-and-password-hashing.md)
 - [ADR-008: Authentication Session Architecture](docs/decisions/ADR-008-authentication-session-architecture.md)
+- [ADR-009: Request Authentication and Role Authorization](docs/decisions/ADR-009-request-authentication-and-role-authorization.md)
 - [Development Log](docs/development-log/)
 - [Resume Evidence](docs/career/resume-evidence.md)
 - [Interview Notes](docs/career/interview-notes.md)
 
-## Known Limitations (as of Milestone 5B)
+## Known Limitations (as of Milestone 5C)
 
-- `POST /api/v1/categories` and `POST /api/v1/resources` have no authentication or
-  authorization yet — anyone who can reach the API can create a category or resource
-  (Milestone 5C adds authorization). The frontend does not expose any create/update/
-  delete UI regardless.
-- **No route in the API is protected by authentication yet** — including the new
-  login/refresh/logout endpoints themselves, none of which require or check an
-  access token. That is Milestone 5C's entire purpose.
 - **No rate limiting exists** — login accepts unlimited attempts. **No
   access-token revocation exists** — a compromised access token remains valid
-  until it naturally expires (≤15 minutes by default). Both are documented,
-  honest limitations — see
+  until it naturally expires (≤15 minutes by default), independent of any
+  role/status change (the per-request database reload catches that on the
+  *next* request, not immediately). Both are documented, honest
+  limitations — see
   [docs/architecture/security-architecture.md](docs/architecture/security-architecture.md).
-- No frontend integration with login/refresh/logout exists yet — they are
-  backend-only endpoints so far.
+- **No object-level/ownership authorization** — every authorization rule is
+  role-based; "this resource belongs to this organization" isn't a concept
+  yet (Milestone 10). `ORGANIZATION` accounts cannot create resources yet
+  for the same reason.
+- The frontend's `/dashboard` route guard is a client-side UX convenience,
+  not a security boundary — the backend's `SecurityConfig` is authoritative
+  regardless of what the frontend renders or hides. See
+  [ADR-009](docs/decisions/ADR-009-request-authentication-and-role-authorization.md).
+- No role-specific dashboards, category/resource creation UI, saved
+  resources, submissions, moderation, or organization tooling exist yet
+  (Milestone 5C's frontend scope is deliberately `/login`, `/register`, and
+  a minimal `/dashboard` only).
 - Newly-registered accounts are always `emailVerified: false` — no email-delivery
   mechanism exists to verify them, a deliberate, documented limitation (see
   [ADR-007](docs/decisions/ADR-007-user-identity-and-password-hashing.md)), not a bug.
-- No user-facing endpoint (read, update, delete, password reset) exists beyond
-  registration/login/refresh/logout.
+  No password reset, MFA, or OAuth/social login exist yet either.
+- No user-facing endpoint (update, delete, password reset) exists beyond
+  registration/login/refresh/logout/current-user.
 - Neither the Category nor Resource API has an update or delete endpoint.
   `ResourceService.update`/`deactivate` exist and are fully tested but aren't exposed
   over HTTP yet.
@@ -244,13 +258,18 @@ Runs on [http://localhost:3000](http://localhost:3000) and expects the backend a
   deactivated listings with no authentication boundary to gate it behind). The
   frontend accordingly exposes no controls for either.
 - No free-text search, distance/geospatial filtering, maps, saved resources,
-  submissions, moderation, or organizations exist yet (Milestone 5C, 6-10).
+  submissions, moderation, or organizations exist yet (Milestone 6-10).
 - No deployment workflow or hosted environment exists yet; CI currently verifies the
   backend and frontend only.
 - No automated dependency-vulnerability scanning is configured in this project.
-- Frontend responsive/visual verification for Milestone 4 was code-review- and
-  `curl`-based, not a live graphical browser session — no browser-automation tool was
-  available in the development environment used for that milestone. See
+  `npm audit` reports pre-existing transitive vulnerabilities in the frontend's
+  build/test toolchain (postcss, sharp, jest chains bundled by Next.js/tooling
+  dependencies) that require a breaking Next.js downgrade to resolve — not
+  introduced by, or specific to, Milestone 5C.
+- Frontend responsive/visual verification continues to be code-review- and
+  `curl`-based, not a live graphical browser session — no browser-automation
+  tool was available in the development environment used for this or the
+  Milestone 4 session. See
   [docs/architecture/frontend-architecture.md](docs/architecture/frontend-architecture.md)'s
   Known Limitations.
 - No live demo, screenshots, or demo video exist yet — these will be added once there

@@ -38,14 +38,15 @@ import org.springframework.web.bind.annotation.RestController;
  * else) it exposes under the same {@code /api/v1/auth} path, and there is no
  * repeated pattern yet that would justify an abstraction between them.
  *
- * <p><strong>No endpoint in this milestone requires or checks an access
- * token</strong> — request-level authorization is Milestone 5C's
- * responsibility. Logout in particular deliberately does not require one
- * (see {@code docs/milestones/milestone-05b-authentication-sessions.md}) —
- * the refresh cookie alone is sufficient to identify which session to
- * revoke.
+ * <p><strong>None of the four endpoints here require an access token</strong>
+ * — they are how a caller obtains one in the first place. Logout in
+ * particular deliberately does not require one (see
+ * {@code docs/milestones/milestone-05b-authentication-sessions.md}) — the
+ * refresh cookie alone is sufficient to identify which session to revoke.
+ * Request-level authorization for other endpoints (categories, resources,
+ * {@code /users/me}) is enforced by {@code SecurityConfig} — see ADR-009.
  */
-@Tag(name = "Auth", description = "Registration, login, refresh, and logout. No endpoint here checks an access token — protected-resource authorization is Milestone 5C.")
+@Tag(name = "Auth", description = "Registration, login, refresh, and logout. None of these endpoints require an access token — they are how one is obtained.")
 @RestController
 @RequestMapping("/api/v1/auth")
 public class AuthController {

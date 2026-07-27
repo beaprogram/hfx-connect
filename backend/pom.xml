@@ -33,14 +33,20 @@
 		</dependency>
 
 		<!--
-			Only the crypto module, not spring-boot-starter-security: this gives
-			BCryptPasswordEncoder with no Spring Security auto-configuration, no
-			filter chain, and no side effects on the existing unauthenticated
-			Category/Resource routes. See ADR-007.
+			spring-security-crypto gives BCryptPasswordEncoder (ADR-007).
+			spring-boot-starter-security (added in Milestone 5C) gives the
+			SecurityFilterChain/authentication-filter machinery request-level
+			authorization needs. Every session/form-login/HTTP-Basic default it
+			would otherwise apply is explicitly disabled in SecurityConfig — see
+			ADR-009.
 		-->
 		<dependency>
 			<groupId>org.springframework.security</groupId>
 			<artifactId>spring-security-crypto</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-security</artifactId>
 		</dependency>
 
 		<!--

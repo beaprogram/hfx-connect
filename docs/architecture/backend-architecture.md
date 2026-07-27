@@ -12,7 +12,11 @@
 > "Preventing Privilege Escalation Structurally, Not by Convention" below. Updated
 > again in Milestone 5B, which added a fourth domain (`auth`) and a real
 > transaction-management discovery — see "A Write That Must Survive an Exception
-> Needs `PROPAGATION_REQUIRES_NEW`, Not `noRollbackFor`" below.
+> Needs `PROPAGATION_REQUIRES_NEW`, Not `noRollbackFor`" below. Updated again in
+> Milestone 5C, which added a fifth package (`security`, not a domain in the
+> same sense as the others — it has no entity of its own) and this project's
+> first real `SecurityFilterChain` — see "Request Authentication and
+> Authorization: The `security` Package" below.
 
 ## Layering
 
@@ -271,6 +275,62 @@ Any future privilege-adjacent input (e.g. an admin-only field on some other
 endpoint) should default to this same structural approach — no field to bind to,
 not a field plus a runtime guard — before reaching for a runtime check as a
 second line of defense.
+
+## Request Authentication and Authorization: The `security` Package
+
+Milestone 5C introduces `com.hfxconnect.security` — deliberately not named
+after a domain entity (there is no `Security` table), because it holds
+cross-cutting infrastructure every other domain's protected routes rely on,
+not a business concept of its own:
+
+- `JwtAuthenticationFilter` — a plain `OncePerRequestFilter`, constructed
+  directly inside `SecurityConfig` rather than registered as a Spring bean
+  (a `@Component`-annotated `Filter` would additionally be auto-registered
+  as an ordinary servlet filter by Spring Boot, running it a second time per
+  request outside the security chain — a real gotcha avoided here, not a
+  stylistic choice).
+- `CurrentUserPrincipal` — a minimal record (`userId`, `email`, `role`)
+  attached to `SecurityContext`, following the same "never expose more than
+  a consumer needs" reasoning as every `{Domain}Response` DTO elsewhere in
+  this document — it is not the `User` entity, and never gains a password
+  hash or refresh-session reference.
+- `ApiAuthenticationEntryPoint`/`ApiAccessDeniedHandler` — translate Spring
+  Security's 401/403 outcomes into this project's one `ApiError` shape.
+  These run *outside* `DispatcherServlet`, so `GlobalExceptionHandler` (see
+  "Centralized Error Handling" above) is never in the call path for either —
+  they are a second, necessary place the same response shape has to be
+  produced by hand, not a gap in the "one exception handler" rule.
+- `SecurityConfig` — the one place the entire route matrix (public vs.
+  authenticated vs. role-gated) is expressed, as `HttpSecurity
+  .authorizeHttpRequests` request matchers rather than `@PreAuthorize` +
+  `@EnableMethodSecurity`. This milestone's whole policy is two rules
+  (`ADMIN` for category creation; `ADMIN` or `MODERATOR`, named explicitly,
+  for resource creation) with no per-object/ownership logic yet, so a second
+  configuration surface would only duplicate one policy in two places — see
+  [ADR-009](../decisions/ADR-009-request-authentication-and-role-authorization.md)
+  for the full reasoning and for when `@PreAuthorize` would become the right
+  call instead.
+
+**The single most important decision this package makes:** every
+authenticated request re-loads the account row by the token's `sub` and
+authorizes using its *current* `role`/`status` — never the JWT's own `role`
+claim, which can go stale the moment an administrator changes an account
+after the token was already issued. This trades one extra indexed
+`UserRepository.findById` per authenticated request for closing that gap,
+a trade this project's scale makes easily worth it — see ADR-009's
+"Current-Request Identity" section, and
+`AuthorizationMatrixApiIntegrationTest`'s
+`aRoleChangeAfterTokenIssuanceTakesEffectOnTheNextRequestNotTheStaleClaim`
+test, which proves it against the real database rather than asserting it
+from documentation alone.
+
+`WebCorsConfig` changed shape in this milestone too: it now exposes a
+`CorsConfigurationSource` bean instead of implementing
+`WebMvcConfigurer.addCorsMappings`, because `SecurityConfig`'s
+`HttpSecurity.cors()` needs exactly that bean to delegate to (Spring
+Security does not read `WebMvcConfigurer` registrations) — one CORS policy
+definition, referenced from the one place that now actually enforces it for
+every request, not two definitions that could silently drift apart.
 
 ## OpenAPI
 

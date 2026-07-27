@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { getJson } from "./client";
+import { getJson, postJson, postNoContent } from "./client";
 import { ApiRequestError, ApiResponseShapeError } from "./errors";
 
 const testSchema = z.object({ id: z.number(), name: z.string() });
@@ -90,5 +90,100 @@ describe("getJson", () => {
     (global.fetch as jest.Mock).mockRejectedValueOnce(abortError);
 
     await expect(getJson("/api/v1/resources", testSchema)).rejects.toBe(abortError);
+  });
+
+  it("attaches an Authorization: Bearer header when accessToken is provided", async () => {
+    mockFetchOnce({ ok: true, status: 200, json: async () => ({ id: 1, name: "x" }) });
+
+    await getJson("/api/v1/users/me", testSchema, { accessToken: "a-token" });
+
+    const [, init] = (global.fetch as jest.Mock).mock.calls[0];
+    expect((init.headers as Record<string, string>).Authorization).toBe("Bearer a-token");
+  });
+
+  it("sends no Authorization header when accessToken is omitted", async () => {
+    mockFetchOnce({ ok: true, status: 200, json: async () => ({ id: 1, name: "x" }) });
+
+    await getJson("/api/v1/categories/1", testSchema);
+
+    const [, init] = (global.fetch as jest.Mock).mock.calls[0];
+    expect((init.headers as Record<string, string>).Authorization).toBeUndefined();
+  });
+});
+
+describe("postJson", () => {
+  beforeEach(() => {
+    global.fetch = jest.fn();
+  });
+
+  it("sends a JSON body with Content-Type set", async () => {
+    mockFetchOnce({ ok: true, status: 200, json: async () => ({ id: 1, name: "x" }) });
+
+    await postJson("/api/v1/auth/login", testSchema, { body: { email: "a@example.org", password: "secret123" } });
+
+    const [url, init] = (global.fetch as jest.Mock).mock.calls[0];
+    expect(url).toContain("/api/v1/auth/login");
+    expect(init.method).toBe("POST");
+    expect((init.headers as Record<string, string>)["Content-Type"]).toBe("application/json");
+    expect(JSON.parse(init.body as string)).toEqual({ email: "a@example.org", password: "secret123" });
+  });
+
+  it("omits the body and Content-Type entirely when none is given", async () => {
+    mockFetchOnce({ ok: true, status: 200, json: async () => ({ id: 1, name: "x" }) });
+
+    await postJson("/api/v1/auth/refresh", testSchema, { credentials: "include" });
+
+    const [, init] = (global.fetch as jest.Mock).mock.calls[0];
+    expect(init.body).toBeUndefined();
+    expect((init.headers as Record<string, string>)["Content-Type"]).toBeUndefined();
+    expect(init.credentials).toBe("include");
+  });
+
+  it("attaches an Authorization: Bearer header when accessToken is provided", async () => {
+    mockFetchOnce({ ok: true, status: 200, json: async () => ({ id: 1, name: "x" }) });
+
+    await postJson("/api/v1/some-authenticated-post", testSchema, { accessToken: "a-token" });
+
+    const [, init] = (global.fetch as jest.Mock).mock.calls[0];
+    expect((init.headers as Record<string, string>).Authorization).toBe("Bearer a-token");
+  });
+
+  it("throws ApiRequestError with the backend's ApiError body on a non-2xx response", async () => {
+    mockFetchOnce({
+      ok: false,
+      status: 401,
+      json: async () => ({
+        timestamp: "2026-07-27T00:00:00Z",
+        status: 401,
+        code: "AUTHENTICATION_FAILED",
+        message: "Invalid email or password.",
+      }),
+    });
+
+    await expect(postJson("/api/v1/auth/login", testSchema, { body: {} })).rejects.toMatchObject({
+      status: 401,
+      code: "AUTHENTICATION_FAILED",
+    });
+  });
+});
+
+describe("postNoContent", () => {
+  beforeEach(() => {
+    global.fetch = jest.fn();
+  });
+
+  it("resolves without attempting to parse a body on success", async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, status: 204 } as Response);
+
+    await expect(postNoContent("/api/v1/auth/logout", { credentials: "include" })).resolves.toBeUndefined();
+
+    const [, init] = (global.fetch as jest.Mock).mock.calls[0];
+    expect(init.credentials).toBe("include");
+  });
+
+  it("throws ApiRequestError on a non-2xx response", async () => {
+    mockFetchOnce({ ok: false, status: 500, json: async () => ({ status: 500, code: "INTERNAL_ERROR", message: "Oops." }) });
+
+    await expect(postNoContent("/api/v1/auth/logout")).rejects.toBeInstanceOf(ApiRequestError);
   });
 });

@@ -7,23 +7,28 @@ the intended API and module design.
 
 **Status:** category management (Milestone 3A), a public resource API (Milestone 3C,
 built on the persistence/business layer Milestone 3B added), CORS support for the
-Milestone 4 public frontend, account registration (Milestone 5A), and login/refresh/
-logout (Milestone 5B) — see [Category API](#category-api-v1categories),
-[Resource API](#resource-api-v1resources), [CORS](#cors), and
-[Auth API](#auth-api-v1auth) below. PostgreSQL/PostGIS runs locally via Docker
-Compose, Flyway manages schema migrations, and `/actuator/health` reports live
-database health. There is still no role-based authorization or protected routes —
-no route, including the auth endpoints themselves, requires an access token yet
-(Milestone 5C), and `POST` on the Category/Resource APIs remains unprotected.
+Milestone 4 public frontend, account registration (Milestone 5A), login/refresh/
+logout (Milestone 5B), and request authentication plus role-based authorization
+(Milestone 5C) — see [Category API](#category-api-v1categories),
+[Resource API](#resource-api-v1resources), [CORS](#cors),
+[Auth API](#auth-api-v1auth), and [Users API](#users-api-v1users) below.
+PostgreSQL/PostGIS runs locally via Docker Compose, Flyway manages schema
+migrations, and `/actuator/health` reports live database health. Every
+authenticated request is verified by `com.hfxconnect.security
+.JwtAuthenticationFilter` and authorized by `SecurityConfig`'s route matrix —
+see [docs/architecture/security-architecture.md](../docs/architecture/security-architecture.md).
 
 ## Stack
 
 Java 21, Spring Boot 4.1 (`spring-boot-starter-webmvc`, `spring-boot-starter-data-jpa`,
-`spring-boot-starter-validation`, `spring-boot-starter-actuator`), PostgreSQL JDBC
-driver, Flyway, springdoc-openapi, `spring-security-crypto` (password hashing only —
-see [ADR-007](../docs/decisions/ADR-007-user-identity-and-password-hashing.md); not
-the full `spring-boot-starter-security`), JJWT 0.12.6 (`jjwt-api`/`jjwt-impl`/
-`jjwt-jackson` — access-token signing/validation, see
+`spring-boot-starter-validation`, `spring-boot-starter-actuator`,
+`spring-boot-starter-security` — added Milestone 5C, see
+[ADR-009](../docs/decisions/ADR-009-request-authentication-and-role-authorization.md)),
+PostgreSQL JDBC driver, Flyway, springdoc-openapi, `spring-security-crypto`
+(password hashing — see
+[ADR-007](../docs/decisions/ADR-007-user-identity-and-password-hashing.md)),
+JJWT 0.12.6 (`jjwt-api`/`jjwt-impl`/`jjwt-jackson` — access-token signing/
+validation, see
 [ADR-008](../docs/decisions/ADR-008-authentication-session-architecture.md)), Maven
 (via the Maven Wrapper — no local Maven installation required).
 
@@ -53,11 +58,14 @@ environment variable is an optional override with a working default. Flyway runs
 automatically on startup; see `src/main/resources/db/migration/`.
 
 Most paths still return `404` — only `/actuator/health`, `/api/v1/categories`,
-`/api/v1/resources`, and `/api/v1/auth/{register,login,refresh,logout}` (and each
-of their sub-routes) are mapped so far. (An unmapped
-path correctly returns `404 NOT_FOUND` — this was a real bug in
-`GlobalExceptionHandler` until Milestone 3B fixed it; see the development log for
-2026-07-19.)
+`/api/v1/resources`, `/api/v1/auth/{register,login,refresh,logout}`, and
+`/api/v1/users/me` (and each of their sub-routes) are mapped so far. An
+unmapped path returns `404 NOT_FOUND` from `GlobalExceptionHandler` (fixed in
+Milestone 3B) **only for an authenticated request** — an unauthenticated
+request to any unmapped path is rejected `401` by `SecurityConfig`'s
+`anyRequest().authenticated()` default before Spring MVC's own routing ever
+runs (Milestone 5C) — see
+[GlobalExceptionHandlerIntegrationTest](src/test/java/com/hfxconnect/common/error/GlobalExceptionHandlerIntegrationTest.java).
 
 ### Required: `JWT_SECRET`
 
@@ -98,12 +106,12 @@ production.
 
 `GET /actuator/health` reports `{"status":"UP", ...}` when the application and its
 database connection are healthy, and a non-2xx status with `"status":"DOWN"` when the
-database is unreachable. Only the top-level status and default health groups are
-visible to unauthenticated requests (`management.endpoint.health.show-details=when-authorized`)
-— component-level detail (which would reveal datasource/connection internals) is
-withheld until authenticated *and authorized* requests are possible (Milestone
-5C — login exists as of 5B, but nothing checks an access token on any route yet,
-including this one). Only the `health` endpoint is exposed; no other Actuator
+database is unreachable. It is explicitly public in `SecurityConfig` (Milestone 5C)
+regardless of authentication. Only the top-level status is currently ever shown
+(`management.endpoint.health.show-details=when-authorized`, and no
+`management.endpoint.health.roles` is configured, so component-level detail is
+not granted to any caller yet — a reasonable future improvement, not built in
+this milestone). Only the `health` endpoint is exposed; no other Actuator
 endpoints are enabled.
 
 ## CORS
@@ -118,19 +126,25 @@ development with the frontend on its own default port. There is no `"*"`
 wildcard; a production deployment must set `CORS_ALLOWED_ORIGINS` to the real
 deployed frontend origin(s).
 
+`WebCorsConfig` now exposes a `CorsConfigurationSource` bean (Milestone 5C)
+rather than a `WebMvcConfigurer` — `SecurityConfig`'s `HttpSecurity.cors()`
+delegates to it directly, so this is the one CORS policy definition, enforced
+for every request. `allowedHeaders` includes `Authorization` (required for
+the frontend's Bearer access token to be sent cross-origin at all).
+
 ## Category API (`/api/v1/categories`)
 
 Full reference: `docs/api/README.md` and `docs/milestones/milestone-03a-category-domain.md`.
 Interactive docs from a running backend: `http://localhost:8080/swagger-ui.html`.
 
-**`POST /api/v1/categories` is not protected by authentication yet** — anyone who can
-reach the API can create a category. This is a deliberate, documented limitation
-(Milestone 5 adds authentication/authorization), not an oversight.
+**`POST /api/v1/categories` requires a Bearer access token for an `ADMIN`
+account** (Milestone 5C — see [Auth API](#auth-api-v1auth) for how to get one).
 
 ```bash
-# Create
+# Create (requires an ADMIN access token — see the Auth API section)
 curl -X POST http://localhost:8080/api/v1/categories \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $ADMIN_ACCESS_TOKEN" \
   -d '{"name": "Food Assistance", "description": "Food banks and meals."}'
 
 # Get by ID or slug
@@ -152,17 +166,21 @@ return `409`; validation failures return `400` with the shape documented in
 Full reference: `docs/api/README.md` and
 `docs/milestones/milestone-03c-public-resource-api.md`.
 
-**`POST /api/v1/resources` is not protected by authentication yet**, identical to the
-Category API's own limitation. **There is no update or delete endpoint** —
+**`POST /api/v1/resources` requires a Bearer access token for an `ADMIN` or
+`MODERATOR` account** (Milestone 5C; `ORGANIZATION` accounts cannot create
+resources yet — see [ADR-009](../docs/decisions/ADR-009-request-authentication-and-role-authorization.md)).
+**There is no update or delete endpoint** —
 `ResourceService.update`/`deactivate` exist and are fully tested (Milestone 3B) but
 are not exposed over HTTP in this milestone. Public reads only ever see active
 resources: a deactivated resource returns `404` from every read endpoint, the same as
 a nonexistent one.
 
 ```bash
-# Create (categoryId must reference an existing, active category)
+# Create (categoryId must reference an existing, active category;
+# requires an ADMIN or MODERATOR access token)
 curl -X POST http://localhost:8080/api/v1/resources \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $ADMIN_OR_MODERATOR_ACCESS_TOKEN" \
   -d '{
     "categoryId": 1,
     "name": "Halifax Central Library",
@@ -198,9 +216,10 @@ Full reference: `docs/api/README.md`,
 `docs/milestones/milestone-05b-authentication-sessions.md`. Full security design:
 `docs/architecture/security-architecture.md`.
 
-**No route in the API is protected by authentication yet** — including the
-`login`/`refresh`/`logout` endpoints below, none of which require or check an
-access token themselves. That is Milestone 5C.
+**None of the four endpoints below require an access token** — they are how a
+caller obtains one in the first place (Milestone 5C added request
+authentication for every *other* route — see [Users API](#users-api-v1users)
+and `docs/architecture/security-architecture.md`).
 
 ```bash
 # Register
@@ -208,7 +227,8 @@ curl -X POST http://localhost:8080/api/v1/auth/register \
   -H "Content-Type: application/json" \
   -d '{"email": "student@example.org", "password": "a-genuinely-unique-passphrase"}'
 
-# Log in — sets the refresh cookie via -c (cookie jar file)
+# Log in — sets the refresh cookie via -c (cookie jar file); the JSON response's
+# accessToken is what you pass as `Authorization: Bearer` to protected routes
 curl -i -c cookies.txt -X POST http://localhost:8080/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -d '{"email": "student@example.org", "password": "a-genuinely-unique-passphrase"}'
@@ -254,6 +274,42 @@ require an access token.
 
 **No rate limiting exists** — login accepts unlimited attempts; see
 `docs/architecture/security-architecture.md`'s honest limitations section.
+
+## Users API (`/api/v1/users`)
+
+Full reference: `docs/api/README.md` and
+`docs/milestones/milestone-05c-role-authorization.md`. Added in Milestone 5C.
+
+```bash
+# Requires a Bearer access token (from login/refresh above)
+curl http://localhost:8080/api/v1/users/me -H "Authorization: Bearer $ACCESS_TOKEN"
+```
+
+Returns the caller's own account only — the same safe shape registration
+returns (`{id, email, role, status, emailVerified, createdAt}`). No password
+hash, refresh sessions, or other internal metadata; no user-ID parameter.
+
+## Request Authentication and Authorization (Milestone 5C)
+
+Every route not listed as public in
+`com.hfxconnect.security.SecurityConfig` requires a valid `Authorization:
+Bearer <accessToken>` header; the account's *current* database role and
+status are used for the authorization decision, never the token's own
+`role` claim (a stale-claim scenario — an administrator changing a role
+after a token was already issued — is closed by re-loading the account on
+every request). Full design:
+[ADR-009](../docs/decisions/ADR-009-request-authentication-and-role-authorization.md).
+Full posture: `docs/architecture/security-architecture.md`.
+
+```bash
+# Missing/invalid token, or a non-ACTIVE account → 401 AUTHENTICATION_REQUIRED
+curl -i http://localhost:8080/api/v1/users/me
+
+# Authenticated, but the wrong role → 403 ACCESS_DENIED
+curl -i -X POST http://localhost:8080/api/v1/categories \
+  -H "Authorization: Bearer $USER_ROLE_ACCESS_TOKEN" \
+  -H "Content-Type: application/json" -d '{"name": "Nope"}'
+```
 
 ## Commands
 
@@ -305,8 +361,9 @@ backend/
                                                              HTTP DTOs) — controller added in Milestone 3C
     user/                                                 User domain (entity, repository, service,
                                                              validation, DTOs) — registration; AuthController
-                                                             (login/refresh/logout added in Milestone 5B) also
-                                                             lives here — see backend-architecture.md's
+                                                             (login/refresh/logout added in Milestone 5B),
+                                                             CurrentUserController (/users/me, Milestone 5C)
+                                                             also live here — see backend-architecture.md's
                                                              "Cross-Domain Dependencies" section
     auth/                                                 Authentication-session domain (Milestone 5B):
                                                              RefreshSession(+repository), AccessTokenService,
@@ -314,6 +371,12 @@ backend/
                                                              AuthenticationService, RefreshService, LogoutService,
                                                              LoginRequest/Response, RefreshCookieConfig,
                                                              auth-specific exceptions — see ADR-008
+    security/                                            Request authentication/authorization (Milestone
+                                                             5C): JwtAuthenticationFilter, CurrentUserPrincipal,
+                                                             SecurityConfig, ApiAuthenticationEntryPoint,
+                                                             ApiAccessDeniedHandler — see ADR-009 and
+                                                             backend-architecture.md's "Request Authentication
+                                                             and Authorization" section
   src/main/resources/
     application.properties                        Base configuration (env-based DB connection,
                                                              JPA, Actuator, JWT/cookie config)
@@ -323,6 +386,8 @@ backend/
       V3__create_resources_table.sql          Third Flyway migration
       V4__create_users_table.sql               Fourth Flyway migration
       V5__create_refresh_sessions_table.sql  Fifth Flyway migration
+                                                             (Milestone 5C added no new migration — Role/
+                                                             AccountStatus already existed on V4's users table)
   src/test/java/com/hfxconnect/
     AbstractPostgresIntegrationTest.java   Shared Testcontainers setup (public — extended
                                                              from sub-packages like category/, resource/)
@@ -331,8 +396,10 @@ backend/
     HealthEndpointIntegrationTest.java      Health endpoint tests
     common/
       text/SlugGeneratorTest.java                Pure unit tests for the shared slug algorithm
-      error/GlobalExceptionHandlerIntegrationTest.java  Unmapped-route 404 regression test
-      config/CorsConfigurationIntegrationTest.java  CORS allowlist + credentials regression test
+      error/GlobalExceptionHandlerIntegrationTest.java  Unmapped-route 404 (authenticated)/
+                                                             401 (unauthenticated) regression test
+      config/CorsConfigurationIntegrationTest.java  CORS allowlist + credentials + Authorization
+                                                             header regression test
     category/                                           Category domain tests (unit, repository,
                                                              API integration — see
                                                              docs/milestones/milestone-03a-category-domain.md)
@@ -341,12 +408,18 @@ backend/
                                                              see docs/milestones/milestone-03b-resource-domain.md
                                                              and milestone-03c-public-resource-api.md)
     user/                                                 User domain tests (repository, service, API
-                                                             integration — see
+                                                             integration, TestUserFactory for role-gated
+                                                             test accounts — see
                                                              docs/milestones/milestone-05a-user-registration.md)
     auth/                                                 Auth-session domain tests (token unit tests,
                                                              repository, service, full login/refresh/logout
                                                              API integration — see
                                                              docs/milestones/milestone-05b-authentication-sessions.md)
+    security/                                            Authorization matrix tests (every role × every
+                                                             protected route, token-validation edge cases,
+                                                             stale-role-claim and disabled-account-after-
+                                                             issuance proofs — see
+                                                             docs/milestones/milestone-05c-role-authorization.md)
 ```
 
 Domain packages not yet needed (`search/`, `moderation/`, `event/`, etc., as

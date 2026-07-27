@@ -1,10 +1,23 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { AuthProvider } from "@/lib/auth/auth-provider";
 import { MobileNav } from "./mobile-nav";
+
+jest.mock("next/navigation", () => ({
+  useRouter: () => ({ push: jest.fn(), replace: jest.fn() }),
+}));
+
+function renderMobileNav() {
+  return render(
+    <AuthProvider>
+      <MobileNav />
+    </AuthProvider>,
+  );
+}
 
 describe("MobileNav", () => {
   it("is closed by default and the panel is not in the document", () => {
-    render(<MobileNav />);
+    renderMobileNav();
 
     expect(screen.getByRole("button", { name: "Open menu" })).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByRole("navigation", { name: "Mobile" })).not.toBeInTheDocument();
@@ -12,7 +25,7 @@ describe("MobileNav", () => {
 
   it("opens the panel, moves focus to the first link, and shows Close menu", async () => {
     const user = userEvent.setup();
-    render(<MobileNav />);
+    renderMobileNav();
 
     await user.click(screen.getByRole("button", { name: "Open menu" }));
 
@@ -24,7 +37,7 @@ describe("MobileNav", () => {
 
   it("closes on Escape and returns focus to the toggle button", async () => {
     const user = userEvent.setup();
-    render(<MobileNav />);
+    renderMobileNav();
 
     const toggle = screen.getByRole("button", { name: "Open menu" });
     await user.click(toggle);
@@ -36,7 +49,7 @@ describe("MobileNav", () => {
 
   it("closes when a link inside the panel is clicked", async () => {
     const user = userEvent.setup();
-    render(<MobileNav />);
+    renderMobileNav();
 
     await user.click(screen.getByRole("button", { name: "Open menu" }));
     await user.click(screen.getByRole("link", { name: "Browse resources" }));

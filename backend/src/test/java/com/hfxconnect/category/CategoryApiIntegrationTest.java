@@ -3,7 +3,13 @@ package com.hfxconnect.category;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.hfxconnect.AbstractPostgresIntegrationTest;
+import com.hfxconnect.auth.AccessTokenService;
+import com.hfxconnect.user.Role;
+import com.hfxconnect.user.TestUserFactory;
+import com.hfxconnect.user.User;
+import com.hfxconnect.user.UserRepository;
 import java.util.UUID;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.resttestclient.TestRestTemplate;
@@ -23,12 +29,36 @@ import org.springframework.http.ResponseEntity;
  * {@code @Transactional} rollback does not apply here. Each test uses a
  * unique, UUID-suffixed category name/slug instead of relying on cleanup, so
  * tests remain independent of execution order and of each other.
+ *
+ * <p>{@code POST} requires an {@code ADMIN} access token as of Milestone
+ * 5C — every write request here carries one, issued for a fresh {@code ADMIN}
+ * test account created in {@link #issueAdminSession()}. The authorization
+ * matrix itself (which roles are rejected, and how) is
+ * {@link com.hfxconnect.security.AuthorizationMatrixApiIntegrationTest}'s
+ * job, not this regression suite's — this file's POST tests exist to prove
+ * the category business logic still works correctly *given* a valid ADMIN
+ * caller, unchanged from before authorization existed.
  */
 @AutoConfigureTestRestTemplate
 class CategoryApiIntegrationTest extends AbstractPostgresIntegrationTest {
 
 	@Autowired
 	private TestRestTemplate restTemplate;
+
+	@Autowired
+	private UserRepository userRepository;
+
+	@Autowired
+	private AccessTokenService accessTokenService;
+
+	private HttpHeaders adminAuthHeaders;
+
+	@BeforeEach
+	void issueAdminSession() {
+		User admin = userRepository.saveAndFlush(TestUserFactory.withRole(Role.ADMIN));
+		adminAuthHeaders = new HttpHeaders();
+		adminAuthHeaders.setBearerAuth(accessTokenService.issue(admin.getId(), Role.ADMIN).token());
+	}
 
 	@Test
 	void createReturns201WithLocationHeaderAndBody() {
@@ -188,16 +218,21 @@ class CategoryApiIntegrationTest extends AbstractPostgresIntegrationTest {
 		assertThat(response.getBody()).contains("/api/v1/categories/slug/{slug}");
 	}
 
-	private static HttpEntity<CategoryCreateRequest> createRequest(String name, String description) {
-		HttpHeaders headers = new HttpHeaders();
-		headers.setContentType(MediaType.APPLICATION_JSON);
+	private HttpEntity<CategoryCreateRequest> createRequest(String name, String description) {
+		HttpHeaders headers = authedJsonHeaders();
 		return new HttpEntity<>(new CategoryCreateRequest(name, description), headers);
 	}
 
-	private static HttpEntity<String> jsonEntity(String rawJson) {
-		HttpHeaders headers = new HttpHeaders();
-		headers.setContentType(MediaType.APPLICATION_JSON);
+	private HttpEntity<String> jsonEntity(String rawJson) {
+		HttpHeaders headers = authedJsonHeaders();
 		return new HttpEntity<>(rawJson, headers);
+	}
+
+	private HttpHeaders authedJsonHeaders() {
+		HttpHeaders headers = new HttpHeaders();
+		headers.addAll(adminAuthHeaders);
+		headers.setContentType(MediaType.APPLICATION_JSON);
+		return headers;
 	}
 
 }

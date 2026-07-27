@@ -3,10 +3,16 @@ package com.hfxconnect.resource;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.hfxconnect.AbstractPostgresIntegrationTest;
+import com.hfxconnect.auth.AccessTokenService;
 import com.hfxconnect.category.Category;
 import com.hfxconnect.category.CategoryRepository;
+import com.hfxconnect.user.Role;
+import com.hfxconnect.user.TestUserFactory;
+import com.hfxconnect.user.User;
+import com.hfxconnect.user.UserRepository;
 import java.util.Locale;
 import java.util.UUID;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.resttestclient.TestRestTemplate;
@@ -27,6 +33,12 @@ import org.springframework.http.ResponseEntity;
  * deactivated resource to verify "inactive resources are invisible
  * publicly" use {@link ResourceService#deactivate} directly rather than
  * through HTTP — the only way to reach that state right now.
+ *
+ * <p>{@code POST} requires an {@code ADMIN}-or-{@code MODERATOR} access
+ * token as of Milestone 5C — every write request here carries an
+ * {@code ADMIN} one, issued in {@link #issueAdminSession()}. The full
+ * authorization matrix lives in
+ * {@link com.hfxconnect.security.AuthorizationMatrixApiIntegrationTest}.
  */
 @AutoConfigureTestRestTemplate
 class ResourceApiIntegrationTest extends AbstractPostgresIntegrationTest {
@@ -39,6 +51,21 @@ class ResourceApiIntegrationTest extends AbstractPostgresIntegrationTest {
 
 	@Autowired
 	private ResourceService resourceService;
+
+	@Autowired
+	private UserRepository userRepository;
+
+	@Autowired
+	private AccessTokenService accessTokenService;
+
+	private HttpHeaders adminAuthHeaders;
+
+	@BeforeEach
+	void issueAdminSession() {
+		User admin = userRepository.saveAndFlush(TestUserFactory.withRole(Role.ADMIN));
+		adminAuthHeaders = new HttpHeaders();
+		adminAuthHeaders.setBearerAuth(accessTokenService.issue(admin.getId(), Role.ADMIN).token());
+	}
 
 	@Test
 	void createReturns201WithLocationHeaderAndCategorySummary() {
@@ -345,19 +372,24 @@ class ResourceApiIntegrationTest extends AbstractPostgresIntegrationTest {
 		return categoryRepository.save(new Category(name, name.toLowerCase(Locale.ROOT), "cat-" + marker, null));
 	}
 
-	private static HttpEntity<ResourceCreateRequest> createRequest(Long categoryId, String name) {
-		HttpHeaders headers = new HttpHeaders();
-		headers.setContentType(MediaType.APPLICATION_JSON);
+	private HttpEntity<ResourceCreateRequest> createRequest(Long categoryId, String name) {
+		HttpHeaders headers = authedJsonHeaders();
 		ResourceCreateRequest request = new ResourceCreateRequest(categoryId, name,
 				"A helpful community resource.", "123 Main St", null, "Halifax", "NS", "B3H 4R2",
 				null, null, null, null, null, null);
 		return new HttpEntity<>(request, headers);
 	}
 
-	private static HttpEntity<String> jsonEntity(String rawJson) {
-		HttpHeaders headers = new HttpHeaders();
-		headers.setContentType(MediaType.APPLICATION_JSON);
+	private HttpEntity<String> jsonEntity(String rawJson) {
+		HttpHeaders headers = authedJsonHeaders();
 		return new HttpEntity<>(rawJson, headers);
+	}
+
+	private HttpHeaders authedJsonHeaders() {
+		HttpHeaders headers = new HttpHeaders();
+		headers.addAll(adminAuthHeaders);
+		headers.setContentType(MediaType.APPLICATION_JSON);
+		return headers;
 	}
 
 }

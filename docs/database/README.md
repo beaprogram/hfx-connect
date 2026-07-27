@@ -90,7 +90,7 @@ independent actors — see
 | `email` | `VARCHAR(180)` | `NOT NULL`, non-blank — stored as submitted (trimmed only), for display |
 | `normalized_email` | `VARCHAR(180)` | `NOT NULL`, `UNIQUE` — lowercased, trimmed form of `email`; the authoritative uniqueness key (mirrors `categories.normalized_name`) |
 | `password_hash` | `VARCHAR(200)` | `NOT NULL`, non-blank — a BCrypt hash (strength 12), never plaintext |
-| `role` | `VARCHAR(20)` | `NOT NULL`, one of `USER`/`ORGANIZATION`/`MODERATOR`/`ADMIN`, defaults to `USER`. Registration (Milestone 5A) only ever writes `USER` — the other values are reserved for Milestone 5C/organization/moderation work |
+| `role` | `VARCHAR(20)` | `NOT NULL`, one of `USER`/`ORGANIZATION`/`MODERATOR`/`ADMIN`, defaults to `USER`. Registration (Milestone 5A) only ever writes `USER` — the other values have no assignment endpoint yet (no role-management API exists) but are now enforced as authorization authorities by `SecurityConfig` (Milestone 5C) wherever a row is set to one directly |
 | `status` | `VARCHAR(30)` | `NOT NULL`, one of `ACTIVE`/`PENDING_VERIFICATION`/`SUSPENDED`/`DEACTIVATED`, defaults to `ACTIVE`. Registration only ever writes `ACTIVE` — see ADR-007 for why, not `PENDING_VERIFICATION` |
 | `email_verified` | `BOOLEAN` | `NOT NULL`, defaults to `FALSE` — independent of `status`; always `false` after registration since no email-delivery mechanism exists yet |
 | `created_at` | `TIMESTAMPTZ` | `NOT NULL`, defaults to `now()` |

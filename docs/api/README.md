@@ -41,10 +41,37 @@ allowlist that makes that possible.
   referenced a real category that exists but is inactive — distinct from
   `CATEGORY_NOT_FOUND`, where the referenced category doesn't exist at all),
   `USER_CONFLICT` (duplicate email at registration), `AUTHENTICATION_FAILED`
-  (login), `AUTHENTICATION_REQUIRED` (refresh — no cookie presented),
-  `INVALID_REFRESH_TOKEN`, `REFRESH_TOKEN_EXPIRED`, `REFRESH_TOKEN_REUSED`,
-  `ACCOUNT_UNAVAILABLE` (valid credentials/token, non-`ACTIVE` account),
-  `INVALID_PAGINATION`, `INVALID_SORT`, `INTERNAL_ERROR`.
+  (login), `AUTHENTICATION_REQUIRED` (missing/invalid Bearer token, a
+  non-`ACTIVE` account on an authenticated request, or a refresh with no
+  cookie presented), `ACCESS_DENIED` (authenticated, but the account's role
+  doesn't permit the action — Milestone 5C), `INVALID_REFRESH_TOKEN`,
+  `REFRESH_TOKEN_EXPIRED`, `REFRESH_TOKEN_REUSED`, `ACCOUNT_UNAVAILABLE`
+  (valid credentials/refresh token, non-`ACTIVE` account), `INVALID_PAGINATION`,
+  `INVALID_SORT`, `INTERNAL_ERROR`.
+
+## Authentication and Authorization (Milestone 5C)
+
+Most of the API is public. Protected routes require a Bearer access token
+(from `POST /api/v1/auth/login` or `/refresh`): `Authorization: Bearer
+<accessToken>`. Full design:
+[ADR-009](../decisions/ADR-009-request-authentication-and-role-authorization.md)
+and [docs/architecture/security-architecture.md](../architecture/security-architecture.md).
+
+| Route | Requirement |
+|---|---|
+| `POST /api/v1/auth/{register,login,refresh,logout}` | Public |
+| `GET /api/v1/categories`, `/api/v1/categories/**` | Public |
+| `GET /api/v1/resources`, `/api/v1/resources/**` | Public |
+| `GET /actuator/health` | Public |
+| `GET /api/v1/users/me` | Any authenticated, `ACTIVE` account |
+| `POST /api/v1/categories` | `ADMIN` only |
+| `POST /api/v1/resources` | `ADMIN` or `MODERATOR` (not `ORGANIZATION` yet — see ADR-009) |
+| Everything else | Authenticated (fail closed) |
+
+Missing/invalid tokens and non-`ACTIVE` accounts return `401
+AUTHENTICATION_REQUIRED`. An authenticated caller whose role doesn't permit
+the action returns `403 ACCESS_DENIED` with a generic message — never the
+specific role or expression required.
 
 ## Pagination
 
@@ -80,10 +107,8 @@ Full detail: `docs/milestones/milestone-03a-category-domain.md`. Summary:
 | `GET` | `/api/v1/categories/slug/{slug}` | Get a category by slug. |
 | `GET` | `/api/v1/categories` | Paginated list, sorted by name ascending. Optional `active` (`true`/`false`) query filter. |
 
-**Temporary security limitation:** `POST /api/v1/categories` is not protected by
-authentication yet — anyone who can reach the API can create a category.
-Authentication and role-based authorization are introduced in Milestone 5. This is a
-deliberate, documented limitation of this milestone, not an oversight.
+**`POST /api/v1/categories` requires a Bearer access token for an `ADMIN`
+account** (Milestone 5C — see "Authentication and Authorization" above).
 
 ### Status codes
 
@@ -92,6 +117,8 @@ deliberate, documented limitation of this milestone, not an oversight.
 | `201` | Category created; `Location` header points to `GET /api/v1/categories/{id}` |
 | `200` | Successful retrieval or listing |
 | `400` | Validation failure, malformed JSON, or invalid pagination parameters |
+| `401` | `POST` only — missing or invalid access token |
+| `403` | `POST` only — authenticated, but not an `ADMIN` account |
 | `404` | No category exists with the given ID or slug |
 | `409` | A category with that name or slug already exists |
 | `500` | Unexpected server error (no internal detail is exposed) |
@@ -112,9 +139,9 @@ the full category representation. List results use a leaner
 `ResourceSummaryResponse` (omits full description, contact details, and eligibility —
 see `GET /api/v1/resources/{id}` for those).
 
-**Temporary security limitation:** `POST /api/v1/resources` is not protected by
-authentication yet, identical to the Category API's own documented limitation.
-Authentication and role-based authorization are introduced in Milestone 5.
+**`POST /api/v1/resources` requires a Bearer access token for an `ADMIN` or
+`MODERATOR` account** (Milestone 5C). `ORGANIZATION` accounts cannot create
+resources yet — see ADR-009.
 
 **No update or delete endpoint yet.** `ResourceService.update`/`deactivate` exist and
 are fully tested (Milestone 3B), but are not exposed over HTTP in this milestone —
@@ -127,6 +154,8 @@ see `docs/milestones/milestone-03c-public-resource-api.md`.
 | `201` | Resource created; `Location` header points to `GET /api/v1/resources/{id}` |
 | `200` | Successful retrieval or listing |
 | `400` | Validation failure, malformed JSON, invalid pagination/sort, or an inactive category (`INACTIVE_CATEGORY`) |
+| `401` | `POST` only — missing or invalid access token |
+| `403` | `POST` only — authenticated, but not an `ADMIN` or `MODERATOR` account |
 | `404` | No active resource exists with the given ID/slug, or the referenced category doesn't exist (`CATEGORY_NOT_FOUND`) |
 | `409` | A resource with that (derived) slug already exists |
 | `500` | Unexpected server error (no internal detail is exposed) |
@@ -174,10 +203,9 @@ saying why. Refresh tokens rotate on every successful refresh; presenting an
 already-used token revokes every session descended from the same login, not just
 that one.
 
-**No route in the API is protected by authentication or authorization yet** —
-including the three endpoints above, none of which require or check an access
-token. That is Milestone 5C. **No rate limiting exists** — login accepts unlimited
-attempts; see ADR-008's honest limitations section.
+**None of the four endpoints above require an access token** — they are how a
+caller obtains one in the first place. **No rate limiting exists** — login
+accepts unlimited attempts; see ADR-008's honest limitations section.
 
 ### Status codes
 
@@ -191,3 +219,23 @@ attempts; see ADR-008's honest limitations section.
 | `403` | Credentials or refresh token were valid, but the account is not `ACTIVE` (`ACCOUNT_UNAVAILABLE`) |
 | `409` | An account with that (case-insensitively normalized) email already exists (`register`) |
 | `500` | Unexpected server error (no internal detail is exposed) |
+
+## Users — `/api/v1/users`
+
+Full detail: `docs/milestones/milestone-05c-role-authorization.md`.
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/v1/users/me` | The current authenticated account. Requires a Bearer access token. |
+
+Returns the same safe shape as registration's response — `{id, email, role,
+status, emailVerified, createdAt}` — for the authenticated caller only. There
+is no user-ID parameter and no way to look up a different account; that would
+be a role-management/admin-lookup capability this project doesn't have.
+
+### Status codes
+
+| Status | Meaning |
+|---|---|
+| `200` | Current account returned |
+| `401` | Missing or invalid access token, or the account is no longer `ACTIVE` (`AUTHENTICATION_REQUIRED`) |

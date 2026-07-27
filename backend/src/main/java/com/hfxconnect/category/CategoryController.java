@@ -7,6 +7,7 @@ import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import java.net.URI;
@@ -23,15 +24,11 @@ import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 /**
  * Category management.
  *
- * <p><strong>Temporary security limitation:</strong> write endpoints
- * ({@code POST}) are not protected yet. Authentication and role-based
- * authorization are introduced in Milestone 5C; until then, anyone who can
- * reach this API can create categories. This is a known, deliberate,
- * documented limitation of this milestone — not an oversight — and is
- * restated in {@code docs/milestones/milestone-03a-category-domain.md} and
- * the root README's known limitations.
+ * <p>{@code POST} requires a Bearer access token belonging to an
+ * {@code ADMIN} account (Milestone 5C — see ADR-009 and
+ * {@code SecurityConfig}). All {@code GET} endpoints remain fully public.
  */
-@Tag(name = "Categories", description = "Category management. POST is temporarily unsecured — see class-level Javadoc and the project's known limitations.")
+@Tag(name = "Categories", description = "Category management. POST requires an ADMIN access token; GET is public.")
 @RestController
 @RequestMapping("/api/v1/categories")
 public class CategoryController {
@@ -42,10 +39,13 @@ public class CategoryController {
 		this.categoryService = categoryService;
 	}
 
-	@Operation(summary = "Create a category", description = "The slug is always derived from the name and cannot be supplied directly. Not protected by authentication yet (Milestone 5C).")
+	@Operation(summary = "Create a category", description = "The slug is always derived from the name and cannot be supplied directly. Requires a Bearer access token for an ADMIN account.")
+	@SecurityRequirement(name = "bearerAuth")
 	@ApiResponses({
 			@ApiResponse(responseCode = "201", description = "Category created"),
 			@ApiResponse(responseCode = "400", description = "Validation failure", content = @Content(schema = @Schema(implementation = ApiError.class))),
+			@ApiResponse(responseCode = "401", description = "Missing or invalid access token", content = @Content(schema = @Schema(implementation = ApiError.class))),
+			@ApiResponse(responseCode = "403", description = "Authenticated, but not an ADMIN account", content = @Content(schema = @Schema(implementation = ApiError.class))),
 			@ApiResponse(responseCode = "409", description = "A category with this name or slug already exists", content = @Content(schema = @Schema(implementation = ApiError.class)))
 	})
 	@PostMapping
