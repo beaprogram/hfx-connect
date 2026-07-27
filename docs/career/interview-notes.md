@@ -420,10 +420,63 @@ cross-*site*, where `SameSite=Lax` cookies are not sent on cross-site
 project's explicit CORS origin allowlist (never a wildcard). Hardcoding either
 value would silently break one environment or the other.
 
+## Answerable Now (Milestone 5C)
+
+**How is authorization enforced server-side, independent of anything the
+frontend does?** `SecurityConfig`'s `SecurityFilterChain` is the sole
+authority — every route's requirement (public, any authenticated account, or
+a specific role) is a request matcher evaluated on the backend before a
+controller method ever runs. The frontend's `/dashboard` guard is a
+client-side convenience only (it prevents a flash of protected UI before a
+redirect a signed-out user was always going to hit anyway); it has no
+mechanism to grant or withhold anything the backend didn't already decide.
+Directly requesting any protected route's HTML or calling its API bypasses
+nothing, because the backend never trusted the frontend's routing in the
+first place.
+
+**Why re-load the account and its role from the database on every
+authenticated request, instead of just trusting the JWT's `role` claim it
+already carries?** Because the claim is a snapshot from the moment the token
+was issued, and it can go stale: if an administrator demotes or suspends an
+account a minute after that account's token was issued, the token itself is
+still cryptographically valid for up to 15 more minutes. Trusting the claim
+would mean that demotion or suspension has no real effect until the token
+naturally expires. Re-loading the account by the token's subject and using
+its *current* row for the authorization decision closes that gap at the
+cost of one extra indexed primary-key lookup per request — verified live,
+not just reasoned about: a token issued while an account was a plain `USER`
+was later used, completely unchanged, to successfully perform an
+`ADMIN`-only action, immediately after that same account was promoted
+directly in the database.
+
+**Why request-matcher-based authorization (`SecurityConfig`) instead of
+`@PreAuthorize` annotations on the controller methods?** Both are valid
+Spring Security patterns; the choice follows from what this milestone's
+actual policy needs. Every rule here reduces to "this HTTP method and path
+requires this role," with no per-object or ownership logic (nothing needs
+"this resource belongs to the caller") — a request matcher expresses that
+directly, in one place, with no risk of a second `@PreAuthorize`
+configuration surface drifting out of sync with it. If a future feature
+needs object-level authorization (e.g., an organization editing only its own
+listings), that's the specific trigger to introduce `@PreAuthorize` for that
+narrower need, not a reason to add it preemptively now.
+
+**How does the frontend keep the access token away from XSS, while still
+surviving a page reload?** The token lives only in a React context's
+in-memory state — never `localStorage`, `sessionStorage`, or a
+JavaScript-writable cookie — so there's no persistent, script-readable
+location for an injected script to steal it from. The trade-off is that a
+full page reload always discards it; the frontend recovers by calling the
+refresh endpoint once on load, which exchanges the `HttpOnly` refresh
+cookie (never itself readable by JavaScript) for a fresh access token.
+Concurrent refresh attempts are coalesced into a single in-flight request,
+because this project's refresh tokens rotate on every use — two independent
+refresh calls racing each other could each present the same soon-to-be-
+rotated token and trigger a false-positive security lockout of the user's
+own, entirely legitimate session.
+
 ## To Be Added in Later Milestones
 
-- How authorization is enforced server-side, independent of the frontend
-  (Milestone 5C).
 - How moderation approval and audit-history writes are made transactional (Milestone
   9).
 - How geographic search is kept fast as content grows (Milestone 7).

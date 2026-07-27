@@ -5,7 +5,9 @@
 > real Category (Milestone 3A) and Resource (Milestone 3C) APIs. Milestones 1
 > and 2A only established the application shell (layout, header/footer,
 > Tailwind, testing setup); this document describes what Milestone 4 built on
-> top of that.
+> top of that. Updated in Milestone 5C, which added the first authenticated
+> routes (`/login`, `/register`, `/dashboard`) and an in-memory session layer —
+> see "Authentication Architecture" below.
 
 ## Route Structure
 
@@ -13,6 +15,9 @@
 /                          Homepage — hero, category grid, resource preview, trust copy
 /resources                 Paginated, filterable, sortable resource list
 /resources/[slug]          Full detail for one active resource
+/login                     Email/password login
+/register                  Account registration (does not log the caller in)
+/dashboard                 The current authenticated account — protected client-side
 ```
 
 Every route is a Server Component by default; only components that need
@@ -200,6 +205,76 @@ header's inline nav is `hidden` below `sm:` in favor of `MobileNav`, and the
 filter form's controls (`flex flex-wrap`) stack on narrow widths without any
 width-specific overrides needed.
 
+## Authentication Architecture
+
+Full design rationale:
+[ADR-009](../decisions/ADR-009-request-authentication-and-role-authorization.md).
+Summary of what actually exists in the code:
+
+- **`lib/auth/auth-provider.tsx`** — a `"use client"` React Context provider
+  (`AuthProvider`/`useAuth`), following the exact pattern
+  `node_modules/next/dist/docs/01-app/02-guides/single-page-applications.md`
+  documents for this Next.js version ("SPAs with React Query" — a plain
+  client-side context provider works fine alongside TanStack Query; nothing
+  here needs Server Component-side session data, because every backend call
+  this frontend makes is client-side to a separate origin, not a Next.js
+  server reading its own cookies). `AuthState` is a closed union
+  (`"loading" | "authenticated" | "unauthenticated"`) so a consumer can never
+  read a token from a state that doesn't have one.
+- **The access token lives only in that provider's React state — never
+  `localStorage`, `sessionStorage`, or a cookie set from JavaScript.** A full
+  page reload always starts at `"loading"` and discards it; there is no
+  code path that persists it anywhere else. This is a deliberate consequence
+  of ADR-008's original refresh-token design (Milestone 5B), not a new
+  decision: an access token in any JavaScript-readable storage is exactly as
+  exfiltrable by an XSS payload as a cookie without `HttpOnly` would be.
+- **Session restoration** happens exactly once per page load, in
+  `AuthProvider`'s mount effect: it calls `POST /api/v1/auth/refresh` (via
+  `lib/api/auth.ts`'s `refreshSession`, `credentials: "include"`) to try
+  exchanging the `HttpOnly` `hfx_refresh_token` cookie — which this frontend's
+  own JavaScript can never read directly — for a fresh access token. Failure
+  (no cookie, or an expired/reused one) resolves to `"unauthenticated"`, not
+  an error; a fresh visitor with no session is an entirely ordinary case.
+- **Single-flight refresh.** Refresh tokens rotate on every use (ADR-008);
+  two concurrent refresh attempts from the same tab could each present the
+  same soon-to-be-rotated cookie and trigger a false-positive family-wide
+  revocation. `AuthProvider` coalesces concurrent refresh attempts (the
+  mount-time restoration and any later `getValidAccessToken()` call that
+  finds the token close to expiry) into one shared in-flight promise via a
+  `useRef`, rather than each caller issuing its own request.
+- **Token expiry** is tracked from the login/refresh response's own
+  `expiresIn` (seconds, converted to an absolute `expiresAt` with a 10-second
+  clock-skew buffer) — nothing decodes or trusts the JWT's own claims
+  client-side; the response already hands over the one number that matters.
+- **`components/auth/protected-route.tsx`** guards `/dashboard`: it renders
+  an accessible loading state for both `"loading"` and the brief instant
+  `"unauthenticated"` is true before its redirect effect fires, so protected
+  content is never painted even momentarily, then redirects to `/login`.
+  This is explicitly a UX convenience, not a security boundary — see the
+  component's own Javadoc-equivalent comment and ADR-009's "Frontend Route
+  Guard Is UX-Layer Only" section for why Next.js middleware/Proxy cannot
+  fill this role in this project's direct-frontend-to-backend architecture
+  (the refresh cookie belongs to the *backend's* origin — a Next.js Proxy
+  reading `cookies()` per
+  `node_modules/next/dist/docs/01-app/02-guides/authentication.md`'s own
+  "Optimistic checks with Proxy" section would need a cookie set for the
+  Next.js app's own domain, which this one isn't, per ADR-006).
+- **`lib/api/auth.ts`** extends the typed API client
+  (`register`/`login`/`refreshSession`/`logout`/`getCurrentUser`), reusing
+  `lib/api/client.ts`'s existing `getJson` plus two new counterparts,
+  `postJson`/`postNoContent`, added specifically for this milestone (POST
+  requests with and without a meaningful JSON response body, respectively).
+  `login`/`refreshSession`/`logout` pass `credentials: "include"`;
+  `getCurrentUser` passes an `accessToken` that becomes an `Authorization:
+  Bearer` header — never a cookie.
+- **No creation-form visibility logic exists yet.** The milestone brief
+  explicitly permits an action to simply not appear at all rather than
+  building fake disabled controls to "demonstrate" roles — this frontend has
+  no category/resource creation UI at all yet, so there is nothing to hide
+  per-role. `/dashboard` shows the current role as plain text; backend
+  enforcement (`SecurityConfig`) remains authoritative regardless of
+  anything the frontend renders or hides.
+
 ## Backend Connectivity
 
 The browser calls the backend directly — see
@@ -213,6 +288,18 @@ for the resulting `WebCorsConfig`.
   doesn't support them publicly yet (`docs/api/README.md`).
 - No free-text search, distance/geospatial filtering, or map — later
   milestones (6-7).
+- No role-specific dashboards, category/resource creation forms, saved
+  resources, submissions, or moderation UI — `/dashboard` shows only the
+  current authenticated account's safe fields and a logout control (Milestone
+  5C's explicit scope; see ADR-009).
+- The protected-route guard is UX-layer only; a direct request to
+  `/dashboard`'s HTML bypasses nothing real, because the backend never
+  trusted the frontend's routing in the first place — see "Authentication
+  Architecture" above.
+- No proactive-retry-after-401 request wrapper exists yet — the frontend
+  tracks expiry proactively (refreshing before a known `expiresIn` elapses)
+  rather than reacting to a 401 and replaying the original request. This was
+  a deliberate scope trade per ADR-009, not an oversight.
 - Responsive/visual verification in this milestone was code-review-based
   (Tailwind breakpoint classes) and curl-based (rendered HTML content), not a
   live graphical browser session — no browser-automation tool was available
