@@ -96,20 +96,19 @@ public class ResourceController {
 		return ResourceResponse.from(resourceService.getActiveBySlug(slug));
 	}
 
-	@Operation(summary = "List active resources", description = "Paginated. Always active-only — there is no way to include inactive resources in this public listing yet (that needs Milestone 5C authorization). Page size is capped at " + ResourceService.MAX_PAGE_SIZE + ". sort defaults to name ascending; sort=createdAt sorts newest-first.")
+	@Operation(summary = "List (and optionally search) active resources", description = "Paginated. Always active-only — there is no way to include inactive resources in this public listing yet (that needs Milestone 5C authorization). Page size is capped at " + ResourceService.MAX_PAGE_SIZE + ". sort defaults to name ascending; sort=createdAt sorts newest-first. q performs a case-insensitive substring match across name, description, addressLine1, and city (Milestone 6A) — see ADR-010. A blank q is treated as no keyword filter; results are not relevance-ranked.")
 	@ApiResponses({
 			@ApiResponse(responseCode = "200", description = "Resource page"),
-			@ApiResponse(responseCode = "400", description = "Invalid page, size, or sort value", content = @Content(schema = @Schema(implementation = ApiError.class)))
+			@ApiResponse(responseCode = "400", description = "Invalid page, size, sort, or q value", content = @Content(schema = @Schema(implementation = ApiError.class)))
 	})
 	@GetMapping
 	public ResourcePageResponse list(
 			@Parameter(description = "Zero-based page index.") @RequestParam(defaultValue = "0") int page,
 			@Parameter(description = "Page size, 1-" + ResourceService.MAX_PAGE_SIZE + ".") @RequestParam(defaultValue = "20") int size,
 			@Parameter(description = "Optional category filter.") @RequestParam(required = false) Long categoryId,
-			@Parameter(description = "One of: name (default, ascending), createdAt (newest first).") @RequestParam(required = false) String sort) {
-		return ResourcePageResponse.from(categoryId == null
-				? resourceService.listActive(page, size, sort)
-				: resourceService.listActiveByCategory(categoryId, page, size, sort));
+			@Parameter(description = "One of: name (default, ascending), createdAt (newest first).") @RequestParam(required = false) String sort,
+			@Parameter(description = "Optional keyword search. Case-insensitive substring match across name/description/addressLine1/city; at most " + ResourceSearchQuery.MAX_LENGTH + " characters after normalization; blank is treated as no filter.") @RequestParam(required = false) String q) {
+		return ResourcePageResponse.from(resourceService.search(q, categoryId, page, size, sort));
 	}
 
 }
