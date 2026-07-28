@@ -36,4 +36,10 @@ describe("Pagination", () => {
       "/resources?categoryId=4&sort=createdAt&page=1",
     );
   });
+
+  it("preserves the search query q in pagination links", () => {
+    render(<Pagination page={0} totalPages={2} sort="name" q="library" />);
+
+    expect(screen.getByRole("link", { name: "Next page" })).toHaveAttribute("href", "/resources?q=library&page=1");
+  });
 });
