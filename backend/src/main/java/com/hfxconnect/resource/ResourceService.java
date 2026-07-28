@@ -23,9 +23,9 @@ import org.springframework.transaction.annotation.Transactional;
  * this follows (the same one {@code CategoryService} established).
  *
  * <p>Public read methods ({@link #getActiveById}, {@link #getActiveBySlug},
- * {@link #listActive}, {@link #listActiveByCategory}) only ever see active
- * resources — deactivated resources are treated as not found, the same
- * "public-style" visibility rule {@code ResourceController} relies on.
+ * {@link #search}) only ever see active resources — deactivated resources
+ * are treated as not found, the same "public-style" visibility rule
+ * {@code ResourceController} relies on.
  */
 @Service
 public class ResourceService {
@@ -131,15 +131,23 @@ public class ResourceService {
 		return ResourceDetails.from(resource);
 	}
 
+	/**
+	 * The single public listing/search method (Milestone 6A) — {@code query}
+	 * and {@code categoryId} are both independently optional. See ADR-010 for
+	 * why this replaced the previous {@code listActive}/{@code listActiveByCategory}
+	 * pair once keyword search became a second independent optional filter.
+	 *
+	 * <p>A blank/whitespace-only {@code query} is treated identically to a
+	 * {@code null} one (no keyword filter) — {@link ResourceSearchQuery#normalize}
+	 * makes that translation. An over-length query throws
+	 * {@code InvalidSearchQueryException} (400) before any database query
+	 * runs.
+	 */
 	@Transactional(readOnly = true)
-	public ResourcePage listActive(int page, int size, String sort) {
-		return ResourcePage.from(resourceRepository.findByActiveWithCategory(true, pageable(page, size, sort)));
-	}
-
-	@Transactional(readOnly = true)
-	public ResourcePage listActiveByCategory(Long categoryId, int page, int size, String sort) {
-		return ResourcePage.from(
-				resourceRepository.findByCategoryIdAndActiveWithCategory(categoryId, true, pageable(page, size, sort)));
+	public ResourcePage search(String query, Long categoryId, int page, int size, String sort) {
+		String normalizedQuery = ResourceSearchQuery.normalize(query);
+		String likePattern = normalizedQuery != null ? ResourceSearchQuery.toLikePattern(normalizedQuery) : null;
+		return ResourcePage.from(resourceRepository.search(categoryId, likePattern, pageable(page, size, sort)));
 	}
 
 	private CommunityResource findRequiredById(UUID id) {

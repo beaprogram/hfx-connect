@@ -6,10 +6,11 @@ The Spring Boot application for the HFX Connect REST API. See the
 the intended API and module design.
 
 **Status:** category management (Milestone 3A), a public resource API (Milestone 3C,
-built on the persistence/business layer Milestone 3B added), CORS support for the
-Milestone 4 public frontend, account registration (Milestone 5A), login/refresh/
-logout (Milestone 5B), and request authentication plus role-based authorization
-(Milestone 5C) — see [Category API](#category-api-v1categories),
+built on the persistence/business layer Milestone 3B added, now with keyword
+search as of Milestone 6A), CORS support for the Milestone 4 public frontend,
+account registration (Milestone 5A), login/refresh/logout (Milestone 5B), and
+request authentication plus role-based authorization (Milestone 5C) — see
+[Category API](#category-api-v1categories),
 [Resource API](#resource-api-v1resources), [CORS](#cors),
 [Auth API](#auth-api-v1auth), and [Users API](#users-api-v1users) below.
 PostgreSQL/PostGIS runs locally via Docker Compose, Flyway manages schema
@@ -198,7 +199,17 @@ curl http://localhost:8080/api/v1/resources/slug/halifax-central-library
 
 # Paginated, active-only list; optional categoryId filter; sort=name (default) or createdAt
 curl "http://localhost:8080/api/v1/resources?categoryId=1&sort=createdAt&size=20"
+
+# Keyword search (Milestone 6A) — combines with categoryId/sort/pagination
+curl "http://localhost:8080/api/v1/resources?q=library&categoryId=1"
 ```
+
+**Keyword search (`q`, Milestone 6A):** case-insensitive substring match
+across `name`/`description`/`addressLine1`/`city`; at most 100 characters
+after normalization (trim, whitespace collapse); blank is treated as no
+filter; `%`/`_` are escaped and matched literally, never as `LIKE`
+wildcards; no relevance ranking. Full design:
+[ADR-010](../docs/decisions/ADR-010-keyword-search-design.md).
 
 A resource is created under an existing, active category (`categories.id`, a
 `BIGINT` — not the `UUID` a resource's own `id` is; see
@@ -348,7 +359,8 @@ backend/
       error/                                             Shared error-handling pattern — see
                                                              docs/architecture/backend-architecture.md
                                                              (UnauthorizedException/ForbiddenException added
-                                                             in Milestone 5B)
+                                                             in Milestone 5B; InvalidSearchQueryException
+                                                             added in Milestone 6A)
       text/
         SlugGenerator.java                          Shared deterministic slug algorithm (used by
                                                             both category/ and resource/)
@@ -358,7 +370,10 @@ backend/
                                                              service, controller, DTOs)
     resource/                                          Resource domain (entity, repository, service,
                                                              business-layer models, validation, controller,
-                                                             HTTP DTOs) — controller added in Milestone 3C
+                                                             HTTP DTOs) — controller added in Milestone 3C;
+                                                             ResourceSearchQuery (keyword-search
+                                                             normalization/escaping) added in Milestone 6A —
+                                                             see ADR-010
     user/                                                 User domain (entity, repository, service,
                                                              validation, DTOs) — registration; AuthController
                                                              (login/refresh/logout added in Milestone 5B),
@@ -404,9 +419,12 @@ backend/
                                                              API integration — see
                                                              docs/milestones/milestone-03a-category-domain.md)
     resource/                                          Resource domain tests (validation unit tests,
-                                                             repository + service + API integration tests —
-                                                             see docs/milestones/milestone-03b-resource-domain.md
-                                                             and milestone-03c-public-resource-api.md)
+                                                             repository + service + API integration tests,
+                                                             ResourceSearchQueryTest for keyword-search
+                                                             normalization/escaping — see
+                                                             docs/milestones/milestone-03b-resource-domain.md,
+                                                             milestone-03c-public-resource-api.md, and
+                                                             milestone-06a-keyword-search.md)
     user/                                                 User domain tests (repository, service, API
                                                              integration, TestUserFactory for role-gated
                                                              test accounts — see

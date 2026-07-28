@@ -14,8 +14,9 @@ registration (persistence, password hashing, validation). Milestone 5B added
 login, JWT access tokens, rotating/reuse-detected refresh sessions, and logout.
 Milestone 5C completed the authentication stage: request-level authentication,
 role-based authorization, and a real frontend login/dashboard experience.
-Feature-level entries (search, moderation) will continue to be added as those
-milestones land.
+Milestone 6A added public keyword search. Feature-level entries (structured
+operating hours, moderation) will continue to be added as those milestones
+land.
 
 ## How an Entry Is Added
 
@@ -707,3 +708,76 @@ exposure; and authored 61 new automated tests across both layers.
 ### Measurements Still Needed
 [MEASURE AFTER DEPLOYMENT]: authenticated-request latency overhead from the
 per-request database role/status reload, once deployed (Milestone 12).
+
+## Public Keyword Search
+
+### Product Purpose
+A category dropdown alone doesn't help a visitor who knows roughly what
+they're looking for by name, neighbourhood, or a phrase from a description.
+Keyword search is the first slice of Milestone 6 (Search and Filtering),
+letting the public find a specific resource directly rather than scanning a
+full category listing.
+
+### Technologies Used
+Spring Data JPA `@Query` (parameterized JPQL with optional-filter
+predicates), PostgreSQL `LIKE`/`ESCAPE`, Next.js App Router (progressive-
+enhancement GET forms), TanStack Query cache-key design, JUnit 5,
+Testcontainers (real `postgis/postgis:17-3.5`), React Testing Library.
+
+### Engineering Complexity
+Designed and implemented a SQL-injection-safe keyword search using bound
+JPQL parameters and an explicit `ESCAPE` clause to neutralize `LIKE`'s own
+metacharacters (`%`, `_`) — then didn't just trust the design: built a
+dedicated "trap" resource during manual verification, deliberately crafted
+to produce a false-positive match if the escaping had a bug, and confirmed
+live against the real database that it did not match. Recognized that
+adding keyword search as a *second* independent optional filter (alongside
+the existing category filter) was the right trigger to consolidate two
+near-duplicate service/repository methods into one parameterized query with
+two optional predicates, rather than multiplying into four method
+combinations — a deliberate architectural decision, documented as an ADR
+with alternatives considered and rejected, not an ad hoc addition. Caught
+and fixed two bugs in the milestone's own newly-written tests (a search
+phrase that wasn't actually a contiguous substring of the seeded data) by
+re-verifying the test's own logic against real behavior rather than
+assuming a failing test meant the implementation was wrong.
+
+### Implementation
+`backend/src/main/java/com/hfxconnect/resource/ResourceSearchQuery.java`,
+`ResourceRepository.search`, `ResourceService.search`,
+`backend/src/main/java/com/hfxconnect/common/error/InvalidSearchQueryException.java`,
+`frontend/src/lib/query/resource-list-params.ts`,
+`frontend/src/components/resources/resource-filter-form.tsx`,
+`frontend/src/components/resources/resource-list-view.tsx`.
+
+### Tests
+40 new backend tests (14 pure unit tests for query normalization/escaping;
+16 service-integration tests including case-insensitivity, category
+combination, pagination, sorting, and a wildcard-literal proof; 10 full
+HTTP-layer integration tests against a real database) alongside the
+existing 295 (335 total, 0 failures). 23 new frontend tests (API client
+encoding, URL-state parsing, the search form's submit/preserve/clear
+behavior, and keyword-aware result-summary/no-results wording) alongside
+the existing 120 (143 total, 0 failures).
+
+### Evidence
+Commits on branch `milestone/06a-keyword-search`; see
+`docs/development-log/2026-07-28.md` for the full session record and
+`docs/milestones/milestone-06a-keyword-search.md` for acceptance criteria.
+
+### Potential Resume Wording
+Designed and implemented a SQL-injection-safe keyword search feature for a
+Spring Boot REST API using parameterized JPQL with explicit `LIKE`-wildcard
+escaping, verified with a deliberately crafted false-positive test case
+against a real PostgreSQL database rather than assumed correct from the
+escaping logic alone; consolidated two near-duplicate filtered-listing code
+paths into a single parameterized query when a second independent optional
+filter made that the right generalization, documented as an architecture
+decision record; and authored 63 new automated tests spanning unit,
+integration, and full-stack HTTP-layer coverage across both the backend and
+frontend.
+
+### Measurements Still Needed
+[MEASURE AFTER DEPLOYMENT]: query latency for the `LIKE`-based search at
+real production data volume, to validate (or invalidate) the "no index
+needed yet" assumption documented in ADR-010.

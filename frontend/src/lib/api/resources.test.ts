@@ -49,6 +49,41 @@ describe("getResources", () => {
     expect(requestedUrl.searchParams.has("categoryId")).toBe(false);
     expect(requestedUrl.searchParams.has("sort")).toBe(false);
   });
+
+  it("encodes q and combines it with categoryId/sort/page", async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ content: [], page: 0, size: 12, totalElements: 0, totalPages: 0 }),
+    });
+
+    await getResources({ q: "food & bank", categoryId: 3, sort: "name", page: 1 });
+
+    const requestedUrl = new URL((global.fetch as jest.Mock).mock.calls[0][0] as string);
+    expect(requestedUrl.searchParams.get("q")).toBe("food & bank");
+    expect(requestedUrl.searchParams.get("categoryId")).toBe("3");
+    expect(requestedUrl.searchParams.get("page")).toBe("1");
+  });
+
+  it("omits q entirely when blank or not provided", async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ content: [], page: 0, size: 12, totalElements: 0, totalPages: 0 }),
+    });
+    await getResources({ q: "" });
+    let requestedUrl = new URL((global.fetch as jest.Mock).mock.calls[0][0] as string);
+    expect(requestedUrl.searchParams.has("q")).toBe(false);
+
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ content: [], page: 0, size: 12, totalElements: 0, totalPages: 0 }),
+    });
+    await getResources();
+    requestedUrl = new URL((global.fetch as jest.Mock).mock.calls[1][0] as string);
+    expect(requestedUrl.searchParams.has("q")).toBe(false);
+  });
 });
 
 describe("getResourceBySlug", () => {

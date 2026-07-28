@@ -7,6 +7,7 @@ import com.hfxconnect.AbstractPostgresIntegrationTest;
 import com.hfxconnect.category.Category;
 import com.hfxconnect.category.CategoryRepository;
 import com.hfxconnect.common.error.InvalidPaginationException;
+import com.hfxconnect.common.error.InvalidSearchQueryException;
 import com.hfxconnect.common.error.InvalidSortException;
 import com.hfxconnect.common.error.ValidationException;
 import java.util.Locale;
@@ -239,7 +240,7 @@ class ResourceServiceIntegrationTest extends AbstractPostgresIntegrationTest {
 		ResourceDetails created = resourceService.create(validCommand(category.getId(), "List Active " + marker));
 		resourceService.deactivate(created.id());
 
-		ResourcePage page = resourceService.listActive(0, 100, null);
+		ResourcePage page = resourceService.search(null, null, 0, 100, null);
 
 		assertThat(page.content()).extracting(ResourceDetails::name).doesNotContain("List Active " + marker);
 	}
@@ -252,7 +253,7 @@ class ResourceServiceIntegrationTest extends AbstractPostgresIntegrationTest {
 		resourceService.create(validCommand(categoryA.getId(), "In Category A " + marker));
 		resourceService.create(validCommand(categoryB.getId(), "In Category B " + marker));
 
-		ResourcePage page = resourceService.listActiveByCategory(categoryA.getId(), 0, 100, null);
+		ResourcePage page = resourceService.search(null, categoryA.getId(), 0, 100, null);
 
 		assertThat(page.content()).extracting(ResourceDetails::name)
 				.contains("In Category A " + marker)
@@ -261,13 +262,13 @@ class ResourceServiceIntegrationTest extends AbstractPostgresIntegrationTest {
 
 	@Test
 	void listActiveRejectsAnOutOfRangePageSize() {
-		assertThatThrownBy(() -> resourceService.listActive(0, 0, null)).isInstanceOf(InvalidPaginationException.class);
-		assertThatThrownBy(() -> resourceService.listActive(0, 1000, null)).isInstanceOf(InvalidPaginationException.class);
+		assertThatThrownBy(() -> resourceService.search(null, null, 0, 0, null)).isInstanceOf(InvalidPaginationException.class);
+		assertThatThrownBy(() -> resourceService.search(null, null, 0, 1000, null)).isInstanceOf(InvalidPaginationException.class);
 	}
 
 	@Test
 	void listActiveRejectsANegativePage() {
-		assertThatThrownBy(() -> resourceService.listActive(-1, 20, null)).isInstanceOf(InvalidPaginationException.class);
+		assertThatThrownBy(() -> resourceService.search(null, null, -1, 20, null)).isInstanceOf(InvalidPaginationException.class);
 	}
 
 	@Test
@@ -277,7 +278,7 @@ class ResourceServiceIntegrationTest extends AbstractPostgresIntegrationTest {
 		resourceService.create(validCommand(category.getId(), "B Resource " + marker));
 		resourceService.create(validCommand(category.getId(), "A Resource " + marker));
 
-		ResourcePage page = resourceService.listActiveByCategory(category.getId(), 0, 100, null);
+		ResourcePage page = resourceService.search(null, category.getId(), 0, 100, null);
 
 		assertThat(page.content()).extracting(ResourceDetails::name)
 				.containsExactly("A Resource " + marker, "B Resource " + marker);
@@ -290,7 +291,7 @@ class ResourceServiceIntegrationTest extends AbstractPostgresIntegrationTest {
 		ResourceDetails first = resourceService.create(validCommand(category.getId(), "First " + marker));
 		ResourceDetails second = resourceService.create(validCommand(category.getId(), "Second " + marker));
 
-		ResourcePage page = resourceService.listActiveByCategory(category.getId(), 0, 100, "createdAt");
+		ResourcePage page = resourceService.search(null, category.getId(), 0, 100, "createdAt");
 
 		assertThat(page.content()).extracting(ResourceDetails::id)
 				.containsSubsequence(second.id(), first.id());
@@ -298,8 +299,207 @@ class ResourceServiceIntegrationTest extends AbstractPostgresIntegrationTest {
 
 	@Test
 	void listActiveRejectsAnUnsupportedSortValue() {
-		assertThatThrownBy(() -> resourceService.listActive(0, 20, "notARealField"))
+		assertThatThrownBy(() -> resourceService.search(null, null, 0, 20, "notARealField"))
 				.isInstanceOf(InvalidSortException.class);
+	}
+
+	// ---- Keyword search (Milestone 6A) — see ADR-010 ----
+
+	@Test
+	void searchMatchesResourceName() {
+		Category category = activeCategory("Search Name Check");
+		String marker = UUID.randomUUID().toString();
+		resourceService.create(withName(validCommand(category.getId(), "placeholder"), "Halifax Food Bank " + marker));
+
+		ResourcePage page = resourceService.search("Food Bank " + marker, null, 0, 20, null);
+
+		assertThat(page.content()).extracting(ResourceDetails::name).containsExactly("Halifax Food Bank " + marker);
+	}
+
+	@Test
+	void searchMatchesResourceDescription() {
+		Category category = activeCategory("Search Description Check");
+		String marker = UUID.randomUUID().toString();
+		resourceService.create(withDescription(withName(validCommand(category.getId(), "Distinct Name " + marker), "Distinct Name " + marker),
+				"Offers free tutoring " + marker + " for newcomers."));
+
+		ResourcePage page = resourceService.search("tutoring " + marker, null, 0, 20, null);
+
+		assertThat(page.content()).extracting(ResourceDetails::name).containsExactly("Distinct Name " + marker);
+	}
+
+	@Test
+	void searchMatchesAddressLine1() {
+		Category category = activeCategory("Search Address Check");
+		String marker = UUID.randomUUID().toString();
+		resourceService.create(withAddressLine1(withName(validCommand(category.getId(), "placeholder"), "Address Match " + marker),
+				"742 Evergreen Terrace " + marker));
+
+		ResourcePage page = resourceService.search("Evergreen Terrace " + marker, null, 0, 20, null);
+
+		assertThat(page.content()).extracting(ResourceDetails::name).containsExactly("Address Match " + marker);
+	}
+
+	@Test
+	void searchMatchesCity() {
+		Category category = activeCategory("Search City Check");
+		String marker = UUID.randomUUID().toString();
+		resourceService.create(withCity(withName(validCommand(category.getId(), "placeholder"), "City Match " + marker),
+				"Dartmouth" + marker));
+
+		ResourcePage page = resourceService.search("Dartmouth" + marker, null, 0, 20, null);
+
+		assertThat(page.content()).extracting(ResourceDetails::name).containsExactly("City Match " + marker);
+	}
+
+	@Test
+	void searchIsCaseInsensitive() {
+		Category category = activeCategory("Search Case Check");
+		String marker = UUID.randomUUID().toString();
+		resourceService.create(withName(validCommand(category.getId(), "placeholder"), "Library Services " + marker));
+
+		ResourcePage page = resourceService.search("LIBRARY services " + marker.toUpperCase(Locale.ROOT), null, 0, 20, null);
+
+		assertThat(page.content()).extracting(ResourceDetails::name).containsExactly("Library Services " + marker);
+	}
+
+	@Test
+	void searchReturnsAnEmptyPageWhenNothingMatches() {
+		activeCategory("Search No Match Check");
+
+		ResourcePage page = resourceService.search("no-resource-should-ever-match-this-" + UUID.randomUUID(), null, 0, 20, null);
+
+		assertThat(page.content()).isEmpty();
+		assertThat(page.totalElements()).isZero();
+	}
+
+	@Test
+	void searchExcludesDeactivatedResources() {
+		Category category = activeCategory("Search Deactivated Check");
+		String marker = UUID.randomUUID().toString();
+		ResourceDetails created = resourceService.create(withName(validCommand(category.getId(), "placeholder"), "Deactivated Search " + marker));
+		resourceService.deactivate(created.id());
+
+		ResourcePage page = resourceService.search("Deactivated Search " + marker, null, 0, 20, null);
+
+		assertThat(page.content()).isEmpty();
+	}
+
+	@Test
+	void searchCombinedWithCategoryOnlyReturnsMatchesInThatCategory() {
+		Category categoryA = activeCategory("Search Combo A");
+		Category categoryB = activeCategory("Search Combo B");
+		String marker = UUID.randomUUID().toString();
+		resourceService.create(withName(validCommand(categoryA.getId(), "placeholder"), "Workshop A " + marker));
+		resourceService.create(withName(validCommand(categoryB.getId(), "placeholder"), "Workshop B " + marker));
+
+		// The keyword alone ("marker") matches both resources; the category
+		// filter is what must narrow it down to just the one in categoryA.
+		ResourcePage page = resourceService.search(marker, categoryA.getId(), 0, 20, null);
+
+		assertThat(page.content()).extracting(ResourceDetails::name).containsExactly("Workshop A " + marker);
+	}
+
+	@Test
+	void searchCombinedWithCategoryReturnsEmptyWhenTheCategoryHasNoMatch() {
+		Category categoryA = activeCategory("Search Combo Empty A");
+		Category categoryB = activeCategory("Search Combo Empty B");
+		String marker = UUID.randomUUID().toString();
+		resourceService.create(withName(validCommand(categoryA.getId(), "placeholder"), "Only In A " + marker));
+
+		ResourcePage page = resourceService.search("Only In A " + marker, categoryB.getId(), 0, 20, null);
+
+		assertThat(page.content()).isEmpty();
+	}
+
+	@Test
+	void searchPaginatesResults() {
+		Category category = activeCategory("Search Pagination Check");
+		String marker = UUID.randomUUID().toString();
+		for (int i = 0; i < 3; i++) {
+			resourceService.create(withName(validCommand(category.getId(), "placeholder"), "Paginated " + marker + " " + i));
+		}
+
+		ResourcePage firstPage = resourceService.search("Paginated " + marker, null, 0, 2, null);
+		ResourcePage secondPage = resourceService.search("Paginated " + marker, null, 1, 2, null);
+
+		assertThat(firstPage.content()).hasSize(2);
+		assertThat(secondPage.content()).hasSize(1);
+		assertThat(firstPage.totalElements()).isEqualTo(3);
+	}
+
+	@Test
+	void searchPreservesNameAscendingSortByDefault() {
+		Category category = activeCategory("Search Sort Name Check");
+		String marker = UUID.randomUUID().toString();
+		resourceService.create(withName(validCommand(category.getId(), "placeholder"), "B Sorted " + marker));
+		resourceService.create(withName(validCommand(category.getId(), "placeholder"), "A Sorted " + marker));
+
+		ResourcePage page = resourceService.search("Sorted " + marker, null, 0, 20, null);
+
+		assertThat(page.content()).extracting(ResourceDetails::name)
+				.containsExactly("A Sorted " + marker, "B Sorted " + marker);
+	}
+
+	@Test
+	void searchPreservesCreatedAtDescendingSortWhenRequested() {
+		Category category = activeCategory("Search Sort CreatedAt Check");
+		String marker = UUID.randomUUID().toString();
+		ResourceDetails first = resourceService.create(withName(validCommand(category.getId(), "placeholder"), "First Sorted " + marker));
+		ResourceDetails second = resourceService.create(withName(validCommand(category.getId(), "placeholder"), "Second Sorted " + marker));
+
+		ResourcePage page = resourceService.search("Sorted " + marker, null, 0, 20, "createdAt");
+
+		assertThat(page.content()).extracting(ResourceDetails::id).containsExactly(second.id(), first.id());
+	}
+
+	@Test
+	void searchTreatsAPercentSignAsALiteralCharacterNotAWildcard() {
+		Category category = activeCategory("Search Percent Literal Check");
+		String marker = UUID.randomUUID().toString();
+		resourceService.create(withDescription(withName(validCommand(category.getId(), "placeholder"), "Percent Literal " + marker),
+				"Save 50% " + marker + " on services."));
+		// A resource that would match "50" alone (via the % wildcard misfiring)
+		// but must NOT match the literal phrase "50% ..." — proves % isn't
+		// silently acting as an unintended wildcard.
+		resourceService.create(withDescription(withName(validCommand(category.getId(), "placeholder"), "Fifty Only " + marker),
+				"Serves 50 clients " + marker + " per day."));
+
+		ResourcePage page = resourceService.search("50% " + marker, null, 0, 20, null);
+
+		assertThat(page.content()).extracting(ResourceDetails::name).containsExactly("Percent Literal " + marker);
+	}
+
+	@Test
+	void searchTreatsAnUnderscoreAsALiteralCharacterNotAWildcard() {
+		Category category = activeCategory("Search Underscore Literal Check");
+		String marker = UUID.randomUUID().toString();
+		resourceService.create(withDescription(withName(validCommand(category.getId(), "placeholder"), "Underscore Literal " + marker),
+				"Contact user_name " + marker + " for details."));
+		resourceService.create(withDescription(withName(validCommand(category.getId(), "placeholder"), "No Underscore " + marker),
+				"Contact userXname " + marker + " for details."));
+
+		ResourcePage page = resourceService.search("user_name " + marker, null, 0, 20, null);
+
+		assertThat(page.content()).extracting(ResourceDetails::name).containsExactly("Underscore Literal " + marker);
+	}
+
+	@Test
+	void blankSearchQueryBehavesAsNoKeywordFilter() {
+		Category category = activeCategory("Search Blank Query Check");
+		String marker = UUID.randomUUID().toString();
+		resourceService.create(withName(validCommand(category.getId(), "placeholder"), "Blank Query " + marker));
+
+		ResourcePage page = resourceService.search("   ", category.getId(), 0, 20, null);
+
+		assertThat(page.content()).extracting(ResourceDetails::name).containsExactly("Blank Query " + marker);
+	}
+
+	@Test
+	void searchRejectsAQueryOverTheMaximumLength() {
+		String tooLong = "a".repeat(ResourceSearchQuery.MAX_LENGTH + 1);
+		assertThatThrownBy(() -> resourceService.search(tooLong, null, 0, 20, null))
+				.isInstanceOf(InvalidSearchQueryException.class);
 	}
 
 	@Test
@@ -360,6 +560,24 @@ class ResourceServiceIntegrationTest extends AbstractPostgresIntegrationTest {
 		return new CreateResourceCommand(base.categoryId(), base.name(), base.description(), base.addressLine1(),
 				base.addressLine2(), base.city(), base.province(), base.postalCode(), base.phone(), base.email(),
 				websiteUrl, base.costType(), base.costDetails(), base.eligibility());
+	}
+
+	private static CreateResourceCommand withDescription(CreateResourceCommand base, String description) {
+		return new CreateResourceCommand(base.categoryId(), base.name(), description, base.addressLine1(),
+				base.addressLine2(), base.city(), base.province(), base.postalCode(), base.phone(), base.email(),
+				base.websiteUrl(), base.costType(), base.costDetails(), base.eligibility());
+	}
+
+	private static CreateResourceCommand withAddressLine1(CreateResourceCommand base, String addressLine1) {
+		return new CreateResourceCommand(base.categoryId(), base.name(), base.description(), addressLine1,
+				base.addressLine2(), base.city(), base.province(), base.postalCode(), base.phone(), base.email(),
+				base.websiteUrl(), base.costType(), base.costDetails(), base.eligibility());
+	}
+
+	private static CreateResourceCommand withCity(CreateResourceCommand base, String city) {
+		return new CreateResourceCommand(base.categoryId(), base.name(), base.description(), base.addressLine1(),
+				base.addressLine2(), city, base.province(), base.postalCode(), base.phone(), base.email(),
+				base.websiteUrl(), base.costType(), base.costDetails(), base.eligibility());
 	}
 
 	private static UpdateResourceCommand withUpdateName(UpdateResourceCommand base, String name) {

@@ -107,4 +107,63 @@ describe("ResourceListView", () => {
     await waitFor(() => expect(screen.getByLabelText("Category")).toBeInTheDocument());
     expect(screen.getByLabelText("Sort")).toBeInTheDocument();
   });
+
+  it("passes q through to getResources and shows a keyword-aware result summary", async () => {
+    mockGetResources.mockResolvedValue({ content: [resourceSummary], page: 0, size: 12, totalElements: 1, totalPages: 1 });
+
+    renderWithQueryClient(<ResourceListView params={{ page: 0, sort: "name", q: "library" }} />);
+
+    await waitFor(() => expect(screen.getByText('1 resource matching "library"')).toBeInTheDocument());
+    expect(mockGetResources).toHaveBeenCalledWith(expect.objectContaining({ q: "library" }));
+  });
+
+  it("includes the category name in the result summary when both q and categoryId are set", async () => {
+    mockGetResources.mockResolvedValue({ content: [resourceSummary], page: 0, size: 12, totalElements: 1, totalPages: 1 });
+
+    renderWithQueryClient(<ResourceListView params={{ page: 0, sort: "name", q: "library", categoryId: 1 }} />);
+
+    await waitFor(() =>
+      expect(screen.getByText('1 resource matching "library" in Study Spaces')).toBeInTheDocument(),
+    );
+  });
+
+  it("shows a keyword-specific no-results message distinct from the generic empty state", async () => {
+    mockGetResources.mockResolvedValue({ content: [], page: 0, size: 12, totalElements: 0, totalPages: 0 });
+
+    renderWithQueryClient(<ResourceListView params={{ page: 0, sort: "name", q: "no-such-resource" }} />);
+
+    await waitFor(() =>
+      expect(screen.getByText('No active resources matched "no-such-resource".')).toBeInTheDocument(),
+    );
+    expect(screen.getByText(/try a different or shorter search term/i)).toBeInTheDocument();
+  });
+
+  it("shows a combined keyword+category no-results message", async () => {
+    mockGetResources.mockResolvedValue({ content: [], page: 0, size: 12, totalElements: 0, totalPages: 0 });
+
+    renderWithQueryClient(<ResourceListView params={{ page: 0, sort: "name", q: "no-match", categoryId: 1 }} />);
+
+    await waitFor(() =>
+      expect(screen.getByText('No active resources matched "no-match" in Study Spaces.')).toBeInTheDocument(),
+    );
+  });
+
+  it("shows the search phrase and a reset-filters link in the filter summary line", async () => {
+    mockGetResources.mockResolvedValue({ content: [resourceSummary], page: 0, size: 12, totalElements: 1, totalPages: 1 });
+
+    renderWithQueryClient(<ResourceListView params={{ page: 0, sort: "name", q: "library" }} />);
+
+    await waitFor(() => expect(screen.getByText(/searching for/i)).toBeInTheDocument());
+    expect(screen.getByRole("link", { name: "Reset filters" })).toHaveAttribute("href", "/resources");
+  });
+
+  it("never claims relevance ranking in the result summary", async () => {
+    mockGetResources.mockResolvedValue({ content: [resourceSummary], page: 0, size: 12, totalElements: 1, totalPages: 1 });
+
+    renderWithQueryClient(<ResourceListView params={{ page: 0, sort: "name", q: "library" }} />);
+
+    await waitFor(() => expect(screen.getByText('1 resource matching "library"')).toBeInTheDocument());
+    expect(screen.queryByText(/most relevant/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/relevance/i)).not.toBeInTheDocument();
+  });
 });

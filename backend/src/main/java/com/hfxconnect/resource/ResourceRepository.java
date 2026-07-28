@@ -33,12 +33,42 @@ public interface ResourceRepository extends JpaRepository<CommunityResource, UUI
 	@Query("SELECT r FROM CommunityResource r JOIN FETCH r.category WHERE r.slug = :slug AND r.active = true")
 	Optional<CommunityResource> findBySlugAndActiveTrueWithCategory(String slug);
 
-	@Query(value = "SELECT r FROM CommunityResource r JOIN FETCH r.category WHERE r.active = :active",
-			countQuery = "SELECT count(r) FROM CommunityResource r WHERE r.active = :active")
-	Page<CommunityResource> findByActiveWithCategory(boolean active, Pageable pageable);
-
-	@Query(value = "SELECT r FROM CommunityResource r JOIN FETCH r.category WHERE r.category.id = :categoryId AND r.active = :active",
-			countQuery = "SELECT count(r) FROM CommunityResource r WHERE r.category.id = :categoryId AND r.active = :active")
-	Page<CommunityResource> findByCategoryIdAndActiveWithCategory(Long categoryId, boolean active, Pageable pageable);
+	/**
+	 * The single query behind the public resource listing (Milestone 6A) —
+	 * active-only, with two independently optional filters: {@code categoryId}
+	 * and a keyword {@code likePattern}. Expressed as one parameterized query
+	 * with {@code (:param IS NULL OR ...)} predicates rather than as separate
+	 * methods per filter combination — see ADR-010's "One Unified Query"
+	 * section for why this replaced the previous
+	 * {@code findByActiveWithCategory}/{@code findByCategoryIdAndActiveWithCategory}
+	 * pair.
+	 *
+	 * <p>{@code likePattern} is always either {@code null} (no keyword filter)
+	 * or an already-lowercased, already-escaped, {@code "%"}-wrapped literal
+	 * built by {@link ResourceSearchQuery#toLikePattern} — never raw user
+	 * input concatenated into this query string. {@code ESCAPE '\'} is a
+	 * fixed literal in the query text itself (not user-controlled),
+	 * declaring backslash as the pattern's escape character so a literal
+	 * {@code %} or {@code _} in a search phrase matches literally instead of
+	 * acting as an unintended wildcard. Searched fields: {@code name},
+	 * {@code description}, {@code addressLine1}, {@code city} — see ADR-010
+	 * for why province/postal code/category name/contact fields are
+	 * deliberately excluded.
+	 */
+	@Query(value = "SELECT r FROM CommunityResource r JOIN FETCH r.category WHERE r.active = true "
+			+ "AND (:categoryId IS NULL OR r.category.id = :categoryId) "
+			+ "AND (:likePattern IS NULL OR "
+			+ "LOWER(r.name) LIKE :likePattern ESCAPE '\\' OR "
+			+ "LOWER(r.description) LIKE :likePattern ESCAPE '\\' OR "
+			+ "LOWER(r.addressLine1) LIKE :likePattern ESCAPE '\\' OR "
+			+ "LOWER(r.city) LIKE :likePattern ESCAPE '\\')",
+			countQuery = "SELECT count(r) FROM CommunityResource r WHERE r.active = true "
+			+ "AND (:categoryId IS NULL OR r.category.id = :categoryId) "
+			+ "AND (:likePattern IS NULL OR "
+			+ "LOWER(r.name) LIKE :likePattern ESCAPE '\\' OR "
+			+ "LOWER(r.description) LIKE :likePattern ESCAPE '\\' OR "
+			+ "LOWER(r.addressLine1) LIKE :likePattern ESCAPE '\\' OR "
+			+ "LOWER(r.city) LIKE :likePattern ESCAPE '\\')")
+	Page<CommunityResource> search(Long categoryId, String likePattern, Pageable pageable);
 
 }

@@ -9,33 +9,32 @@ newcomer services, recreation, and events — that are currently scattered acros
 municipal websites, organization pages, and social media, and adds transparent
 verification so users can trust what they find.
 
-**Project status: Milestone 5C (Request Authentication, Role Authorization, and
-Protected Frontend Routes) complete.** The backend has three working REST APIs:
-categories (Milestone 3A —
+**Project status: Milestone 6A (Keyword Search and Public Resource Filtering)
+complete.** The backend has three working REST APIs: categories (Milestone 3A —
 [backend/README.md](backend/README.md#category-api-apiv1categories)), resources
-(Milestone 3C, built on the persistence/business layer Milestone 3B added —
+(Milestone 3C, built on the persistence/business layer Milestone 3B added, now
+with keyword search as of Milestone 6A —
 [backend/README.md](backend/README.md#resource-api-apiv1resources)), and
 authentication — registration (Milestone 5A), login/refresh/logout (Milestone
 5B), and a current-user endpoint (Milestone 5C —
-[docs/api/README.md](docs/api/README.md#auth-apiv1auth)). Every request is now
+[docs/api/README.md](docs/api/README.md#auth-apiv1auth)). Every request is
 authenticated by a Bearer access token where required, and role-based
 authorization protects category/resource creation — see
 [docs/architecture/security-architecture.md](docs/architecture/security-architecture.md)
-for the full design. The frontend now has real authentication: `/login`,
-`/register`, and a protected `/dashboard`, with the access token held only in
-memory (never `localStorage`/`sessionStorage`) and session restoration via the
-`HttpOnly` refresh cookie — see
-[docs/architecture/frontend-architecture.md](docs/architecture/frontend-architecture.md#authentication-architecture).
-The public browsing experience (Milestone 4) — homepage, filterable/sortable/
-paginated resource list, resource detail page — remains fully public and
-unaffected (see [backend/README.md](backend/README.md#cors) for the CORS
-configuration that makes direct browser-to-backend calls possible). See
+for the full design. The frontend has real authentication (`/login`,
+`/register`, a protected `/dashboard`, an in-memory access token, and session
+restoration via the `HttpOnly` refresh cookie — see
+[docs/architecture/frontend-architecture.md](docs/architecture/frontend-architecture.md#authentication-architecture))
+and a searchable public resource list — `/resources` now supports a keyword
+search combined with category filtering, sorting, and pagination, all
+enforced server-side (see
+[ADR-010](docs/decisions/ADR-010-keyword-search-design.md)). See
 [docs/milestones/](docs/milestones/) for exactly what each milestone delivered, and
 [docs/development-workflow.md](docs/development-workflow.md) for the full
-12-milestone roadmap (Milestone 5 is split into 5A/5B/5C, the same way Milestone 3
-was split into 3A/3B/3C). A baseline GitHub Actions workflow verifies the backend and
-frontend on pull requests; deployment automation remains part of the later release
-milestone.
+12-milestone roadmap (Milestones 3, 5, and 6 are each split into lettered
+sub-milestones — 3A/3B/3C, 5A/5B/5C, 6A/6B). A baseline GitHub Actions workflow
+verifies the backend and frontend on pull requests; deployment automation
+remains part of the later release milestone.
 
 ## The Problem
 
@@ -60,16 +59,18 @@ submit new listings, and report incorrect information; let organizations manage 
 own approved listings and events; and let moderators and administrators review
 submissions and reports, manage verification status, and maintain an audit history.
 
-The public browsing slice of this (browse, filter by category, sort, view detail) is
-now real — see [Local Setup](#local-setup) to run it. Account registration, login,
-and a protected dashboard (`/login`, `/register`, `/dashboard` on the frontend;
-`POST /api/v1/auth/register`, `/login`, `/refresh`, `/logout`, `GET
-/api/v1/users/me` on the backend) are real too, with backend-enforced
-role-based authorization on category/resource creation. Search, maps, saved
-resources, submissions, organization/moderator tooling, and role-specific
-dashboards are not implemented yet. There is no update/delete endpoint on any
-backend API yet either. Everything else in this section describes the plan,
-not the current state.
+The public browsing slice of this (browse, filter by category, keyword search,
+sort, view detail) is now real — see [Local Setup](#local-setup) to run it.
+Account registration, login, and a protected dashboard (`/login`, `/register`,
+`/dashboard` on the frontend; `POST /api/v1/auth/register`, `/login`,
+`/refresh`, `/logout`, `GET /api/v1/users/me` on the backend) are real too,
+with backend-enforced role-based authorization on category/resource creation.
+Maps, saved resources, submissions, organization/moderator tooling, and
+role-specific dashboards are not implemented yet. There is no update/delete
+endpoint on any backend API yet either, and keyword search has no relevance
+ranking, typo tolerance, or structured operating-hours/open-now filtering yet
+(Milestone 6B). Everything else in this section describes the plan, not the
+current state.
 
 ## Technology Stack
 
@@ -209,6 +210,7 @@ Runs on [http://localhost:3000](http://localhost:3000) and expects the backend a
 - [Milestone 5A: User Registration Foundation](docs/milestones/milestone-05a-user-registration.md)
 - [Milestone 5B: Login, Token Refresh, and Logout](docs/milestones/milestone-05b-authentication-sessions.md)
 - [Milestone 5C: Request Authentication, Role Authorization, and Protected Frontend Routes](docs/milestones/milestone-05c-role-authorization.md)
+- [Milestone 6A: Keyword Search and Public Resource Filtering](docs/milestones/milestone-06a-keyword-search.md)
 - [Wireframes](docs/wireframes/)
 - [API Documentation](docs/api/README.md)
 - [Database Documentation](docs/database/)
@@ -219,11 +221,12 @@ Runs on [http://localhost:3000](http://localhost:3000) and expects the backend a
 - [ADR-007: User Identity and Password Hashing](docs/decisions/ADR-007-user-identity-and-password-hashing.md)
 - [ADR-008: Authentication Session Architecture](docs/decisions/ADR-008-authentication-session-architecture.md)
 - [ADR-009: Request Authentication and Role Authorization](docs/decisions/ADR-009-request-authentication-and-role-authorization.md)
+- [ADR-010: Keyword Search Design](docs/decisions/ADR-010-keyword-search-design.md)
 - [Development Log](docs/development-log/)
 - [Resume Evidence](docs/career/resume-evidence.md)
 - [Interview Notes](docs/career/interview-notes.md)
 
-## Known Limitations (as of Milestone 5C)
+## Known Limitations (as of Milestone 6A)
 
 - **No rate limiting exists** — login accepts unlimited attempts. **No
   access-token revocation exists** — a compromised access token remains valid
@@ -254,18 +257,25 @@ Runs on [http://localhost:3000](http://localhost:3000) and expects the backend a
   `ResourceService.update`/`deactivate` exist and are fully tested but aren't exposed
   over HTTP yet.
 - The public resource list has no `verificationStatus` filter (nothing has ever been
-  `VERIFIED` yet — Milestone 9) and no `active` override (would let anyone browse
-  deactivated listings with no authentication boundary to gate it behind). The
-  frontend accordingly exposes no controls for either.
-- No free-text search, distance/geospatial filtering, maps, saved resources,
-  submissions, moderation, or organizations exist yet (Milestone 6-10).
+  `VERIFIED` yet — Milestone 9), no cost-type filter, and no `active` override
+  (would let anyone browse deactivated listings with no authentication
+  boundary to gate it behind). The frontend accordingly exposes no controls
+  for any of these.
+- Keyword search (Milestone 6A) has no typo tolerance, relevance ranking, or
+  multi-word AND/OR semantics — a single-phrase, case-insensitive substring
+  match across name/description/address/city only, with no `pg_trgm`/full-text
+  index (an explicit, revisitable scale assumption — see
+  [ADR-010](docs/decisions/ADR-010-keyword-search-design.md)).
+- No structured operating hours or open-now filtering yet (Milestone 6B). No
+  distance/geospatial filtering, maps, saved resources, submissions,
+  moderation, or organizations exist yet (Milestone 6B-10).
 - No deployment workflow or hosted environment exists yet; CI currently verifies the
   backend and frontend only.
 - No automated dependency-vulnerability scanning is configured in this project.
   `npm audit` reports pre-existing transitive vulnerabilities in the frontend's
   build/test toolchain (postcss, sharp, jest chains bundled by Next.js/tooling
   dependencies) that require a breaking Next.js downgrade to resolve — not
-  introduced by, or specific to, Milestone 5C.
+  introduced by, or specific to, this milestone.
 - Frontend responsive/visual verification continues to be code-review- and
   `curl`-based, not a live graphical browser session — no browser-automation
   tool was available in the development environment used for this or the

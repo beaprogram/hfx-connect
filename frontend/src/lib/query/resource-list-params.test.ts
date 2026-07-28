@@ -34,6 +34,29 @@ describe("parseResourceListParams", () => {
   it("takes the first value when a parameter is repeated", () => {
     expect(parseResourceListParams({ page: ["2", "5"] }).page).toBe(2);
   });
+
+  it("trims and collapses whitespace in q", () => {
+    expect(parseResourceListParams({ q: "  food   bank  " }).q).toBe("food bank");
+  });
+
+  it("normalizes a blank or whitespace-only q to undefined", () => {
+    expect(parseResourceListParams({ q: "" }).q).toBeUndefined();
+    expect(parseResourceListParams({ q: "   " }).q).toBeUndefined();
+  });
+
+  it("omits q entirely when not provided", () => {
+    expect(parseResourceListParams({}).q).toBeUndefined();
+  });
+
+  it("truncates an over-length q rather than throwing", () => {
+    const tooLong = "a".repeat(150);
+    const result = parseResourceListParams({ q: tooLong });
+    expect(result.q).toHaveLength(100);
+  });
+
+  it("takes the first value when q is repeated", () => {
+    expect(parseResourceListParams({ q: ["first", "second"] }).q).toBe("first");
+  });
 });
 
 describe("buildResourcesHref", () => {
@@ -47,5 +70,16 @@ describe("buildResourcesHref", () => {
 
   it("includes a non-default page and sort", () => {
     expect(buildResourcesHref({ page: 2, sort: "createdAt" })).toBe("/resources?sort=createdAt&page=2");
+  });
+
+  it("includes q when set and omits it when blank", () => {
+    expect(buildResourcesHref({ q: "food bank" })).toBe("/resources?q=food+bank");
+    expect(buildResourcesHref({ q: "" })).toBe("/resources");
+  });
+
+  it("combines q with categoryId and sort", () => {
+    expect(buildResourcesHref({ q: "library", categoryId: 4, sort: "createdAt" })).toBe(
+      "/resources?categoryId=4&sort=createdAt&q=library",
+    );
   });
 });

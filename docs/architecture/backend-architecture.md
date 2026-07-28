@@ -16,7 +16,10 @@
 > Milestone 5C, which added a fifth package (`security`, not a domain in the
 > same sense as the others — it has no entity of its own) and this project's
 > first real `SecurityFilterChain` — see "Request Authentication and
-> Authorization: The `security` Package" below.
+> Authorization: The `security` Package" below. Updated again in Milestone
+> 6A, which added public keyword search and, with it, this project's first
+> query consolidating two independent optional filters into one — see
+> "Consolidating Independent Optional Filters Into One Query" below.
 
 ## Layering
 
@@ -331,6 +334,33 @@ from documentation alone.
 Security does not read `WebMvcConfigurer` registrations) — one CORS policy
 definition, referenced from the one place that now actually enforces it for
 every request, not two definitions that could silently drift apart.
+
+## Consolidating Independent Optional Filters Into One Query
+
+Before Milestone 6A, the public resource listing had two service/repository
+methods: one for "all active resources" and one for "active resources in
+this category." Adding keyword search as a *second* independent optional
+filter would have meant either four method combinations (list /
+listByCategory / search / searchByCategory) or an ever-growing combinatorial
+surface as more optional filters arrive later (cost type, verification
+status, ...). `ResourceService.search`/`ResourceRepository.search` replace
+both prior methods with one: `categoryId` and the keyword pattern are each
+expressed as a `(:param IS NULL OR ...)` predicate in a single parameterized
+JPQL query, rather than as separate methods per combination.
+
+This is the same "generalize on a genuine second need, not preemptively"
+reasoning `SlugGenerator`'s and `EmailNormalizer`'s extraction history
+already established in this document (see "Shared Pure Utilities Are
+Extracted on Second Use, Not Preemptively" above) — applied here to a query
+shape instead of a utility function. The old, narrower methods
+(`findByActiveWithCategory`/`findByCategoryIdAndActiveWithCategory`,
+`listActive`/`listActiveByCategory`) were removed outright, not deprecated
+in place: they had no callers outside the code being replaced, and keeping
+orphaned methods around after their only caller changes is exactly the kind
+of speculative surface this project's conventions elsewhere reject. See
+[ADR-010](../decisions/ADR-010-keyword-search-design.md) for the full
+design, including the wildcard-escaping mechanism and the deliberate
+decision not to add a `pg_trgm`/GIN index yet.
 
 ## OpenAPI
 

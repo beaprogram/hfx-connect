@@ -47,7 +47,8 @@ allowlist that makes that possible.
   doesn't permit the action — Milestone 5C), `INVALID_REFRESH_TOKEN`,
   `REFRESH_TOKEN_EXPIRED`, `REFRESH_TOKEN_REUSED`, `ACCOUNT_UNAVAILABLE`
   (valid credentials/refresh token, non-`ACTIVE` account), `INVALID_PAGINATION`,
-  `INVALID_SORT`, `INTERNAL_ERROR`.
+  `INVALID_SORT`, `INVALID_SEARCH_QUERY` (an over-length `q` — Milestone 6A),
+  `INTERNAL_ERROR`.
 
 ## Authentication and Authorization (Milestone 5C)
 
@@ -132,12 +133,40 @@ Full detail: `docs/milestones/milestone-03c-public-resource-api.md`. Summary:
 | `POST` | `/api/v1/resources` | Create a resource under an existing, active category. Slug is derived from the name — it cannot be supplied. New resources always start `UNVERIFIED`. |
 | `GET` | `/api/v1/resources/{id}` | Get an active resource by UUID. `404` for a deactivated resource, same as an unknown ID. |
 | `GET` | `/api/v1/resources/slug/{slug}` | Get an active resource by slug. Same `404` behavior. |
-| `GET` | `/api/v1/resources` | Paginated list of **active resources only** — there is no way to include inactive resources publicly yet. Optional `categoryId` filter. Optional `sort`: `name` (default, ascending) or `createdAt` (newest first); anything else returns `400 INVALID_SORT`. |
+| `GET` | `/api/v1/resources` | Paginated list of **active resources only** — there is no way to include inactive resources publicly yet. Optional `categoryId` filter. Optional `q` keyword search (Milestone 6A — see below). Optional `sort`: `name` (default, ascending) or `createdAt` (newest first); anything else returns `400 INVALID_SORT`. |
 
 Responses embed a small `CategorySummaryResponse` (`id`, `name`, `slug`) rather than
 the full category representation. List results use a leaner
 `ResourceSummaryResponse` (omits full description, contact details, and eligibility —
 see `GET /api/v1/resources/{id}` for those).
+
+### Keyword Search (`q`)
+
+Full design: [ADR-010](../decisions/ADR-010-keyword-search-design.md).
+
+`GET /api/v1/resources?q=library` performs a case-insensitive substring
+match across `name`, `description`, `addressLine1`, and `city` — a resource
+matches if **any** of those fields contains the (normalized) query text.
+Combines freely with `categoryId`, `sort`, and pagination.
+
+- **Normalization:** leading/trailing whitespace trimmed, repeated internal
+  whitespace collapsed to a single space, non-whitespace control characters
+  stripped. A blank or whitespace-only `q` is treated identically to `q`
+  being absent — no keyword filter, not an error.
+- **Maximum length:** 100 characters after normalization. Longer returns
+  `400 INVALID_SEARCH_QUERY`.
+- **Wildcards:** PostgreSQL's `LIKE` metacharacters (`%`, `_`) are escaped
+  and matched **literally** — searching `50%` or `user_name` matches those
+  exact characters, not "any characters."
+- **No relevance ranking.** Results are returned in the same `sort` order
+  requested (`name` ascending by default, or `createdAt` descending) — a
+  keyword match does not reorder results, and there is no relevance score.
+- **Not searched:** province, postal code, category name, phone, email,
+  website URL — see ADR-010 for why each is excluded.
+
+```bash
+curl "http://localhost:8080/api/v1/resources?q=library&categoryId=1&sort=name"
+```
 
 **`POST /api/v1/resources` requires a Bearer access token for an `ADMIN` or
 `MODERATOR` account** (Milestone 5C). `ORGANIZATION` accounts cannot create
@@ -153,7 +182,7 @@ see `docs/milestones/milestone-03c-public-resource-api.md`.
 |---|---|
 | `201` | Resource created; `Location` header points to `GET /api/v1/resources/{id}` |
 | `200` | Successful retrieval or listing |
-| `400` | Validation failure, malformed JSON, invalid pagination/sort, or an inactive category (`INACTIVE_CATEGORY`) |
+| `400` | Validation failure, malformed JSON, invalid pagination/sort, an over-length `q` (`INVALID_SEARCH_QUERY`), or an inactive category (`INACTIVE_CATEGORY`) |
 | `401` | `POST` only — missing or invalid access token |
 | `403` | `POST` only — authenticated, but not an `ADMIN` or `MODERATOR` account |
 | `404` | No active resource exists with the given ID/slug, or the referenced category doesn't exist (`CATEGORY_NOT_FOUND`) |

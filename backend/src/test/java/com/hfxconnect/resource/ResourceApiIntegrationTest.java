@@ -10,6 +10,8 @@ import com.hfxconnect.user.Role;
 import com.hfxconnect.user.TestUserFactory;
 import com.hfxconnect.user.User;
 import com.hfxconnect.user.UserRepository;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -325,6 +327,134 @@ class ResourceApiIntegrationTest extends AbstractPostgresIntegrationTest {
 				.doesNotContain("In B " + marker);
 	}
 
+	// ---- Keyword search (Milestone 6A) — see ADR-010 ----
+
+	@Test
+	void searchByKeywordReturnsTheMatchingResource() {
+		Category category = activeCategory("Search Keyword Check");
+		String marker = UUID.randomUUID().toString();
+		restTemplate.postForEntity(
+				"/api/v1/resources", createRequest(category.getId(), "Halifax Central Library " + marker), ResourceResponse.class);
+
+		ResponseEntity<ResourcePageResponse> response = restTemplate.getForEntity(
+				"/api/v1/resources?q=" + encode("Central Library " + marker), ResourcePageResponse.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+		assertThat(response.getBody().content()).extracting(ResourceSummaryResponse::name)
+				.contains("Halifax Central Library " + marker);
+	}
+
+	@Test
+	void searchIsCaseInsensitiveOverHttp() {
+		Category category = activeCategory("Search Case Insensitive Check");
+		String marker = UUID.randomUUID().toString();
+		restTemplate.postForEntity(
+				"/api/v1/resources", createRequest(category.getId(), "Newcomer Support " + marker), ResourceResponse.class);
+
+		ResponseEntity<ResourcePageResponse> response = restTemplate.getForEntity(
+				"/api/v1/resources?q=" + encode("NEWCOMER SUPPORT " + marker.toUpperCase(Locale.ROOT)), ResourcePageResponse.class);
+
+		assertThat(response.getBody().content()).extracting(ResourceSummaryResponse::name)
+				.contains("Newcomer Support " + marker);
+	}
+
+	@Test
+	void searchCombinesWithCategoryIdOverHttp() {
+		Category categoryA = activeCategory("Search Http Combo A");
+		Category categoryB = activeCategory("Search Http Combo B");
+		String marker = UUID.randomUUID().toString();
+		restTemplate.postForEntity(
+				"/api/v1/resources", createRequest(categoryA.getId(), "In A " + marker), ResourceResponse.class);
+		restTemplate.postForEntity(
+				"/api/v1/resources", createRequest(categoryB.getId(), "In B " + marker), ResourceResponse.class);
+
+		ResponseEntity<ResourcePageResponse> response = restTemplate.getForEntity(
+				"/api/v1/resources?q=" + encode(marker) + "&categoryId=" + categoryA.getId(), ResourcePageResponse.class);
+
+		assertThat(response.getBody().content()).extracting(ResourceSummaryResponse::name)
+				.containsExactly("In A " + marker);
+	}
+
+	@Test
+	void searchCombinesWithSortAndPaginationOverHttp() {
+		Category category = activeCategory("Search Http Sort Check");
+		String marker = UUID.randomUUID().toString();
+		restTemplate.postForEntity(
+				"/api/v1/resources", createRequest(category.getId(), "B Http Sorted " + marker), ResourceResponse.class);
+		restTemplate.postForEntity(
+				"/api/v1/resources", createRequest(category.getId(), "A Http Sorted " + marker), ResourceResponse.class);
+
+		ResponseEntity<ResourcePageResponse> response = restTemplate.getForEntity(
+				"/api/v1/resources?q=" + encode("Http Sorted " + marker) + "&size=1&page=0", ResourcePageResponse.class);
+
+		assertThat(response.getBody().content()).extracting(ResourceSummaryResponse::name)
+				.containsExactly("A Http Sorted " + marker);
+		assertThat(response.getBody().totalElements()).isEqualTo(2);
+	}
+
+	@Test
+	void blankQOverHttpBehavesAsNoKeywordFilter() {
+		Category category = activeCategory("Search Http Blank Check");
+		String name = "Blank Http Query " + UUID.randomUUID();
+		restTemplate.postForEntity("/api/v1/resources", createRequest(category.getId(), name), ResourceResponse.class);
+
+		ResponseEntity<ResourcePageResponse> response = restTemplate.getForEntity(
+				"/api/v1/resources?q=" + encode("   ") + "&categoryId=" + category.getId(), ResourcePageResponse.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+		assertThat(response.getBody().content()).extracting(ResourceSummaryResponse::name).contains(name);
+	}
+
+	@Test
+	void queryOverTheMaximumLengthReturns400() {
+		String tooLong = "a".repeat(ResourceSearchQuery.MAX_LENGTH + 1);
+
+		ResponseEntity<String> response = restTemplate.getForEntity("/api/v1/resources?q=" + tooLong, String.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+		assertThat(response.getBody()).contains("\"code\":\"INVALID_SEARCH_QUERY\"");
+	}
+
+	@Test
+	void aPercentSignInTheQueryIsTreatedAsALiteralCharacterOverHttp() {
+		Category category = activeCategory("Search Http Wildcard Check");
+		String marker = UUID.randomUUID().toString();
+		restTemplate.postForEntity(
+				"/api/v1/resources", createRequest(category.getId(), "Fifty Percent Off " + marker), ResourceResponse.class);
+
+		ResponseEntity<ResourcePageResponse> response = restTemplate.getForEntity(
+				"/api/v1/resources?q=" + encode("nonexistent%" + marker), ResourcePageResponse.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+		assertThat(response.getBody().content()).isEmpty();
+	}
+
+	@Test
+	void noMatchingResourcesReturns200WithEmptyContentNotAnError() {
+		ResponseEntity<ResourcePageResponse> response = restTemplate.getForEntity(
+				"/api/v1/resources?q=" + encode("no-resource-should-ever-match-" + UUID.randomUUID()), ResourcePageResponse.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+		assertThat(response.getBody().content()).isEmpty();
+		assertThat(response.getBody().totalElements()).isZero();
+	}
+
+	@Test
+	void searchRequiresNoAuthenticationToken() {
+		Category category = activeCategory("Search Public Access Check");
+		String marker = UUID.randomUUID().toString();
+		restTemplate.postForEntity(
+				"/api/v1/resources", createRequest(category.getId(), "Public Search " + marker), ResourceResponse.class);
+
+		// No Authorization header attached — a plain, unauthenticated GET.
+		ResponseEntity<ResourcePageResponse> response = restTemplate.getForEntity(
+				"/api/v1/resources?q=" + encode("Public Search " + marker), ResourcePageResponse.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+		assertThat(response.getBody().content()).extracting(ResourceSummaryResponse::name)
+				.contains("Public Search " + marker);
+	}
+
 	@Test
 	void negativePageIsRejectedWithInvalidPagination() {
 		ResponseEntity<String> response = restTemplate.getForEntity("/api/v1/resources?page=-1", String.class);
@@ -360,10 +490,22 @@ class ResourceApiIntegrationTest extends AbstractPostgresIntegrationTest {
 	}
 
 	@Test
+	void openApiDocumentIncludesTheKeywordSearchParameter() {
+		ResponseEntity<String> response = restTemplate.getForEntity("/v3/api-docs", String.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+		assertThat(response.getBody()).contains("\"name\":\"q\"");
+	}
+
+	@Test
 	void categoryEndpointsStillWorkAlongsideResourceEndpoints() {
 		ResponseEntity<String> response = restTemplate.getForEntity("/api/v1/categories?size=1", String.class);
 
 		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+	}
+
+	private static String encode(String value) {
+		return URLEncoder.encode(value, StandardCharsets.UTF_8);
 	}
 
 	private Category activeCategory(String namePrefix) {
