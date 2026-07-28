@@ -4,14 +4,17 @@ The Next.js application for HFX Connect. See the [repository root README](../REA
 for the product overview, and [docs/](../docs/) for the full product and architecture
 documentation.
 
-**Status:** public browsing experience (Milestone 4) — a homepage, a filterable/sortable
-paginated resource list, and a resource detail page, all backed by the real Category and
-Resource APIs (Milestones 3A/3C) — plus real authentication (Milestone 5C): `/login`,
-`/register`, and a protected `/dashboard`, with an in-memory access token and
-refresh-cookie-based session restoration. See
+**Status:** public browsing experience (Milestone 4) — a homepage, a filterable/sortable/
+searchable paginated resource list (keyword search added in Milestone 6A), and a resource
+detail page, all backed by the real Category and Resource APIs (Milestones 3A/3C/6A) —
+plus real authentication (Milestone 5C): `/login`, `/register`, and a protected
+`/dashboard`, with an in-memory access token and refresh-cookie-based session
+restoration. See
 [docs/architecture/frontend-architecture.md](../docs/architecture/frontend-architecture.md#authentication-architecture)
-for the full design. Saved resources, submissions, maps, search, and
-role-specific dashboards are not implemented yet.
+for the authentication design and its
+["URL State" section](../docs/architecture/frontend-architecture.md#url-state-resources)
+for the search design. Saved resources, submissions, maps, and role-specific
+dashboards are not implemented yet.
 
 ## Stack
 
@@ -89,7 +92,8 @@ frontend/
       dashboard/page.tsx     Protected: the current authenticated account (Milestone 5C)
     components/
       categories/               Category card/grid
-      resources/                Resource card/grid, filter form, pagination, detail
+      resources/                Resource card/grid, filter form (incl. keyword search,
+                                            Milestone 6A), pagination, detail
       navigation/                Mobile disclosure nav (auth-aware as of Milestone 5C)
       auth/                          Login/register forms, dashboard content, the
                                             protected-route guard, and the auth-aware
@@ -121,10 +125,13 @@ non-2xx responses to `ApiRequestError` and validates response shape with Zod
 (`ApiResponseShapeError` on a mismatch, so a backend contract drift fails
 loudly and safely instead of rendering broken data). `lib/api/categories.ts`,
 `lib/api/resources.ts`, and `lib/api/auth.ts` expose the specific operations
-the frontend actually needs — nothing speculative. See
+the frontend actually needs — nothing speculative. `lib/api/resources.ts`'s
+`getResources` accepts an optional `q` (keyword search, Milestone 6A),
+omitted from the request entirely when blank. See
 `docs/architecture/frontend-architecture.md` for the full data-fetching
-strategy, and its "Authentication Architecture" section specifically for how
-the access token/session are handled.
+strategy, its "Authentication Architecture" section for how the access
+token/session are handled, and its "URL State (`/resources`)" section for
+the search design.
 
 ## Notes
 

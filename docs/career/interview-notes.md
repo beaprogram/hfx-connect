@@ -475,6 +475,55 @@ refresh calls racing each other could each present the same soon-to-be-
 rotated token and trigger a false-positive security lockout of the user's
 own, entirely legitimate session.
 
+## Answerable Now (Milestone 6A)
+
+**How do you build a keyword search over a SQL database without opening a
+SQL-injection hole?** Never concatenate the search text into the query
+string. The query text itself (`LOWER(r.name) LIKE :likePattern ESCAPE '\'`)
+is a fixed literal, written once at compile time; only the *value* bound to
+`:likePattern` varies per request, and that value is built entirely in Java
+before it's ever near a query — lowercased, wrapped in `%...%`, with `%`
+and `_` themselves escaped so a literal percent sign or underscore in
+someone's search doesn't get treated as a wildcard. The `ESCAPE '\'` clause
+that makes that escaping actually work is also a fixed literal in the query
+text, never something derived from user input.
+
+**Why bother escaping `%` and `_` specifically — what's the actual risk?**
+Not injection (parameter binding already prevents that) — it's a
+correctness and information-leak risk. `LIKE`'s own metacharacters mean a
+search for `50%` or `user_name` would silently behave like a wildcard
+search for "50 followed by anything" or "user, any single character,
+name" if left unescaped — returning unrelated matches the searcher never
+asked for, and in principle letting a search phrase probe for data in ways
+that were never intended. I didn't just trust the escaping logic's design
+either: I built a resource specifically crafted to produce a false-positive
+match if `_` were ever treated as a real wildcard, and confirmed live
+against the real database that the escaped query correctly rejected it.
+
+**Why did adding search replace two existing methods with one, instead of
+adding two new ones?** Before this feature, the resource listing had two
+methods — one for "all active resources," one for "active resources in
+this category" — because category was the only optional filter. Keyword
+search is a *second* independent optional filter; naively adding it as its
+own pair would mean four method combinations, and a third future filter
+(cost type, say) would make eight. One method with two independently
+optional predicates (`(:categoryId IS NULL OR ...) AND (:pattern IS NULL OR
+...)`) covers every combination without multiplying, and this project
+already had a documented precedent for "generalize once a second real need
+arrives, not before" from an earlier milestone's utility-extraction
+history — the same reasoning, just applied to a query shape this time.
+
+**Why not add a database index for the search right away?** Because a
+`LIKE '%term%'` pattern (a leading wildcard) can't use a normal B-tree index
+regardless — it would need PostgreSQL's `pg_trgm` extension and a GIN
+index specifically. Adding that now, for a project whose actual dataset is
+an MVP directory of dozens to low hundreds of resources, would be paying a
+real cost (a new extension dependency, index-maintenance overhead on every
+write) to solve a performance problem that doesn't exist yet, on a guess.
+The decision — and the exact trigger for revisiting it (real evidence of
+slow queries at real scale) — is written down, not left as something only
+discoverable by reading the code.
+
 ## To Be Added in Later Milestones
 
 - How moderation approval and audit-history writes are made transactional (Milestone

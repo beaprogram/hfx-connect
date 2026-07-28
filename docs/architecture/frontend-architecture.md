@@ -7,7 +7,9 @@
 > Tailwind, testing setup); this document describes what Milestone 4 built on
 > top of that. Updated in Milestone 5C, which added the first authenticated
 > routes (`/login`, `/register`, `/dashboard`) and an in-memory session layer —
-> see "Authentication Architecture" below.
+> see "Authentication Architecture" below. Updated again in Milestone 6A,
+> which added keyword search to `/resources` — see "URL State (`/resources`)"
+> below.
 
 ## Route Structure
 
@@ -104,19 +106,21 @@ forever.
 `lib/query/keys.ts`:
 
 ```ts
-resourceKeys.list({ page, size, categoryId, sort })
+resourceKeys.list({ page, size, categoryId, sort, q })
 categoryKeys.list({ active })
 resourceKeys.detail(slug)
 ```
 
-`page`/`size`/`categoryId`/`sort` are all part of the resource-list key, so a
-filtered view can never be served from a different filter's cache entry.
+`page`/`size`/`categoryId`/`sort`/`q` are all part of the resource-list key,
+so a filtered/searched view can never be served from a different filter's
+cache entry. `q` deliberately does not appear in `categoryKeys` — search is
+a resource-only concept (Milestone 6A, ADR-010).
 
 ## URL State (`/resources`)
 
 `lib/query/resource-list-params.ts`'s `parseResourceListParams` is the single
 place raw, untrusted `searchParams` become a safe, typed
-`{ page, categoryId, sort }`. Every invalid input is corrected to a safe
+`{ page, categoryId, sort, q }`. Every invalid input is corrected to a safe
 default rather than thrown:
 
 | Input | Result |
@@ -125,6 +129,18 @@ default rather than thrown:
 | Missing/non-numeric/non-positive `categoryId` | `undefined` (no filter) |
 | Missing/unrecognized `sort` | `"name"` |
 | A repeated query parameter (`?page=1&page=2`) | first value used |
+| Blank/whitespace-only `q` | `undefined` (no keyword filter) |
+| `q` over 100 characters | truncated to 100 (best-effort only — the backend independently re-validates and is authoritative; see [ADR-010](../decisions/ADR-010-keyword-search-design.md)) |
+
+Keyword search (Milestone 6A) reuses this exact pattern: `q` is parsed by
+the same function, included in `resourceKeys.list`'s query key (so a
+searched view never shares a TanStack Query cache entry with an unsearched
+one), and carried through `buildResourcesHref` alongside `categoryId`/`sort`
+on every pagination link. The search field lives inside the same
+`<form method="get">` `components/resources/resource-filter-form.tsx`
+already used for category/sort — submitting it (Enter, or the existing
+"Apply" button) is a genuine GET-form submission that works with or without
+JavaScript, and always resets to page 1 (the form has no `page` field).
 
 `page` stays 0-based in the URL, matching the backend exactly — see
 `docs/api/README.md`'s pagination convention — but is never shown to a user
@@ -284,10 +300,13 @@ for the resulting `WebCorsConfig`.
 
 ## Known Limitations
 
-- No `verificationStatus` or `active` filter on `/resources` — the backend
-  doesn't support them publicly yet (`docs/api/README.md`).
-- No free-text search, distance/geospatial filtering, or map — later
-  milestones (6-7).
+- No `verificationStatus`, `active`, or cost-type filter on `/resources` —
+  the backend doesn't support them publicly yet (`docs/api/README.md`).
+- Keyword search (Milestone 6A) has no autocomplete, typo tolerance, or
+  relevance ranking — a submit-based, exact-substring, case-insensitive
+  match only. No debounced/per-keystroke search either — see ADR-010.
+- No structured operating hours/open-now filtering (Milestone 6B), and no
+  distance/geospatial filtering or map — later milestones (6B-7).
 - No role-specific dashboards, category/resource creation forms, saved
   resources, submissions, or moderation UI — `/dashboard` shows only the
   current authenticated account's safe fields and a logout control (Milestone
