@@ -27,6 +27,7 @@ export default async function ResourcesPage({ searchParams }: { searchParams: Pr
         size: RESOURCE_LIST_PAGE_SIZE,
         categoryId: params.categoryId,
         sort: params.sort,
+        q: params.q,
       }),
       queryFn: () =>
         getResources({
@@ -34,6 +35,7 @@ export default async function ResourcesPage({ searchParams }: { searchParams: Pr
           size: RESOURCE_LIST_PAGE_SIZE,
           categoryId: params.categoryId,
           sort: params.sort,
+          q: params.q,
         }),
     }),
     queryClient.prefetchQuery({

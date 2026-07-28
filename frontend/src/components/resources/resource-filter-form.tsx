@@ -1,8 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef } from "react";
 import { RESOURCE_SORT_OPTIONS, type ResourceSort } from "@/lib/constants/resources";
+import { buildResourcesHref } from "@/lib/query/resource-list-params";
 import type { CategoryResponse } from "@/lib/validation/schemas";
 
 /**
@@ -12,15 +14,26 @@ import type { CategoryResponse } from "@/lib/validation/schemas";
  * instant client-side transition instead of waiting for a full navigation;
  * the visible submit button is left in place as a working fallback either
  * way. See docs/wireframes/resource-list.md.
+ *
+ * <p>The keyword search field (Milestone 6A) is a named input in this same
+ * form — submitting it (Enter, or the "Apply" button) naturally carries
+ * `categoryId`/`sort` along via the browser's own GET-form serialization,
+ * with or without JavaScript, and always resets to page 1 (page is never a
+ * field in this form, so it is simply absent from the resulting URL). It
+ * deliberately does not auto-submit on every keystroke — see ADR-010 and
+ * the milestone brief's explicit "submit-based search is acceptable and
+ * often clearer" guidance.
  */
 export function ResourceFilterForm({
   categories,
   categoryId,
   sort,
+  q,
 }: {
   categories: CategoryResponse[];
   categoryId?: number;
   sort: ResourceSort;
+  q?: string;
 }) {
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
@@ -32,8 +45,11 @@ export function ResourceFilterForm({
     const query = new URLSearchParams();
     const selectedCategoryId = data.get("categoryId");
     const selectedSort = data.get("sort");
+    const rawQ = data.get("q");
+    const selectedQ = typeof rawQ === "string" ? rawQ.trim().replace(/\s+/g, " ") : "";
     if (selectedCategoryId) query.set("categoryId", String(selectedCategoryId));
     if (selectedSort && selectedSort !== "name") query.set("sort", String(selectedSort));
+    if (selectedQ) query.set("q", selectedQ);
     const queryString = query.toString();
     router.push(queryString ? `/resources?${queryString}` : "/resources");
   }
@@ -49,6 +65,32 @@ export function ResourceFilterForm({
         submitViaRouter();
       }}
     >
+      <div className="flex flex-col gap-1">
+        <label htmlFor="q" className="text-sm font-medium text-slate-700">
+          Search
+        </label>
+        <div className="flex items-center gap-2">
+          <input
+            id="q"
+            name="q"
+            type="search"
+            defaultValue={q ?? ""}
+            placeholder="Resource name, description, or address"
+            autoComplete="off"
+            className="w-64 rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+          />
+          {q && (
+            <Link
+              href={buildResourcesHref({ categoryId, sort })}
+              className="whitespace-nowrap rounded-sm text-sm font-medium text-slate-600 underline underline-offset-2 hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+              aria-label="Clear search"
+            >
+              Clear search
+            </Link>
+          )}
+        </div>
+      </div>
+
       <div className="flex flex-col gap-1">
         <label htmlFor="categoryId" className="text-sm font-medium text-slate-700">
           Category
