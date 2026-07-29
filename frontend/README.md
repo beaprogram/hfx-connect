@@ -5,8 +5,10 @@ for the product overview, and [docs/](../docs/) for the full product and archite
 documentation.
 
 **Status:** public browsing experience (Milestone 4) — a homepage, a filterable/sortable/
-searchable paginated resource list (keyword search added in Milestone 6A), and a resource
-detail page, all backed by the real Category and Resource APIs (Milestones 3A/3C/6A) —
+searchable paginated resource list (keyword search added in Milestone 6A;
+cost/verification/open-now filters and weekly-schedule display added in
+Milestone 6B), and a resource detail page, all backed by the real Category
+and Resource APIs (Milestones 3A/3C/6A/6B) —
 plus real authentication (Milestone 5C): `/login`, `/register`, and a protected
 `/dashboard`, with an in-memory access token and refresh-cookie-based session
 restoration. See
@@ -92,8 +94,10 @@ frontend/
       dashboard/page.tsx     Protected: the current authenticated account (Milestone 5C)
     components/
       categories/               Category card/grid
-      resources/                Resource card/grid, filter form (incl. keyword search,
-                                            Milestone 6A), pagination, detail
+      resources/                Resource card/grid, filter form (incl. keyword search
+                                            (6A) and cost/verification/open-now filters
+                                            (6B)), pagination, detail (incl. weekly
+                                            schedule, Milestone 6B), status-badges
       navigation/                Mobile disclosure nav (auth-aware as of Milestone 5C)
       auth/                          Login/register forms, dashboard content, the
                                             protected-route guard, and the auth-aware
@@ -126,8 +130,9 @@ non-2xx responses to `ApiRequestError` and validates response shape with Zod
 loudly and safely instead of rendering broken data). `lib/api/categories.ts`,
 `lib/api/resources.ts`, and `lib/api/auth.ts` expose the specific operations
 the frontend actually needs — nothing speculative. `lib/api/resources.ts`'s
-`getResources` accepts an optional `q` (keyword search, Milestone 6A),
-omitted from the request entirely when blank. See
+`getResources` accepts an optional `q` (keyword search, Milestone 6A) and
+optional `costType`/`verificationStatus`/`openNow` (Milestone 6B), each
+omitted from the request entirely when unset. See
 `docs/architecture/frontend-architecture.md` for the full data-fetching
 strategy, its "Authentication Architecture" section for how the access
 token/session are handled, and its "URL State (`/resources`)" section for

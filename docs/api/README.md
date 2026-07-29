@@ -131,9 +131,10 @@ Full detail: `docs/milestones/milestone-03c-public-resource-api.md`. Summary:
 | Method | Path | Purpose |
 |---|---|---|
 | `POST` | `/api/v1/resources` | Create a resource under an existing, active category. Slug is derived from the name — it cannot be supplied. New resources always start `UNVERIFIED`. |
-| `GET` | `/api/v1/resources/{id}` | Get an active resource by UUID. `404` for a deactivated resource, same as an unknown ID. |
+| `GET` | `/api/v1/resources/{id}` | Get an active resource by UUID. `404` for a deactivated resource, same as an unknown ID. Includes the resource's weekly schedule and current open status (Milestone 6B — see below). |
 | `GET` | `/api/v1/resources/slug/{slug}` | Get an active resource by slug. Same `404` behavior. |
-| `GET` | `/api/v1/resources` | Paginated list of **active resources only** — there is no way to include inactive resources publicly yet. Optional `categoryId` filter. Optional `q` keyword search (Milestone 6A — see below). Optional `sort`: `name` (default, ascending) or `createdAt` (newest first); anything else returns `400 INVALID_SORT`. |
+| `GET` | `/api/v1/resources` | Paginated list of **active resources only** — there is no way to include inactive resources publicly yet. Optional `categoryId` filter. Optional `q` keyword search (Milestone 6A — see below). Optional `costType`, `verificationStatus`, `openNow` filters (Milestone 6B — see below). Optional `sort`: `name` (default, ascending) or `createdAt` (newest first); anything else returns `400 INVALID_SORT`. |
+| `PUT` | `/api/v1/resources/{id}/operating-hours` | Fully replace a resource's weekly schedule (Milestone 6B — see below). `ADMIN` or `MODERATOR` only. |
 
 Responses embed a small `CategorySummaryResponse` (`id`, `name`, `slug`) rather than
 the full category representation. List results use a leaner
@@ -168,23 +169,85 @@ Combines freely with `categoryId`, `sort`, and pagination.
 curl "http://localhost:8080/api/v1/resources?q=library&categoryId=1&sort=name"
 ```
 
+### Operating Hours and Filtering (Milestone 6B)
+
+Full design: [ADR-011](../decisions/ADR-011-operating-hours-and-open-now.md).
+
+**Weekly schedule.** Every resource read (`GET /api/v1/resources/{id}`,
+`/slug/{slug}`) includes an `hours` object: `timezone` (always
+`"America/Halifax"`), `weeklyHours` (an array of `{dayOfWeek, closed,
+opensAt, closesAt, overnight}` entries — `MONDAY`-`SUNDAY`, at most one
+entry per day, missing days have no schedule), `hoursStatus`
+(`OPEN`/`CLOSED`/`UNKNOWN`), and `openNow` (`true`/`false`/`null`).
+`opensAt`/`closesAt` are ISO local-time strings with seconds (e.g.
+`"09:00:00"`), never a UTC instant — they're plain wall-clock values
+already resolved to Halifax local time. An interval where `opensAt` is
+later than `closesAt` (`overnight: true`) crosses midnight, continuing
+into the next calendar day. List results (`ResourceSummaryResponse`)
+include the compact `hoursStatus`/`openNow` pair only, not the full
+schedule.
+
+`hoursStatus` is `UNKNOWN` (with `openNow: null`) only when a resource has
+**no schedule at all**. A resource with any schedule data always resolves
+to `OPEN` or `CLOSED`, even for a day with no entry — `openNow=true`
+therefore has one unambiguous meaning ("currently calculated as OPEN") and
+never returns a resource whose hours are unknown.
+
+**Filters**, all independently optional and combinable with `q`/`categoryId`/
+`sort`/pagination:
+
+- `costType` — exact match against `CostType` (`FREE`, `LOW_COST`, `PAID`,
+  `UNKNOWN`), case-insensitive. Invalid value returns `400
+  INVALID_COST_TYPE`.
+- `verificationStatus` — exact match against `VerificationStatus`
+  (`UNVERIFIED`, `VERIFIED`), case-insensitive. Invalid value returns `400
+  INVALID_VERIFICATION_STATUS`.
+- `openNow` — `true` narrows to currently-open resources (evaluated in
+  America/Halifax); missing, blank, or `false` apply no filter. Any other
+  value returns `400 INVALID_OPEN_NOW_FILTER`. Resources with `UNKNOWN`
+  hours are never returned when `openNow=true`.
+
+```bash
+curl "http://localhost:8080/api/v1/resources?costType=FREE&verificationStatus=VERIFIED&openNow=true"
+```
+
+**`PUT /api/v1/resources/{id}/operating-hours`** fully replaces a
+resource's weekly schedule (delete-then-insert, one transaction — no
+partial update). Body: `{"hours": [{"dayOfWeek": "MONDAY", "closed": false,
+"opensAt": "09:00", "closesAt": "17:00"}, ...]}`, at most one entry per
+day, at most 7 entries, a closed day must omit `opensAt`/`closesAt`, an
+open day must supply both and they must differ. Requires a Bearer access
+token for an `ADMIN` or `MODERATOR` account (the same pairing as
+`POST /api/v1/resources`). Returns the updated schedule shape (`200`).
+Invalid schedules return `400 VALIDATION_ERROR` with field-level detail.
+There is no public endpoint for editing hours.
+
+```bash
+curl -X PUT "http://localhost:8080/api/v1/resources/$ID/operating-hours" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"hours":[{"dayOfWeek":"MONDAY","closed":false,"opensAt":"09:00","closesAt":"17:00"}]}'
+```
+
 **`POST /api/v1/resources` requires a Bearer access token for an `ADMIN` or
 `MODERATOR` account** (Milestone 5C). `ORGANIZATION` accounts cannot create
 resources yet — see ADR-009.
 
-**No update or delete endpoint yet.** `ResourceService.update`/`deactivate` exist and
-are fully tested (Milestone 3B), but are not exposed over HTTP in this milestone —
-see `docs/milestones/milestone-03c-public-resource-api.md`.
+**No update or delete endpoint yet for the resource itself.**
+`ResourceService.update`/`deactivate` exist and are fully tested
+(Milestone 3B), but are not exposed over HTTP in this milestone — see
+`docs/milestones/milestone-03c-public-resource-api.md`. The one write
+endpoint this domain does expose over HTTP is the operating-hours
+replacement above.
 
 ### Status codes
 
 | Status | Meaning |
 |---|---|
 | `201` | Resource created; `Location` header points to `GET /api/v1/resources/{id}` |
-| `200` | Successful retrieval or listing |
-| `400` | Validation failure, malformed JSON, invalid pagination/sort, an over-length `q` (`INVALID_SEARCH_QUERY`), or an inactive category (`INACTIVE_CATEGORY`) |
-| `401` | `POST` only — missing or invalid access token |
-| `403` | `POST` only — authenticated, but not an `ADMIN` or `MODERATOR` account |
+| `200` | Successful retrieval, listing, or operating-hours replacement |
+| `400` | Validation failure, malformed JSON, invalid pagination/sort, an over-length `q` (`INVALID_SEARCH_QUERY`), an invalid `costType`/`verificationStatus`/`openNow` filter, an invalid operating-hours schedule (`VALIDATION_ERROR`), or an inactive category (`INACTIVE_CATEGORY`) |
+| `401` | `POST`/`PUT` only — missing or invalid access token |
+| `403` | `POST`/`PUT` only — authenticated, but not an `ADMIN` or `MODERATOR` account |
 | `404` | No active resource exists with the given ID/slug, or the referenced category doesn't exist (`CATEGORY_NOT_FOUND`) |
 | `409` | A resource with that (derived) slug already exists |
 | `500` | Unexpected server error (no internal detail is exposed) |

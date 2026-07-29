@@ -781,3 +781,87 @@ frontend.
 [MEASURE AFTER DEPLOYMENT]: query latency for the `LIKE`-based search at
 real production data volume, to validate (or invalidate) the "no index
 needed yet" assumption documented in ADR-010.
+
+## Structured Operating Hours and Open-Now Logic
+
+### Product Purpose
+Completes Milestone 6 (Search and Filtering): a visitor can now filter by
+cost type, verification status, and "open now," and see a resource's
+actual weekly schedule — exactly the practical information someone
+searching for a food bank or shelter after hours needs, and information no
+prior milestone captured at all.
+
+### Technologies Used
+`java.time` (`Clock`, `DayOfWeek`, `LocalTime`, `ZoneId`, `ZonedDateTime`)
+for deterministic, timezone-correct time handling; Spring Data JPA
+correlated `EXISTS` subqueries; PostgreSQL `CHECK`/`UNIQUE` constraints for
+schedule-validity enforcement at the database level; Next.js progressive-
+enhancement forms; Zod schema validation; JUnit 5 fixed-`Clock` testing.
+
+### Engineering Complexity
+Designed a same-day/overnight/overnight-continuation-from-yesterday open-
+now calculation that has to agree in two independent expressions — a Java
+algorithm (`OpenNowCalculator`, for display) and a correlated SQL `EXISTS`
+subquery (for the `openNow=true` filter) — and proved the two actually
+agree by testing both against identical seeded data, rather than trusting
+a shared design description alone. Injected `java.time.Clock` throughout
+rather than calling `Instant.now()`/`LocalTime.now()` directly, so 14
+boundary/DST test cases (exactly-at-opening, exactly-at-closing, overnight
+before and after midnight, Sunday-to-Monday wraparound, standard-time and
+daylight-time) are fully deterministic rather than dependent on when the
+test suite happens to run. Rather than assume the milestone brief's own
+`"09:00"` time-format example was correct, wrote a live backend test
+asserting on the raw JSON wire format before writing a single line of
+frontend code against it — caught that Jackson's actual default
+serialization includes seconds (`"09:00:00"`), preventing a frontend
+parsing bug that would only have surfaced once real data reached the UI.
+Extended an already-unified filtered-listing query (from the keyword-
+search milestone) with a correlated subquery rather than reaching for a
+new query-abstraction layer, keeping pagination totals exact by
+construction — the `openNow` predicate lives inside the same `count`
+query as the page query, so a resource that turns out to be closed can
+never be silently miscounted.
+
+### Implementation
+`backend/src/main/resources/db/migration/V6__create_resource_operating_hours.sql`,
+`backend/src/main/java/com/hfxconnect/resource/OpenNowCalculator.java`,
+`ResourceOperatingHours.java`, `OperatingHoursValidation.java`,
+`ResourceRepository.search` (extended), `ResourceService.search`/
+`replaceOperatingHours`, `backend/src/main/java/com/hfxconnect/common/config/ClockConfig.java`,
+`frontend/src/lib/formatting/labels.ts` (`formatLocalTime`),
+`frontend/src/components/resources/resource-detail.tsx` (weekly schedule),
+`frontend/src/components/resources/resource-filter-form.tsx` (cost/
+verification/open-now controls).
+
+### Tests
+74 new backend tests (14 fixed-`Clock` open-now unit tests including two
+DST cases; 13 schedule-validation unit tests; 11 migration/repository
+integration tests; 18 service-integration tests covering every filter
+combination and the schedule-replacement endpoint; 13 HTTP-layer
+integration tests including a live wire-format assertion; 5 write-endpoint
+role-matrix tests) alongside the existing 335 (409 total, 0 failures). 34
+new frontend tests alongside the existing 143 (177 total, 0 failures).
+
+### Evidence
+Commits on branch `milestone/06b-operating-hours-filters`; see
+`docs/development-log/2026-07-29.md` for the full session record and
+`docs/milestones/milestone-06b-operating-hours-filters.md` for acceptance
+criteria.
+
+### Potential Resume Wording
+Designed and implemented a timezone-correct, DST-safe "open now"
+calculation for a Spring Boot REST API using dependency-injected
+`java.time.Clock` for full test determinism, expressed consistently across
+both a Java algorithm and a correlated SQL subquery filter and proved
+consistent by testing both against the same data; verified a third-party
+serialization assumption against a running server before building a
+frontend on top of it, catching a wire-format mismatch before it could
+reach production; and extended an existing parameterized-query design with
+two new filters without sacrificing exact pagination totals, authoring 108
+new automated tests across backend unit, integration, and frontend
+coverage.
+
+### Measurements Still Needed
+[MEASURE AFTER DEPLOYMENT]: correlated-subquery `openNow` filter latency at
+real production data volume, and whether the single `resource_operating_hours_resource_id_idx`
+index remains sufficient once the dataset is large enough to matter.

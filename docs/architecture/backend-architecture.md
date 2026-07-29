@@ -362,6 +362,32 @@ of speculative surface this project's conventions elsewhere reject. See
 design, including the wildcard-escaping mechanism and the deliberate
 decision not to add a `pg_trgm`/GIN index yet.
 
+Milestone 6B extended this same query with two more `costType`/
+`verificationStatus` predicates and a correlated `EXISTS` subquery for
+`openNow` — bind parameters only (the caller's Halifax "now," computed once
+per request), never a second query layer. See
+[ADR-011](../decisions/ADR-011-operating-hours-and-open-now.md) for why
+this stayed one query rather than migrating to Spring Data
+`Specification`s, and for the batch-loading (`findByResourceIdIn`) pattern
+that keeps the operating-hours lookup at one additional query per list
+request rather than N+1.
+
+## Deterministic Time via Injected `Clock`
+
+Anywhere business logic needs "the current date/time" for a calculation
+(not just an entity timestamp — see `CommunityResource`'s/`User`'s
+`@PrePersist`/`@PreUpdate` use of `Instant.now()` directly, which is fine
+for a stamp nobody calculates against), a `java.time.Clock` is injected
+rather than calling `Instant.now()`/`LocalTime.now()` inline.
+`OpenNowCalculator` (Milestone 6B — see
+[ADR-011](../decisions/ADR-011-operating-hours-and-open-now.md)) is the
+first and, as of this milestone, only consumer: production gets a single
+`Clock.systemUTC()` bean (`com.hfxconnect.common.config.ClockConfig`),
+converted to `America/Halifax` inside the calculator itself; tests supply
+`Clock.fixed(...)` for fully deterministic same-day/overnight/DST-boundary
+assertions. The same "production randomness/time, deterministic tests"
+split this project already applies to `SecureRandom` for refresh tokens.
+
 ## OpenAPI
 
 Endpoints are documented with standard `springdoc-openapi` annotations
