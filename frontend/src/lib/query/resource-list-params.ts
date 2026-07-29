@@ -1,4 +1,12 @@
-import { DEFAULT_RESOURCE_SORT, isResourceSort, type ResourceSort } from "@/lib/constants/resources";
+import {
+  DEFAULT_RESOURCE_SORT,
+  isCostTypeFilterValue,
+  isResourceSort,
+  isVerificationStatusFilterValue,
+  type CostTypeFilterValue,
+  type ResourceSort,
+  type VerificationStatusFilterValue,
+} from "@/lib/constants/resources";
 
 /** Mirrors the backend's own normalization (ADR-010) — see `normalizeQuery` below. */
 const MAX_QUERY_LENGTH = 100;
@@ -8,6 +16,9 @@ export interface ResourceListParams {
   categoryId?: number;
   sort: ResourceSort;
   q?: string;
+  costType?: CostTypeFilterValue;
+  verificationStatus?: VerificationStatusFilterValue;
+  openNow?: boolean;
 }
 
 export type RawSearchParams = Record<string, string | string[] | undefined>;
@@ -54,7 +65,19 @@ export function parseResourceListParams(searchParams: RawSearchParams): Resource
 
   const q = normalizeQuery(firstValue(searchParams.q));
 
-  return { page, categoryId, sort, q };
+  const rawCostType = firstValue(searchParams.costType);
+  const costType = rawCostType !== undefined && isCostTypeFilterValue(rawCostType) ? rawCostType : undefined;
+
+  const rawVerificationStatus = firstValue(searchParams.verificationStatus);
+  const verificationStatus =
+    rawVerificationStatus !== undefined && isVerificationStatusFilterValue(rawVerificationStatus)
+      ? rawVerificationStatus
+      : undefined;
+
+  const rawOpenNow = firstValue(searchParams.openNow);
+  const openNow = rawOpenNow === "true" ? true : undefined;
+
+  return { page, categoryId, sort, q, costType, verificationStatus, openNow };
 }
 
 /** Builds a `/resources` href from a params object, omitting default/empty values for cleaner URLs. */
@@ -63,6 +86,9 @@ export function buildResourcesHref(params: Partial<ResourceListParams>): string 
   if (params.categoryId !== undefined) query.set("categoryId", String(params.categoryId));
   if (params.sort !== undefined && params.sort !== DEFAULT_RESOURCE_SORT) query.set("sort", params.sort);
   if (params.q !== undefined && params.q.length > 0) query.set("q", params.q);
+  if (params.costType !== undefined) query.set("costType", params.costType);
+  if (params.verificationStatus !== undefined) query.set("verificationStatus", params.verificationStatus);
+  if (params.openNow) query.set("openNow", "true");
   if (params.page !== undefined && params.page > 0) query.set("page", String(params.page));
 
   const queryString = query.toString();

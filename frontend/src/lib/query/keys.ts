@@ -14,7 +14,15 @@ export const categoryKeys = {
 
 export const resourceKeys = {
   all: ["resources"] as const,
-  list: (params: { page: number; size: number; categoryId?: number; sort?: string; q?: string }) =>
-    [...resourceKeys.all, "list", params] as const,
+  list: (params: {
+    page: number;
+    size: number;
+    categoryId?: number;
+    sort?: string;
+    q?: string;
+    costType?: string;
+    verificationStatus?: string;
+    openNow?: boolean;
+  }) => [...resourceKeys.all, "list", params] as const,
   detail: (slug: string) => [...resourceKeys.all, "detail", slug] as const,
 };

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { buildResourcesHref } from "@/lib/query/resource-list-params";
-import type { ResourceSort } from "@/lib/constants/resources";
+import type { CostTypeFilterValue, ResourceSort, VerificationStatusFilterValue } from "@/lib/constants/resources";
 
 /**
  * Compact, accessible pagination: Previous/Next plus a human "Page X of Y"
@@ -13,12 +13,18 @@ export function Pagination({
   categoryId,
   sort,
   q,
+  costType,
+  verificationStatus,
+  openNow,
 }: {
   page: number;
   totalPages: number;
   categoryId?: number;
   sort: ResourceSort;
   q?: string;
+  costType?: CostTypeFilterValue;
+  verificationStatus?: VerificationStatusFilterValue;
+  openNow?: boolean;
 }) {
   if (totalPages <= 1) return null;
 
@@ -29,7 +35,7 @@ export function Pagination({
     <nav aria-label="Resource pages" className="mt-8 flex items-center justify-center gap-4">
       {hasPrevious ? (
         <Link
-          href={buildResourcesHref({ categoryId, sort, q, page: page - 1 })}
+          href={buildResourcesHref({ categoryId, sort, q, costType, verificationStatus, openNow, page: page - 1 })}
           className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
         >
           Previous page
@@ -46,7 +52,7 @@ export function Pagination({
 
       {hasNext ? (
         <Link
-          href={buildResourcesHref({ categoryId, sort, q, page: page + 1 })}
+          href={buildResourcesHref({ categoryId, sort, q, costType, verificationStatus, openNow, page: page + 1 })}
           className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
         >
           Next page

@@ -1,9 +1,10 @@
 import Link from "next/link";
-import { CostBadge, VerificationBadge } from "@/components/resources/status-badges";
+import { CostBadge, HoursStatusBadge, VerificationBadge } from "@/components/resources/status-badges";
 import { ExternalWebsiteLink } from "@/components/resources/external-website-link";
 import { addressLines } from "@/lib/formatting/address";
 import { formatDate } from "@/lib/formatting/dates";
-import { costTypeLabel } from "@/lib/formatting/labels";
+import { costTypeLabel, dayOfWeekLabel, formatLocalTime } from "@/lib/formatting/labels";
+import { WEEKLY_DAY_ORDER } from "@/lib/constants/resources";
 import type { ResourceResponse } from "@/lib/validation/schemas";
 
 /**
@@ -35,6 +36,7 @@ export function ResourceDetail({ resource }: { resource: ResourceResponse }) {
       <div className="mt-3 flex flex-wrap gap-2">
         <VerificationBadge status={resource.verificationStatus} />
         <CostBadge costType={resource.costType} />
+        <HoursStatusBadge status={resource.hours.hoursStatus} />
       </div>
 
       {resource.description && (
@@ -104,6 +106,38 @@ export function ResourceDetail({ resource }: { resource: ResourceResponse }) {
           <p className="mt-2 leading-relaxed text-slate-700">{resource.eligibility}</p>
         </section>
       )}
+
+      <section className="mt-8">
+        <h2 className="text-lg font-semibold text-slate-900">Hours</h2>
+        {resource.hours.hoursStatus === "UNKNOWN" ? (
+          <p className="mt-2 leading-relaxed text-slate-700">
+            Hours have not been added for this resource yet.
+          </p>
+        ) : (
+          <dl className="mt-2 divide-y divide-slate-200 text-sm leading-relaxed text-slate-700">
+            {WEEKLY_DAY_ORDER.map((day) => {
+              const entry = resource.hours.weeklyHours.find((e) => e.dayOfWeek === day);
+              return (
+                <div key={day} className="flex items-center justify-between gap-4 py-1.5">
+                  <dt className="font-medium text-slate-900">{dayOfWeekLabel(day)}</dt>
+                  <dd>
+                    {!entry && <span className="text-slate-500">Hours unavailable</span>}
+                    {entry?.closed && <span>Closed</span>}
+                    {entry && !entry.closed && entry.opensAt && entry.closesAt && (
+                      <span>
+                        {formatLocalTime(entry.opensAt)} – {formatLocalTime(entry.closesAt)}
+                        {entry.overnight && (
+                          <span className="ml-1 text-slate-500">(continues past midnight)</span>
+                        )}
+                      </span>
+                    )}
+                  </dd>
+                </div>
+              );
+            })}
+          </dl>
+        )}
+      </section>
 
       <p className="mt-10 text-sm text-slate-500">Added {formatDate(resource.createdAt)}</p>
     </article>

@@ -21,6 +21,49 @@ export type CostType = z.infer<typeof costTypeSchema>;
 export const verificationStatusSchema = z.enum(["UNVERIFIED", "VERIFIED"]);
 export type VerificationStatus = z.infer<typeof verificationStatusSchema>;
 
+/**
+ * A resource's currently-calculated open status (Milestone 6B — see
+ * ADR-011). UNKNOWN means the resource has no operating-hours schedule at
+ * all, never that today's status couldn't be determined.
+ */
+export const hoursStatusSchema = z.enum(["OPEN", "CLOSED", "UNKNOWN"]);
+export type HoursStatus = z.infer<typeof hoursStatusSchema>;
+
+export const dayOfWeekSchema = z.enum([
+  "MONDAY",
+  "TUESDAY",
+  "WEDNESDAY",
+  "THURSDAY",
+  "FRIDAY",
+  "SATURDAY",
+  "SUNDAY",
+]);
+export type DayOfWeek = z.infer<typeof dayOfWeekSchema>;
+
+/**
+ * opensAt/closesAt are ISO local-time strings with seconds ("09:00:00"),
+ * confirmed against the real backend (Jackson's default JSR-310
+ * LocalTime serialization, not LocalTime#toString()'s zero-seconds-omitted
+ * form) — see ResourceApiIntegrationTest#operatingHoursTimesSerializeAsIsoLocalTimeWithSeconds.
+ * Both are null for a closed day.
+ */
+export const operatingHoursEntrySchema = z.object({
+  dayOfWeek: dayOfWeekSchema,
+  closed: z.boolean(),
+  opensAt: z.string().nullish(),
+  closesAt: z.string().nullish(),
+  overnight: z.boolean(),
+});
+export type OperatingHoursEntry = z.infer<typeof operatingHoursEntrySchema>;
+
+export const operatingHoursSchema = z.object({
+  timezone: z.string(),
+  weeklyHours: z.array(operatingHoursEntrySchema),
+  hoursStatus: hoursStatusSchema,
+  openNow: z.boolean().nullish(),
+});
+export type OperatingHours = z.infer<typeof operatingHoursSchema>;
+
 export const categorySummarySchema = z.object({
   id: z.number(),
   name: z.string(),
@@ -59,6 +102,8 @@ export const resourceSummaryResponseSchema = z.object({
   active: z.boolean(),
   category: categorySummarySchema,
   createdAt: z.string(),
+  hoursStatus: hoursStatusSchema,
+  openNow: z.boolean().nullish(),
 });
 export type ResourceSummaryResponse = z.infer<typeof resourceSummaryResponseSchema>;
 
@@ -83,6 +128,7 @@ export const resourceResponseSchema = z.object({
   category: categorySummarySchema,
   createdAt: z.string(),
   updatedAt: z.string(),
+  hours: operatingHoursSchema,
 });
 export type ResourceResponse = z.infer<typeof resourceResponseSchema>;
 

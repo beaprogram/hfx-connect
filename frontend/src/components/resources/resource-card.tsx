@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { CostBadge, VerificationBadge } from "@/components/resources/status-badges";
+import { CostBadge, HoursStatusBadge, VerificationBadge } from "@/components/resources/status-badges";
 import { formatCityProvince } from "@/lib/formatting/location";
 import type { ResourceSummaryResponse } from "@/lib/validation/schemas";
 
@@ -23,6 +23,7 @@ export function ResourceCard({ resource }: { resource: ResourceSummaryResponse }
       <div className="mt-1 flex flex-wrap gap-2">
         <CostBadge costType={resource.costType} />
         <VerificationBadge status={resource.verificationStatus} />
+        <HoursStatusBadge status={resource.hoursStatus} />
       </div>
     </article>
   );
