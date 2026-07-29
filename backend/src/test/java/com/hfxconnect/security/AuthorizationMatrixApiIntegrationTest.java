@@ -143,6 +143,41 @@ class AuthorizationMatrixApiIntegrationTest extends AbstractPostgresIntegrationT
 		assertResourceCreationStatus(Role.ADMIN, HttpStatus.CREATED);
 	}
 
+	// ---- Operating-hours replacement: role matrix (Milestone 6B — see ADR-011) ----
+
+	@Test
+	void operatingHoursReplacementWithNoTokenIsRejectedWithAuthenticationRequired() {
+		Category category = activeCategory();
+		UUID resourceId = createResource(category.getId());
+
+		ResponseEntity<String> response = restTemplate.exchange(
+				"/api/v1/resources/" + resourceId + "/operating-hours", HttpMethod.PUT,
+				new HttpEntity<>(operatingHoursRequest(), jsonHeaders()), String.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+		assertThat(response.getBody()).contains("\"code\":\"AUTHENTICATION_REQUIRED\"");
+	}
+
+	@Test
+	void operatingHoursReplacementAsUserIsForbidden() {
+		assertOperatingHoursReplacementStatus(Role.USER, HttpStatus.FORBIDDEN);
+	}
+
+	@Test
+	void operatingHoursReplacementAsOrganizationIsForbidden() {
+		assertOperatingHoursReplacementStatus(Role.ORGANIZATION, HttpStatus.FORBIDDEN);
+	}
+
+	@Test
+	void operatingHoursReplacementAsModeratorSucceeds() {
+		assertOperatingHoursReplacementStatus(Role.MODERATOR, HttpStatus.OK);
+	}
+
+	@Test
+	void operatingHoursReplacementAsAdminSucceeds() {
+		assertOperatingHoursReplacementStatus(Role.ADMIN, HttpStatus.OK);
+	}
+
 	// ---- GET /api/v1/users/me: request authentication edge cases ----
 
 	@Test
@@ -286,6 +321,39 @@ class AuthorizationMatrixApiIntegrationTest extends AbstractPostgresIntegrationT
 				"/api/v1/resources", new HttpEntity<>(resourceRequest(category.getId()), headers), String.class);
 
 		assertThat(response.getStatusCode()).isEqualTo(expected);
+	}
+
+	private void assertOperatingHoursReplacementStatus(Role role, HttpStatus expected) {
+		Category category = activeCategory();
+		UUID resourceId = createResource(category.getId());
+		HttpHeaders headers = authHeaders(role);
+		headers.setContentType(MediaType.APPLICATION_JSON);
+
+		ResponseEntity<String> response = restTemplate.exchange(
+				"/api/v1/resources/" + resourceId + "/operating-hours", HttpMethod.PUT,
+				new HttpEntity<>(operatingHoursRequest(), headers), String.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(expected);
+	}
+
+	private UUID createResource(Long categoryId) {
+		HttpHeaders headers = authHeaders(Role.ADMIN);
+		headers.setContentType(MediaType.APPLICATION_JSON);
+		ResponseEntity<String> response = restTemplate.postForEntity(
+				"/api/v1/resources", new HttpEntity<>(resourceRequest(categoryId), headers), String.class);
+		String body = response.getBody();
+		String id = body.substring(body.indexOf("\"id\":\"") + 6);
+		return UUID.fromString(id.substring(0, id.indexOf('"')));
+	}
+
+	private HttpHeaders jsonHeaders() {
+		HttpHeaders headers = new HttpHeaders();
+		headers.setContentType(MediaType.APPLICATION_JSON);
+		return headers;
+	}
+
+	private static String operatingHoursRequest() {
+		return "{\"hours\":[{\"dayOfWeek\":\"MONDAY\",\"closed\":false,\"opensAt\":\"09:00\",\"closesAt\":\"17:00\"}]}";
 	}
 
 	private ResponseEntity<String> getMeWithToken(String authorizationHeaderValue) {

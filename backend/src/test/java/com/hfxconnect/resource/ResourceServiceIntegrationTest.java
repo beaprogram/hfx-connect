@@ -6,10 +6,18 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.hfxconnect.AbstractPostgresIntegrationTest;
 import com.hfxconnect.category.Category;
 import com.hfxconnect.category.CategoryRepository;
+import com.hfxconnect.common.error.InvalidCostTypeException;
+import com.hfxconnect.common.error.InvalidOpenNowFilterException;
 import com.hfxconnect.common.error.InvalidPaginationException;
 import com.hfxconnect.common.error.InvalidSearchQueryException;
 import com.hfxconnect.common.error.InvalidSortException;
+import com.hfxconnect.common.error.InvalidVerificationStatusException;
 import com.hfxconnect.common.error.ValidationException;
+import java.time.DayOfWeek;
+import java.time.LocalTime;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -27,6 +35,8 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Transactional
 class ResourceServiceIntegrationTest extends AbstractPostgresIntegrationTest {
+
+	private static final ZoneId HALIFAX_ZONE = ZoneId.of("America/Halifax");
 
 	@Autowired
 	private ResourceService resourceService;
@@ -240,7 +250,7 @@ class ResourceServiceIntegrationTest extends AbstractPostgresIntegrationTest {
 		ResourceDetails created = resourceService.create(validCommand(category.getId(), "List Active " + marker));
 		resourceService.deactivate(created.id());
 
-		ResourcePage page = resourceService.search(null, null, 0, 100, null);
+		ResourcePage page = resourceService.search(null, null, null, null, null, 0, 100, null);
 
 		assertThat(page.content()).extracting(ResourceDetails::name).doesNotContain("List Active " + marker);
 	}
@@ -253,7 +263,7 @@ class ResourceServiceIntegrationTest extends AbstractPostgresIntegrationTest {
 		resourceService.create(validCommand(categoryA.getId(), "In Category A " + marker));
 		resourceService.create(validCommand(categoryB.getId(), "In Category B " + marker));
 
-		ResourcePage page = resourceService.search(null, categoryA.getId(), 0, 100, null);
+		ResourcePage page = resourceService.search(null, categoryA.getId(), null, null, null, 0, 100, null);
 
 		assertThat(page.content()).extracting(ResourceDetails::name)
 				.contains("In Category A " + marker)
@@ -262,13 +272,13 @@ class ResourceServiceIntegrationTest extends AbstractPostgresIntegrationTest {
 
 	@Test
 	void listActiveRejectsAnOutOfRangePageSize() {
-		assertThatThrownBy(() -> resourceService.search(null, null, 0, 0, null)).isInstanceOf(InvalidPaginationException.class);
-		assertThatThrownBy(() -> resourceService.search(null, null, 0, 1000, null)).isInstanceOf(InvalidPaginationException.class);
+		assertThatThrownBy(() -> resourceService.search(null, null, null, null, null, 0, 0, null)).isInstanceOf(InvalidPaginationException.class);
+		assertThatThrownBy(() -> resourceService.search(null, null, null, null, null, 0, 1000, null)).isInstanceOf(InvalidPaginationException.class);
 	}
 
 	@Test
 	void listActiveRejectsANegativePage() {
-		assertThatThrownBy(() -> resourceService.search(null, null, -1, 20, null)).isInstanceOf(InvalidPaginationException.class);
+		assertThatThrownBy(() -> resourceService.search(null, null, null, null, null, -1, 20, null)).isInstanceOf(InvalidPaginationException.class);
 	}
 
 	@Test
@@ -278,7 +288,7 @@ class ResourceServiceIntegrationTest extends AbstractPostgresIntegrationTest {
 		resourceService.create(validCommand(category.getId(), "B Resource " + marker));
 		resourceService.create(validCommand(category.getId(), "A Resource " + marker));
 
-		ResourcePage page = resourceService.search(null, category.getId(), 0, 100, null);
+		ResourcePage page = resourceService.search(null, category.getId(), null, null, null, 0, 100, null);
 
 		assertThat(page.content()).extracting(ResourceDetails::name)
 				.containsExactly("A Resource " + marker, "B Resource " + marker);
@@ -291,7 +301,7 @@ class ResourceServiceIntegrationTest extends AbstractPostgresIntegrationTest {
 		ResourceDetails first = resourceService.create(validCommand(category.getId(), "First " + marker));
 		ResourceDetails second = resourceService.create(validCommand(category.getId(), "Second " + marker));
 
-		ResourcePage page = resourceService.search(null, category.getId(), 0, 100, "createdAt");
+		ResourcePage page = resourceService.search(null, category.getId(), null, null, null, 0, 100, "createdAt");
 
 		assertThat(page.content()).extracting(ResourceDetails::id)
 				.containsSubsequence(second.id(), first.id());
@@ -299,7 +309,7 @@ class ResourceServiceIntegrationTest extends AbstractPostgresIntegrationTest {
 
 	@Test
 	void listActiveRejectsAnUnsupportedSortValue() {
-		assertThatThrownBy(() -> resourceService.search(null, null, 0, 20, "notARealField"))
+		assertThatThrownBy(() -> resourceService.search(null, null, null, null, null, 0, 20, "notARealField"))
 				.isInstanceOf(InvalidSortException.class);
 	}
 
@@ -311,7 +321,7 @@ class ResourceServiceIntegrationTest extends AbstractPostgresIntegrationTest {
 		String marker = UUID.randomUUID().toString();
 		resourceService.create(withName(validCommand(category.getId(), "placeholder"), "Halifax Food Bank " + marker));
 
-		ResourcePage page = resourceService.search("Food Bank " + marker, null, 0, 20, null);
+		ResourcePage page = resourceService.search("Food Bank " + marker, null, null, null, null, 0, 20, null);
 
 		assertThat(page.content()).extracting(ResourceDetails::name).containsExactly("Halifax Food Bank " + marker);
 	}
@@ -323,7 +333,7 @@ class ResourceServiceIntegrationTest extends AbstractPostgresIntegrationTest {
 		resourceService.create(withDescription(withName(validCommand(category.getId(), "Distinct Name " + marker), "Distinct Name " + marker),
 				"Offers free tutoring " + marker + " for newcomers."));
 
-		ResourcePage page = resourceService.search("tutoring " + marker, null, 0, 20, null);
+		ResourcePage page = resourceService.search("tutoring " + marker, null, null, null, null, 0, 20, null);
 
 		assertThat(page.content()).extracting(ResourceDetails::name).containsExactly("Distinct Name " + marker);
 	}
@@ -335,7 +345,7 @@ class ResourceServiceIntegrationTest extends AbstractPostgresIntegrationTest {
 		resourceService.create(withAddressLine1(withName(validCommand(category.getId(), "placeholder"), "Address Match " + marker),
 				"742 Evergreen Terrace " + marker));
 
-		ResourcePage page = resourceService.search("Evergreen Terrace " + marker, null, 0, 20, null);
+		ResourcePage page = resourceService.search("Evergreen Terrace " + marker, null, null, null, null, 0, 20, null);
 
 		assertThat(page.content()).extracting(ResourceDetails::name).containsExactly("Address Match " + marker);
 	}
@@ -347,7 +357,7 @@ class ResourceServiceIntegrationTest extends AbstractPostgresIntegrationTest {
 		resourceService.create(withCity(withName(validCommand(category.getId(), "placeholder"), "City Match " + marker),
 				"Dartmouth" + marker));
 
-		ResourcePage page = resourceService.search("Dartmouth" + marker, null, 0, 20, null);
+		ResourcePage page = resourceService.search("Dartmouth" + marker, null, null, null, null, 0, 20, null);
 
 		assertThat(page.content()).extracting(ResourceDetails::name).containsExactly("City Match " + marker);
 	}
@@ -358,7 +368,7 @@ class ResourceServiceIntegrationTest extends AbstractPostgresIntegrationTest {
 		String marker = UUID.randomUUID().toString();
 		resourceService.create(withName(validCommand(category.getId(), "placeholder"), "Library Services " + marker));
 
-		ResourcePage page = resourceService.search("LIBRARY services " + marker.toUpperCase(Locale.ROOT), null, 0, 20, null);
+		ResourcePage page = resourceService.search("LIBRARY services " + marker.toUpperCase(Locale.ROOT), null, null, null, null, 0, 20, null);
 
 		assertThat(page.content()).extracting(ResourceDetails::name).containsExactly("Library Services " + marker);
 	}
@@ -367,7 +377,7 @@ class ResourceServiceIntegrationTest extends AbstractPostgresIntegrationTest {
 	void searchReturnsAnEmptyPageWhenNothingMatches() {
 		activeCategory("Search No Match Check");
 
-		ResourcePage page = resourceService.search("no-resource-should-ever-match-this-" + UUID.randomUUID(), null, 0, 20, null);
+		ResourcePage page = resourceService.search("no-resource-should-ever-match-this-" + UUID.randomUUID(), null, null, null, null, 0, 20, null);
 
 		assertThat(page.content()).isEmpty();
 		assertThat(page.totalElements()).isZero();
@@ -380,7 +390,7 @@ class ResourceServiceIntegrationTest extends AbstractPostgresIntegrationTest {
 		ResourceDetails created = resourceService.create(withName(validCommand(category.getId(), "placeholder"), "Deactivated Search " + marker));
 		resourceService.deactivate(created.id());
 
-		ResourcePage page = resourceService.search("Deactivated Search " + marker, null, 0, 20, null);
+		ResourcePage page = resourceService.search("Deactivated Search " + marker, null, null, null, null, 0, 20, null);
 
 		assertThat(page.content()).isEmpty();
 	}
@@ -395,7 +405,7 @@ class ResourceServiceIntegrationTest extends AbstractPostgresIntegrationTest {
 
 		// The keyword alone ("marker") matches both resources; the category
 		// filter is what must narrow it down to just the one in categoryA.
-		ResourcePage page = resourceService.search(marker, categoryA.getId(), 0, 20, null);
+		ResourcePage page = resourceService.search(marker, categoryA.getId(), null, null, null, 0, 20, null);
 
 		assertThat(page.content()).extracting(ResourceDetails::name).containsExactly("Workshop A " + marker);
 	}
@@ -407,7 +417,7 @@ class ResourceServiceIntegrationTest extends AbstractPostgresIntegrationTest {
 		String marker = UUID.randomUUID().toString();
 		resourceService.create(withName(validCommand(categoryA.getId(), "placeholder"), "Only In A " + marker));
 
-		ResourcePage page = resourceService.search("Only In A " + marker, categoryB.getId(), 0, 20, null);
+		ResourcePage page = resourceService.search("Only In A " + marker, categoryB.getId(), null, null, null, 0, 20, null);
 
 		assertThat(page.content()).isEmpty();
 	}
@@ -420,8 +430,8 @@ class ResourceServiceIntegrationTest extends AbstractPostgresIntegrationTest {
 			resourceService.create(withName(validCommand(category.getId(), "placeholder"), "Paginated " + marker + " " + i));
 		}
 
-		ResourcePage firstPage = resourceService.search("Paginated " + marker, null, 0, 2, null);
-		ResourcePage secondPage = resourceService.search("Paginated " + marker, null, 1, 2, null);
+		ResourcePage firstPage = resourceService.search("Paginated " + marker, null, null, null, null, 0, 2, null);
+		ResourcePage secondPage = resourceService.search("Paginated " + marker, null, null, null, null, 1, 2, null);
 
 		assertThat(firstPage.content()).hasSize(2);
 		assertThat(secondPage.content()).hasSize(1);
@@ -435,7 +445,7 @@ class ResourceServiceIntegrationTest extends AbstractPostgresIntegrationTest {
 		resourceService.create(withName(validCommand(category.getId(), "placeholder"), "B Sorted " + marker));
 		resourceService.create(withName(validCommand(category.getId(), "placeholder"), "A Sorted " + marker));
 
-		ResourcePage page = resourceService.search("Sorted " + marker, null, 0, 20, null);
+		ResourcePage page = resourceService.search("Sorted " + marker, null, null, null, null, 0, 20, null);
 
 		assertThat(page.content()).extracting(ResourceDetails::name)
 				.containsExactly("A Sorted " + marker, "B Sorted " + marker);
@@ -448,7 +458,7 @@ class ResourceServiceIntegrationTest extends AbstractPostgresIntegrationTest {
 		ResourceDetails first = resourceService.create(withName(validCommand(category.getId(), "placeholder"), "First Sorted " + marker));
 		ResourceDetails second = resourceService.create(withName(validCommand(category.getId(), "placeholder"), "Second Sorted " + marker));
 
-		ResourcePage page = resourceService.search("Sorted " + marker, null, 0, 20, "createdAt");
+		ResourcePage page = resourceService.search("Sorted " + marker, null, null, null, null, 0, 20, "createdAt");
 
 		assertThat(page.content()).extracting(ResourceDetails::id).containsExactly(second.id(), first.id());
 	}
@@ -465,7 +475,7 @@ class ResourceServiceIntegrationTest extends AbstractPostgresIntegrationTest {
 		resourceService.create(withDescription(withName(validCommand(category.getId(), "placeholder"), "Fifty Only " + marker),
 				"Serves 50 clients " + marker + " per day."));
 
-		ResourcePage page = resourceService.search("50% " + marker, null, 0, 20, null);
+		ResourcePage page = resourceService.search("50% " + marker, null, null, null, null, 0, 20, null);
 
 		assertThat(page.content()).extracting(ResourceDetails::name).containsExactly("Percent Literal " + marker);
 	}
@@ -479,7 +489,7 @@ class ResourceServiceIntegrationTest extends AbstractPostgresIntegrationTest {
 		resourceService.create(withDescription(withName(validCommand(category.getId(), "placeholder"), "No Underscore " + marker),
 				"Contact userXname " + marker + " for details."));
 
-		ResourcePage page = resourceService.search("user_name " + marker, null, 0, 20, null);
+		ResourcePage page = resourceService.search("user_name " + marker, null, null, null, null, 0, 20, null);
 
 		assertThat(page.content()).extracting(ResourceDetails::name).containsExactly("Underscore Literal " + marker);
 	}
@@ -490,7 +500,7 @@ class ResourceServiceIntegrationTest extends AbstractPostgresIntegrationTest {
 		String marker = UUID.randomUUID().toString();
 		resourceService.create(withName(validCommand(category.getId(), "placeholder"), "Blank Query " + marker));
 
-		ResourcePage page = resourceService.search("   ", category.getId(), 0, 20, null);
+		ResourcePage page = resourceService.search("   ", category.getId(), null, null, null, 0, 20, null);
 
 		assertThat(page.content()).extracting(ResourceDetails::name).containsExactly("Blank Query " + marker);
 	}
@@ -498,7 +508,7 @@ class ResourceServiceIntegrationTest extends AbstractPostgresIntegrationTest {
 	@Test
 	void searchRejectsAQueryOverTheMaximumLength() {
 		String tooLong = "a".repeat(ResourceSearchQuery.MAX_LENGTH + 1);
-		assertThatThrownBy(() -> resourceService.search(tooLong, null, 0, 20, null))
+		assertThatThrownBy(() -> resourceService.search(tooLong, null, null, null, null, 0, 20, null))
 				.isInstanceOf(InvalidSearchQueryException.class);
 	}
 
@@ -528,6 +538,236 @@ class ResourceServiceIntegrationTest extends AbstractPostgresIntegrationTest {
 				.isInstanceOf(ResourceNotFoundException.class);
 	}
 
+	// ---- Cost/verification/openNow filters and operating hours (Milestone 6B) — see ADR-011 ----
+
+	@Test
+	void aResourceWithNoScheduleHasUnknownHoursStatus() {
+		Category category = activeCategory("Unknown Hours Check");
+		ResourceDetails created = resourceService.create(validCommand(category.getId(), "No Schedule Resource"));
+
+		ResourceDetails found = resourceService.getActiveById(created.id());
+
+		assertThat(found.hoursStatus()).isEqualTo(HoursStatus.UNKNOWN);
+		assertThat(found.openNow()).isNull();
+		assertThat(found.weeklyHours()).isEmpty();
+	}
+
+	@Test
+	void costTypeFilterOnlyReturnsMatchingResources() {
+		Category category = activeCategory("Cost Filter Check");
+		String marker = UUID.randomUUID().toString();
+		resourceService.create(withCostType(withName(validCommand(category.getId(), "placeholder"), "Free Resource " + marker), CostType.FREE));
+		resourceService.create(withCostType(withName(validCommand(category.getId(), "placeholder"), "Paid Resource " + marker), CostType.PAID));
+
+		ResourcePage page = resourceService.search(marker, null, "FREE", null, null, 0, 20, null);
+
+		assertThat(page.content()).extracting(ResourceDetails::name).containsExactly("Free Resource " + marker);
+	}
+
+	@Test
+	void costTypeFilterIsCaseInsensitive() {
+		Category category = activeCategory("Cost Filter Case Check");
+		String marker = UUID.randomUUID().toString();
+		resourceService.create(withCostType(withName(validCommand(category.getId(), "placeholder"), "Lower Free " + marker), CostType.FREE));
+
+		ResourcePage page = resourceService.search(marker, null, "free", null, null, 0, 20, null);
+
+		assertThat(page.content()).extracting(ResourceDetails::name).containsExactly("Lower Free " + marker);
+	}
+
+	@Test
+	void invalidCostTypeFilterThrows() {
+		assertThatThrownBy(() -> resourceService.search(null, null, "NOT_A_REAL_COST_TYPE", null, null, 0, 20, null))
+				.isInstanceOf(InvalidCostTypeException.class);
+	}
+
+	@Test
+	void verificationStatusFilterOnlyReturnsMatchingResources() {
+		Category category = activeCategory("Verification Filter Check");
+		String marker = UUID.randomUUID().toString();
+		resourceService.create(withName(validCommand(category.getId(), "placeholder"), "Unverified Resource " + marker));
+
+		ResourcePage page = resourceService.search(marker, null, null, "UNVERIFIED", null, 0, 20, null);
+
+		assertThat(page.content()).extracting(ResourceDetails::name).containsExactly("Unverified Resource " + marker);
+
+		ResourcePage verifiedOnly = resourceService.search(marker, null, null, "VERIFIED", null, 0, 20, null);
+		assertThat(verifiedOnly.content()).isEmpty();
+	}
+
+	@Test
+	void invalidVerificationStatusFilterThrows() {
+		assertThatThrownBy(() -> resourceService.search(null, null, null, "NOT_A_REAL_STATUS", null, 0, 20, null))
+				.isInstanceOf(InvalidVerificationStatusException.class);
+	}
+
+	@Test
+	void invalidOpenNowFilterThrows() {
+		assertThatThrownBy(() -> resourceService.search(null, null, null, null, "maybe", 0, 20, null))
+				.isInstanceOf(InvalidOpenNowFilterException.class);
+	}
+
+	@Test
+	void openNowFilterExcludesResourcesWithNoSchedule() {
+		Category category = activeCategory("Open Now Unknown Excluded Check");
+		String marker = UUID.randomUUID().toString();
+		resourceService.create(withName(validCommand(category.getId(), "placeholder"), "No Hours At All " + marker));
+
+		ResourcePage page = resourceService.search(marker, null, null, null, "true", 0, 20, null);
+
+		assertThat(page.content()).isEmpty();
+	}
+
+	@Test
+	void openNowFilterReturnsOnlyCurrentlyOpenResources() {
+		Category category = activeCategory("Open Now Filter Check");
+		String marker = UUID.randomUUID().toString();
+		ResourceDetails openResource = resourceService.create(
+				withName(validCommand(category.getId(), "placeholder"), "Currently Open " + marker));
+		ResourceDetails closedResource = resourceService.create(
+				withName(validCommand(category.getId(), "placeholder"), "Currently Closed " + marker));
+
+		DayOfWeek today = ZonedDateTime.now(HALIFAX_ZONE).getDayOfWeek();
+		LocalTime now = ZonedDateTime.now(HALIFAX_ZONE).toLocalTime();
+		resourceService.replaceOperatingHours(openResource.id(), new ReplaceOperatingHoursRequest(
+				List.of(new OperatingHoursEntryRequest(today, false, now.minusHours(1), now.plusHours(1)))));
+		resourceService.replaceOperatingHours(closedResource.id(), new ReplaceOperatingHoursRequest(
+				List.of(new OperatingHoursEntryRequest(today, true, null, null))));
+
+		ResourcePage page = resourceService.search(marker, null, null, null, "true", 0, 20, null);
+
+		assertThat(page.content()).extracting(ResourceDetails::name).containsExactly("Currently Open " + marker);
+	}
+
+	@Test
+	void openNowFilterCombinesWithKeywordAndCategory() {
+		Category category = activeCategory("Open Now Combo Check");
+		String marker = UUID.randomUUID().toString();
+		ResourceDetails openResource = resourceService.create(
+				withName(validCommand(category.getId(), "placeholder"), "Combo Open " + marker));
+
+		DayOfWeek today = ZonedDateTime.now(HALIFAX_ZONE).getDayOfWeek();
+		LocalTime now = ZonedDateTime.now(HALIFAX_ZONE).toLocalTime();
+		resourceService.replaceOperatingHours(openResource.id(), new ReplaceOperatingHoursRequest(
+				List.of(new OperatingHoursEntryRequest(today, false, now.minusHours(1), now.plusHours(1)))));
+
+		ResourcePage page = resourceService.search(marker, category.getId(), null, null, "true", 0, 20, null);
+
+		assertThat(page.content()).extracting(ResourceDetails::name).containsExactly("Combo Open " + marker);
+	}
+
+	@Test
+	void missingOrFalseOpenNowAppliesNoFilter() {
+		Category category = activeCategory("Open Now Absent Check");
+		String marker = UUID.randomUUID().toString();
+		resourceService.create(withName(validCommand(category.getId(), "placeholder"), "No Filter Applied " + marker));
+
+		ResourcePage missing = resourceService.search(marker, null, null, null, null, 0, 20, null);
+		ResourcePage blank = resourceService.search(marker, null, null, null, "", 0, 20, null);
+		ResourcePage explicitFalse = resourceService.search(marker, null, null, null, "false", 0, 20, null);
+
+		assertThat(missing.content()).extracting(ResourceDetails::name).containsExactly("No Filter Applied " + marker);
+		assertThat(blank.content()).extracting(ResourceDetails::name).containsExactly("No Filter Applied " + marker);
+		assertThat(explicitFalse.content()).extracting(ResourceDetails::name).containsExactly("No Filter Applied " + marker);
+	}
+
+	@Test
+	void allFiltersCombinedNarrowToTheExactMatch() {
+		Category category = activeCategory("All Filters Combined Check");
+		String marker = UUID.randomUUID().toString();
+		ResourceDetails match = resourceService.create(withCostType(
+				withName(validCommand(category.getId(), "placeholder"), "Matches Every Filter " + marker), CostType.FREE));
+		resourceService.create(withCostType(
+				withName(validCommand(category.getId(), "placeholder"), "Wrong Cost Type " + marker), CostType.PAID));
+
+		DayOfWeek today = ZonedDateTime.now(HALIFAX_ZONE).getDayOfWeek();
+		LocalTime now = ZonedDateTime.now(HALIFAX_ZONE).toLocalTime();
+		resourceService.replaceOperatingHours(match.id(), new ReplaceOperatingHoursRequest(
+				List.of(new OperatingHoursEntryRequest(today, false, now.minusHours(1), now.plusHours(1)))));
+
+		ResourcePage page = resourceService.search(
+				marker, category.getId(), "FREE", "UNVERIFIED", "true", 0, 20, "name");
+
+		assertThat(page.content()).extracting(ResourceDetails::name).containsExactly("Matches Every Filter " + marker);
+	}
+
+	@Test
+	void replaceOperatingHoursReplacesTheFullWeek() {
+		Category category = activeCategory("Replace Hours Check");
+		ResourceDetails created = resourceService.create(validCommand(category.getId(), "Replace Hours Resource"));
+
+		OperatingHoursResponse response = resourceService.replaceOperatingHours(created.id(), new ReplaceOperatingHoursRequest(List.of(
+				new OperatingHoursEntryRequest(DayOfWeek.MONDAY, false, LocalTime.of(9, 0), LocalTime.of(17, 0)),
+				new OperatingHoursEntryRequest(DayOfWeek.TUESDAY, true, null, null))));
+
+		assertThat(response.weeklyHours()).hasSize(2);
+		assertThat(response.timezone()).isEqualTo("America/Halifax");
+		assertThat(response.weeklyHours().get(0).dayOfWeek()).isEqualTo(DayOfWeek.MONDAY);
+		assertThat(response.weeklyHours().get(1).dayOfWeek()).isEqualTo(DayOfWeek.TUESDAY);
+	}
+
+	@Test
+	void replaceOperatingHoursFullyReplacesPreviouslySetDays() {
+		Category category = activeCategory("Replace Hours Overwrite Check");
+		ResourceDetails created = resourceService.create(validCommand(category.getId(), "Overwrite Hours Resource"));
+		resourceService.replaceOperatingHours(created.id(), new ReplaceOperatingHoursRequest(List.of(
+				new OperatingHoursEntryRequest(DayOfWeek.MONDAY, false, LocalTime.of(9, 0), LocalTime.of(17, 0)),
+				new OperatingHoursEntryRequest(DayOfWeek.TUESDAY, false, LocalTime.of(9, 0), LocalTime.of(17, 0)))));
+
+		OperatingHoursResponse response = resourceService.replaceOperatingHours(created.id(),
+				new ReplaceOperatingHoursRequest(List.of(
+						new OperatingHoursEntryRequest(DayOfWeek.WEDNESDAY, false, LocalTime.of(10, 0), LocalTime.of(14, 0)))));
+
+		assertThat(response.weeklyHours()).extracting(OperatingHoursEntryResponse::dayOfWeek)
+				.containsExactly(DayOfWeek.WEDNESDAY);
+	}
+
+	@Test
+	void replaceOperatingHoursThrowsNotFoundForAMissingResource() {
+		assertThatThrownBy(() -> resourceService.replaceOperatingHours(UUID.randomUUID(),
+				new ReplaceOperatingHoursRequest(List.of(
+						new OperatingHoursEntryRequest(DayOfWeek.MONDAY, false, LocalTime.of(9, 0), LocalTime.of(17, 0))))))
+				.isInstanceOf(ResourceNotFoundException.class);
+	}
+
+	@Test
+	void replaceOperatingHoursSucceedsForADeactivatedResource() {
+		Category category = activeCategory("Replace Hours Inactive Check");
+		ResourceDetails created = resourceService.create(validCommand(category.getId(), "Inactive Hours Resource"));
+		resourceService.deactivate(created.id());
+
+		OperatingHoursResponse response = resourceService.replaceOperatingHours(created.id(),
+				new ReplaceOperatingHoursRequest(List.of(
+						new OperatingHoursEntryRequest(DayOfWeek.MONDAY, false, LocalTime.of(9, 0), LocalTime.of(17, 0)))));
+
+		assertThat(response.weeklyHours()).hasSize(1);
+	}
+
+	@Test
+	void replaceOperatingHoursRejectsAnInvalidSchedule() {
+		Category category = activeCategory("Replace Hours Invalid Check");
+		ResourceDetails created = resourceService.create(validCommand(category.getId(), "Invalid Hours Resource"));
+
+		assertThatThrownBy(() -> resourceService.replaceOperatingHours(created.id(), new ReplaceOperatingHoursRequest(List.of(
+				new OperatingHoursEntryRequest(DayOfWeek.MONDAY, false, LocalTime.of(9, 0), LocalTime.of(9, 0))))))
+				.isInstanceOf(ValidationException.class);
+	}
+
+	@Test
+	void weeklyHoursAppearOnBatchLoadedListResultsWithoutNPlusOne() {
+		Category category = activeCategory("Batch Load Hours Check");
+		String marker = UUID.randomUUID().toString();
+		ResourceDetails created = resourceService.create(withName(validCommand(category.getId(), "placeholder"), "Batch Hours " + marker));
+		resourceService.replaceOperatingHours(created.id(), new ReplaceOperatingHoursRequest(List.of(
+				new OperatingHoursEntryRequest(DayOfWeek.MONDAY, false, LocalTime.of(9, 0), LocalTime.of(17, 0)))));
+
+		ResourcePage page = resourceService.search(marker, null, null, null, null, 0, 20, null);
+
+		assertThat(page.content()).extracting(ResourceDetails::name).containsExactly("Batch Hours " + marker);
+		assertThat(page.content().get(0).hoursStatus()).isNotEqualTo(HoursStatus.UNKNOWN);
+		assertThat(page.content().get(0).weeklyHours()).hasSize(1);
+	}
+
 	private Category activeCategory(String namePrefix) {
 		String marker = UUID.randomUUID().toString();
 		String name = namePrefix + " " + marker;
@@ -554,6 +794,12 @@ class ResourceServiceIntegrationTest extends AbstractPostgresIntegrationTest {
 		return new CreateResourceCommand(base.categoryId(), name, base.description(), base.addressLine1(),
 				base.addressLine2(), base.city(), base.province(), base.postalCode(), base.phone(), base.email(),
 				base.websiteUrl(), base.costType(), base.costDetails(), base.eligibility());
+	}
+
+	private static CreateResourceCommand withCostType(CreateResourceCommand base, CostType costType) {
+		return new CreateResourceCommand(base.categoryId(), base.name(), base.description(), base.addressLine1(),
+				base.addressLine2(), base.city(), base.province(), base.postalCode(), base.phone(), base.email(),
+				base.websiteUrl(), costType, base.costDetails(), base.eligibility());
 	}
 
 	private static CreateResourceCommand withWebsite(CreateResourceCommand base, String websiteUrl) {

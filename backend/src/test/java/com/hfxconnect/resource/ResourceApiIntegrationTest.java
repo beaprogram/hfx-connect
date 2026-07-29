@@ -12,6 +12,10 @@ import com.hfxconnect.user.User;
 import com.hfxconnect.user.UserRepository;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.time.DayOfWeek;
+import java.time.LocalTime;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.Locale;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -21,6 +25,7 @@ import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -497,6 +502,196 @@ class ResourceApiIntegrationTest extends AbstractPostgresIntegrationTest {
 		assertThat(response.getBody()).contains("\"name\":\"q\"");
 	}
 
+	// ---- Cost/verification/openNow filters and operating hours (Milestone 6B) — see ADR-011 ----
+
+	@Test
+	void costTypeFilterOverHttpReturnsOnlyMatchingResources() {
+		Category category = activeCategory("Http Cost Filter Check");
+		String marker = UUID.randomUUID().toString();
+		restTemplate.postForEntity("/api/v1/resources",
+				createRequest(category.getId(), "Http Free " + marker), ResourceResponse.class);
+
+		ResponseEntity<ResourcePageResponse> response = restTemplate.getForEntity(
+				"/api/v1/resources?q=" + encode(marker) + "&costType=FREE", ResourcePageResponse.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+		// A brand-new resource defaults to CostType.UNKNOWN (createRequest passes no costType), so FREE never matches.
+		assertThat(response.getBody().content()).isEmpty();
+	}
+
+	@Test
+	void invalidCostTypeOverHttpReturns400() {
+		ResponseEntity<String> response = restTemplate.getForEntity(
+				"/api/v1/resources?costType=NOT_REAL", String.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+		assertThat(response.getBody()).contains("\"code\":\"INVALID_COST_TYPE\"");
+	}
+
+	@Test
+	void verificationStatusFilterOverHttpReturnsOnlyMatchingResources() {
+		Category category = activeCategory("Http Verification Filter Check");
+		String marker = UUID.randomUUID().toString();
+		restTemplate.postForEntity("/api/v1/resources",
+				createRequest(category.getId(), "Http Unverified " + marker), ResourceResponse.class);
+
+		ResponseEntity<ResourcePageResponse> response = restTemplate.getForEntity(
+				"/api/v1/resources?q=" + encode(marker) + "&verificationStatus=UNVERIFIED", ResourcePageResponse.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+		assertThat(response.getBody().content()).extracting(ResourceSummaryResponse::name)
+				.contains("Http Unverified " + marker);
+	}
+
+	@Test
+	void invalidVerificationStatusOverHttpReturns400() {
+		ResponseEntity<String> response = restTemplate.getForEntity(
+				"/api/v1/resources?verificationStatus=NOT_REAL", String.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+		assertThat(response.getBody()).contains("\"code\":\"INVALID_VERIFICATION_STATUS\"");
+	}
+
+	@Test
+	void malformedOpenNowOverHttpReturns400() {
+		ResponseEntity<String> response = restTemplate.getForEntity(
+				"/api/v1/resources?openNow=maybe", String.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+		assertThat(response.getBody()).contains("\"code\":\"INVALID_OPEN_NOW_FILTER\"");
+	}
+
+	@Test
+	void openNowTrueExcludesResourcesWithNoScheduleOverHttp() {
+		Category category = activeCategory("Http Open Now No Schedule Check");
+		String marker = UUID.randomUUID().toString();
+		restTemplate.postForEntity("/api/v1/resources",
+				createRequest(category.getId(), "Http No Schedule " + marker), ResourceResponse.class);
+
+		ResponseEntity<ResourcePageResponse> response = restTemplate.getForEntity(
+				"/api/v1/resources?q=" + encode(marker) + "&openNow=true", ResourcePageResponse.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+		assertThat(response.getBody().content()).isEmpty();
+		assertThat(response.getBody().totalElements()).isZero();
+	}
+
+	@Test
+	void combinedFiltersOverHttpNarrowToTheExactMatch() {
+		Category category = activeCategory("Http Combined Filters Check");
+		String marker = UUID.randomUUID().toString();
+		ResourceResponse created = restTemplate.postForEntity("/api/v1/resources",
+				createRequest(category.getId(), "Http Combined " + marker), ResourceResponse.class).getBody();
+		putOpenNowSchedule(created.id());
+
+		ResponseEntity<ResourcePageResponse> response = restTemplate.getForEntity(
+				"/api/v1/resources?q=" + encode(marker) + "&categoryId=" + category.getId()
+						+ "&verificationStatus=UNVERIFIED&openNow=true", ResourcePageResponse.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+		assertThat(response.getBody().content()).extracting(ResourceSummaryResponse::name)
+				.containsExactly("Http Combined " + marker);
+	}
+
+	@Test
+	void resourceDetailIncludesTheHoursSection() {
+		Category category = activeCategory("Http Detail Hours Check");
+		String name = "Http Detail Hours Resource " + UUID.randomUUID();
+		ResourceResponse created = restTemplate.postForEntity(
+				"/api/v1/resources", createRequest(category.getId(), name), ResourceResponse.class).getBody();
+
+		ResponseEntity<ResourceResponse> response = restTemplate.getForEntity(
+				"/api/v1/resources/" + created.id(), ResourceResponse.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+		assertThat(response.getBody().hours()).isNotNull();
+		assertThat(response.getBody().hours().timezone()).isEqualTo("America/Halifax");
+		assertThat(response.getBody().hours().hoursStatus()).isEqualTo(HoursStatus.UNKNOWN);
+		assertThat(response.getBody().hours().openNow()).isNull();
+	}
+
+	@Test
+	void operatingHoursTimesSerializeAsIsoLocalTimeWithSeconds() {
+		Category category = activeCategory("Time Format Check");
+		ResourceResponse created = restTemplate.postForEntity("/api/v1/resources",
+				createRequest(category.getId(), "Time Format Resource " + UUID.randomUUID()),
+				ResourceResponse.class).getBody();
+		HttpEntity<String> request = jsonEntity(
+				"{\"hours\":[{\"dayOfWeek\":\"MONDAY\",\"closed\":false,\"opensAt\":\"09:00\",\"closesAt\":\"17:30\"}]}");
+
+		ResponseEntity<String> response = restTemplate.exchange(
+				"/api/v1/resources/" + created.id() + "/operating-hours", HttpMethod.PUT, request, String.class);
+
+		// Confirms the actual wire format frontend Zod schemas/formatters must
+		// parse: Jackson's default JSR-310 LocalTime serialization always
+		// includes seconds ("09:00:00"), never the zero-seconds-omitted
+		// "09:00" that LocalTime#toString() alone would produce.
+		assertThat(response.getBody()).contains("\"opensAt\":\"09:00:00\"", "\"closesAt\":\"17:30:00\"");
+	}
+
+	@Test
+	void replaceOperatingHoursAsAdminSucceeds() {
+		Category category = activeCategory("Http Replace Hours Check");
+		ResourceResponse created = restTemplate.postForEntity("/api/v1/resources",
+				createRequest(category.getId(), "Http Replace Hours Resource " + UUID.randomUUID()),
+				ResourceResponse.class).getBody();
+
+		HttpEntity<String> request = jsonEntity(
+				"{\"hours\":[{\"dayOfWeek\":\"MONDAY\",\"closed\":false,\"opensAt\":\"09:00\",\"closesAt\":\"17:00\"}]}");
+
+		ResponseEntity<OperatingHoursResponse> response = restTemplate.exchange(
+				"/api/v1/resources/" + created.id() + "/operating-hours", HttpMethod.PUT, request,
+				OperatingHoursResponse.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+		assertThat(response.getBody().weeklyHours()).hasSize(1);
+		assertThat(response.getBody().weeklyHours().get(0).dayOfWeek()).isEqualTo(DayOfWeek.MONDAY);
+
+		ResponseEntity<ResourceResponse> detail = restTemplate.getForEntity(
+				"/api/v1/resources/" + created.id(), ResourceResponse.class);
+		assertThat(detail.getBody().hours().weeklyHours()).hasSize(1);
+	}
+
+	@Test
+	void replaceOperatingHoursRejectsAnInvalidScheduleWith400() {
+		Category category = activeCategory("Http Replace Hours Invalid Check");
+		ResourceResponse created = restTemplate.postForEntity("/api/v1/resources",
+				createRequest(category.getId(), "Http Invalid Hours Resource " + UUID.randomUUID()),
+				ResourceResponse.class).getBody();
+
+		HttpEntity<String> request = jsonEntity(
+				"{\"hours\":[{\"dayOfWeek\":\"MONDAY\",\"closed\":true,\"opensAt\":\"09:00\"}]}");
+
+		ResponseEntity<String> response = restTemplate.exchange(
+				"/api/v1/resources/" + created.id() + "/operating-hours", HttpMethod.PUT, request, String.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+		assertThat(response.getBody()).contains("\"code\":\"VALIDATION_ERROR\"");
+	}
+
+	@Test
+	void replaceOperatingHoursForAMissingResourceReturns404() {
+		HttpEntity<String> request = jsonEntity(
+				"{\"hours\":[{\"dayOfWeek\":\"MONDAY\",\"closed\":false,\"opensAt\":\"09:00\",\"closesAt\":\"17:00\"}]}");
+
+		ResponseEntity<String> response = restTemplate.exchange(
+				"/api/v1/resources/" + UUID.randomUUID() + "/operating-hours", HttpMethod.PUT, request, String.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+		assertThat(response.getBody()).contains("\"code\":\"RESOURCE_NOT_FOUND\"");
+	}
+
+	@Test
+	void openApiDocumentIncludesTheNewFilterParametersAndOperatingHoursEndpoint() {
+		ResponseEntity<String> response = restTemplate.getForEntity("/v3/api-docs", String.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+		assertThat(response.getBody()).contains("\"name\":\"costType\"");
+		assertThat(response.getBody()).contains("\"name\":\"verificationStatus\"");
+		assertThat(response.getBody()).contains("\"name\":\"openNow\"");
+		assertThat(response.getBody()).contains("/api/v1/resources/{id}/operating-hours");
+	}
+
 	@Test
 	void categoryEndpointsStillWorkAlongsideResourceEndpoints() {
 		ResponseEntity<String> response = restTemplate.getForEntity("/api/v1/categories?size=1", String.class);
@@ -520,6 +715,17 @@ class ResourceApiIntegrationTest extends AbstractPostgresIntegrationTest {
 				"A helpful community resource.", "123 Main St", null, "Halifax", "NS", "B3H 4R2",
 				null, null, null, null, null, null);
 		return new HttpEntity<>(request, headers);
+	}
+
+	/** Sets a schedule guaranteed to be OPEN right now (today, now-1h to now+1h, America/Halifax). */
+	private void putOpenNowSchedule(UUID resourceId) {
+		ZonedDateTime nowHalifax = ZonedDateTime.now(ZoneId.of("America/Halifax"));
+		DayOfWeek today = nowHalifax.getDayOfWeek();
+		LocalTime now = nowHalifax.toLocalTime();
+		HttpEntity<String> request = jsonEntity(String.format(Locale.ROOT,
+				"{\"hours\":[{\"dayOfWeek\":\"%s\",\"closed\":false,\"opensAt\":\"%s\",\"closesAt\":\"%s\"}]}",
+				today, now.minusHours(1), now.plusHours(1)));
+		restTemplate.exchange("/api/v1/resources/" + resourceId + "/operating-hours", HttpMethod.PUT, request, String.class);
 	}
 
 	private HttpEntity<String> jsonEntity(String rawJson) {
