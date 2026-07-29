@@ -1,5 +1,5 @@
 import { getResources, getResourceBySlug } from "./resources";
-import { ApiRequestError } from "./errors";
+import { ApiRequestError, ApiResponseShapeError } from "./errors";
 
 const resourceSummary = {
   id: "11111111-1111-1111-1111-111111111111",
@@ -12,6 +12,8 @@ const resourceSummary = {
   active: true,
   category: { id: 1, name: "Study Spaces", slug: "study-spaces" },
   createdAt: "2026-07-15T00:00:00Z",
+  hoursStatus: "UNKNOWN",
+  openNow: null,
 };
 
 describe("getResources", () => {
@@ -84,6 +86,67 @@ describe("getResources", () => {
     requestedUrl = new URL((global.fetch as jest.Mock).mock.calls[1][0] as string);
     expect(requestedUrl.searchParams.has("q")).toBe(false);
   });
+
+  // ---- Cost/verification/openNow filters (Milestone 6B — see ADR-011) ----
+
+  it("encodes costType and verificationStatus, and combines them with q/sort/page", async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ content: [], page: 0, size: 12, totalElements: 0, totalPages: 0 }),
+    });
+
+    await getResources({ q: "library", costType: "FREE", verificationStatus: "VERIFIED", sort: "name", page: 1 });
+
+    const requestedUrl = new URL((global.fetch as jest.Mock).mock.calls[0][0] as string);
+    expect(requestedUrl.searchParams.get("q")).toBe("library");
+    expect(requestedUrl.searchParams.get("costType")).toBe("FREE");
+    expect(requestedUrl.searchParams.get("verificationStatus")).toBe("VERIFIED");
+    expect(requestedUrl.searchParams.get("sort")).toBe("name");
+    expect(requestedUrl.searchParams.get("page")).toBe("1");
+  });
+
+  it("encodes openNow=true only when true; omits it when false or absent", async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ content: [], page: 0, size: 12, totalElements: 0, totalPages: 0 }),
+    });
+    await getResources({ openNow: true });
+    let requestedUrl = new URL((global.fetch as jest.Mock).mock.calls[0][0] as string);
+    expect(requestedUrl.searchParams.get("openNow")).toBe("true");
+
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ content: [], page: 0, size: 12, totalElements: 0, totalPages: 0 }),
+    });
+    await getResources({ openNow: false });
+    requestedUrl = new URL((global.fetch as jest.Mock).mock.calls[1][0] as string);
+    expect(requestedUrl.searchParams.has("openNow")).toBe(false);
+
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ content: [], page: 0, size: 12, totalElements: 0, totalPages: 0 }),
+    });
+    await getResources();
+    requestedUrl = new URL((global.fetch as jest.Mock).mock.calls[2][0] as string);
+    expect(requestedUrl.searchParams.has("openNow")).toBe(false);
+  });
+
+  it("parses hoursStatus and openNow on each resource summary in the response", async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ content: [resourceSummary], page: 0, size: 12, totalElements: 1, totalPages: 1 }),
+    });
+
+    const result = await getResources();
+
+    expect(result.content[0]!.hoursStatus).toBe("UNKNOWN");
+    expect(result.content[0]!.openNow).toBeNull();
+  });
 });
 
 describe("getResourceBySlug", () => {
@@ -107,6 +170,7 @@ describe("getResourceBySlug", () => {
         costDetails: null,
         eligibility: null,
         updatedAt: "2026-07-15T00:00:00Z",
+        hours: { timezone: "America/Halifax", weeklyHours: [], hoursStatus: "UNKNOWN", openNow: null },
       }),
     });
 
@@ -114,6 +178,63 @@ describe("getResourceBySlug", () => {
 
     const requestedUrl = new URL((global.fetch as jest.Mock).mock.calls[0][0] as string);
     expect(requestedUrl.pathname).toBe("/api/v1/resources/slug/a%20slug%2Fwith%20special%3Fchars");
+  });
+
+  it("parses a full weekly schedule from the response", async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        ...resourceSummary,
+        description: null,
+        addressLine1: null,
+        addressLine2: null,
+        postalCode: null,
+        phone: null,
+        email: null,
+        websiteUrl: null,
+        costDetails: null,
+        eligibility: null,
+        updatedAt: "2026-07-15T00:00:00Z",
+        hours: {
+          timezone: "America/Halifax",
+          weeklyHours: [
+            { dayOfWeek: "MONDAY", closed: false, opensAt: "09:00:00", closesAt: "17:00:00", overnight: false },
+          ],
+          hoursStatus: "OPEN",
+          openNow: true,
+        },
+      }),
+    });
+
+    const result = await getResourceBySlug("halifax-central-library");
+
+    expect(result.hours.hoursStatus).toBe("OPEN");
+    expect(result.hours.weeklyHours).toHaveLength(1);
+    expect(result.hours.weeklyHours[0]!.dayOfWeek).toBe("MONDAY");
+  });
+
+  it("rejects a malformed/missing hours shape safely (a generic recoverable error, not a crash)", async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        ...resourceSummary,
+        description: null,
+        addressLine1: null,
+        addressLine2: null,
+        postalCode: null,
+        phone: null,
+        email: null,
+        websiteUrl: null,
+        costDetails: null,
+        eligibility: null,
+        updatedAt: "2026-07-15T00:00:00Z",
+        hours: { timezone: "America/Halifax" /* missing weeklyHours/hoursStatus */ },
+      }),
+    });
+
+    await expect(getResourceBySlug("halifax-central-library")).rejects.toBeInstanceOf(ApiResponseShapeError);
   });
 
   it("propagates a 404 as ApiRequestError so callers can call notFound()", async () => {

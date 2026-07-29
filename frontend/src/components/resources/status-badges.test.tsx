@@ -1,5 +1,5 @@
 import { render, screen } from "@testing-library/react";
-import { CostBadge, VerificationBadge } from "./status-badges";
+import { CostBadge, HoursStatusBadge, VerificationBadge } from "./status-badges";
 
 describe("CostBadge", () => {
   it("renders a readable label for each cost type", () => {
@@ -19,5 +19,24 @@ describe("VerificationBadge", () => {
     render(<VerificationBadge status="UNVERIFIED" />);
     expect(screen.queryByText(/✓/)).not.toBeInTheDocument();
     expect(screen.getByText(/Not yet verified/)).toBeInTheDocument();
+  });
+});
+
+describe("HoursStatusBadge", () => {
+  it("renders 'Open now' for OPEN", () => {
+    render(<HoursStatusBadge status="OPEN" />);
+    expect(screen.getByText("Open now")).toBeInTheDocument();
+  });
+
+  it("renders 'Closed' for CLOSED", () => {
+    render(<HoursStatusBadge status="CLOSED" />);
+    expect(screen.getByText("Closed")).toBeInTheDocument();
+  });
+
+  it("renders 'Hours unavailable' (never a false open/closed claim) for UNKNOWN", () => {
+    render(<HoursStatusBadge status="UNKNOWN" />);
+    expect(screen.getByText("Hours unavailable")).toBeInTheDocument();
+    expect(screen.queryByText("Open now")).not.toBeInTheDocument();
+    expect(screen.queryByText("Closed")).not.toBeInTheDocument();
   });
 });
