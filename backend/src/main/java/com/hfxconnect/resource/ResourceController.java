@@ -16,6 +16,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -39,12 +40,16 @@ import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
  * resources yet — organization ownership/verification doesn't exist (see
  * ADR-009); that is Milestone 10's concern.
  *
- * <p>There is deliberately no update or delete endpoint here — see
+ * <p>There is deliberately no general update or delete endpoint here — see
  * {@code docs/milestones/milestone-03c-public-resource-api.md} for why
  * {@code ResourceService.update}/{@code deactivate} (both already
  * implemented and tested since Milestone 3B) are not exposed over HTTP yet.
+ * The one exception is {@code PUT /{id}/operating-hours} (Milestone 6B — see
+ * ADR-011), a narrow, focused endpoint for replacing a resource's weekly
+ * schedule, gated by the same {@code ADMIN}/{@code MODERATOR} pairing as
+ * {@code POST}.
  */
-@Tag(name = "Resources", description = "Public resource directory. POST requires an ADMIN or MODERATOR access token; only active resources are ever visible — see class-level Javadoc.")
+@Tag(name = "Resources", description = "Public resource directory (list/filter/search/read). POST and PUT /{id}/operating-hours require an ADMIN or MODERATOR access token; only active resources are ever visible — see class-level Javadoc.")
 @RestController
 @RequestMapping("/api/v1/resources")
 public class ResourceController {
@@ -96,10 +101,10 @@ public class ResourceController {
 		return ResourceResponse.from(resourceService.getActiveBySlug(slug));
 	}
 
-	@Operation(summary = "List (and optionally search) active resources", description = "Paginated. Always active-only — there is no way to include inactive resources in this public listing yet (that needs Milestone 5C authorization). Page size is capped at " + ResourceService.MAX_PAGE_SIZE + ". sort defaults to name ascending; sort=createdAt sorts newest-first. q performs a case-insensitive substring match across name, description, addressLine1, and city (Milestone 6A) — see ADR-010. A blank q is treated as no keyword filter; results are not relevance-ranked.")
+	@Operation(summary = "List (and optionally search/filter) active resources", description = "Paginated. Always active-only — there is no way to include inactive resources in this public listing yet (that needs Milestone 5C authorization). Page size is capped at " + ResourceService.MAX_PAGE_SIZE + ". sort defaults to name ascending; sort=createdAt sorts newest-first. q performs a case-insensitive substring match across name, description, addressLine1, and city (Milestone 6A) — see ADR-010. A blank q is treated as no keyword filter; results are not relevance-ranked. costType/verificationStatus/openNow (Milestone 6B, see ADR-011) are all independently optional and combine with q/categoryId. openNow is evaluated in the America/Halifax timezone; resources with no operating-hours schedule (UNKNOWN status) are never returned when openNow=true.")
 	@ApiResponses({
 			@ApiResponse(responseCode = "200", description = "Resource page"),
-			@ApiResponse(responseCode = "400", description = "Invalid page, size, sort, or q value", content = @Content(schema = @Schema(implementation = ApiError.class)))
+			@ApiResponse(responseCode = "400", description = "Invalid page, size, sort, q, costType, verificationStatus, or openNow value", content = @Content(schema = @Schema(implementation = ApiError.class)))
 	})
 	@GetMapping
 	public ResourcePageResponse list(
@@ -107,8 +112,27 @@ public class ResourceController {
 			@Parameter(description = "Page size, 1-" + ResourceService.MAX_PAGE_SIZE + ".") @RequestParam(defaultValue = "20") int size,
 			@Parameter(description = "Optional category filter.") @RequestParam(required = false) Long categoryId,
 			@Parameter(description = "One of: name (default, ascending), createdAt (newest first).") @RequestParam(required = false) String sort,
-			@Parameter(description = "Optional keyword search. Case-insensitive substring match across name/description/addressLine1/city; at most " + ResourceSearchQuery.MAX_LENGTH + " characters after normalization; blank is treated as no filter.") @RequestParam(required = false) String q) {
-		return ResourcePageResponse.from(resourceService.search(q, categoryId, page, size, sort));
+			@Parameter(description = "Optional keyword search. Case-insensitive substring match across name/description/addressLine1/city; at most " + ResourceSearchQuery.MAX_LENGTH + " characters after normalization; blank is treated as no filter.") @RequestParam(required = false) String q,
+			@Parameter(description = "Optional exact cost-type filter: FREE, LOW_COST, PAID, or UNKNOWN.") @RequestParam(required = false) String costType,
+			@Parameter(description = "Optional exact verification-status filter: UNVERIFIED or VERIFIED.") @RequestParam(required = false) String verificationStatus,
+			@Parameter(description = "Optional 'true'/'false'. true returns only resources currently OPEN (America/Halifax). Missing, blank, or false apply no filter.") @RequestParam(required = false) String openNow) {
+		return ResourcePageResponse.from(
+				resourceService.search(q, categoryId, costType, verificationStatus, openNow, page, size, sort));
+	}
+
+	@Operation(summary = "Replace a resource's weekly operating hours", description = "Fully replaces the resource's entire weekly schedule (delete-then-insert, one transaction) — no partial update. At most one entry per day, no duplicate days; a day with no entry has no schedule for that day. Requires a Bearer access token for an ADMIN or MODERATOR account. See ADR-011.")
+	@SecurityRequirement(name = "bearerAuth")
+	@ApiResponses({
+			@ApiResponse(responseCode = "200", description = "Updated schedule"),
+			@ApiResponse(responseCode = "400", description = "Invalid schedule (duplicate day, closed day with times, open day missing a time, equal opensAt/closesAt, more than 7 entries)", content = @Content(schema = @Schema(implementation = ApiError.class))),
+			@ApiResponse(responseCode = "401", description = "Missing or invalid access token", content = @Content(schema = @Schema(implementation = ApiError.class))),
+			@ApiResponse(responseCode = "403", description = "Authenticated, but not an ADMIN or MODERATOR account", content = @Content(schema = @Schema(implementation = ApiError.class))),
+			@ApiResponse(responseCode = "404", description = "No resource exists with the given id", content = @Content(schema = @Schema(implementation = ApiError.class)))
+	})
+	@PutMapping("/{id}/operating-hours")
+	public OperatingHoursResponse replaceOperatingHours(
+			@PathVariable UUID id, @RequestBody ReplaceOperatingHoursRequest request) {
+		return resourceService.replaceOperatingHours(id, request);
 	}
 
 }

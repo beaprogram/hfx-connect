@@ -2,12 +2,22 @@ package com.hfxconnect.resource;
 
 import com.hfxconnect.category.Category;
 import com.hfxconnect.category.CategoryRepository;
+import com.hfxconnect.common.error.InvalidCostTypeException;
+import com.hfxconnect.common.error.InvalidOpenNowFilterException;
 import com.hfxconnect.common.error.InvalidPaginationException;
 import com.hfxconnect.common.error.InvalidSortException;
+import com.hfxconnect.common.error.InvalidVerificationStatusException;
 import com.hfxconnect.common.error.ValidationException;
+import java.time.DayOfWeek;
+import java.time.LocalTime;
+import java.time.ZonedDateTime;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -43,10 +53,15 @@ public class ResourceService {
 
 	private final ResourceRepository resourceRepository;
 	private final CategoryRepository categoryRepository;
+	private final ResourceOperatingHoursRepository operatingHoursRepository;
+	private final OpenNowCalculator openNowCalculator;
 
-	public ResourceService(ResourceRepository resourceRepository, CategoryRepository categoryRepository) {
+	public ResourceService(ResourceRepository resourceRepository, CategoryRepository categoryRepository,
+			ResourceOperatingHoursRepository operatingHoursRepository, OpenNowCalculator openNowCalculator) {
 		this.resourceRepository = resourceRepository;
 		this.categoryRepository = categoryRepository;
+		this.operatingHoursRepository = operatingHoursRepository;
+		this.openNowCalculator = openNowCalculator;
 	}
 
 	@Transactional
@@ -121,33 +136,151 @@ public class ResourceService {
 		CommunityResource resource = resourceRepository.findByIdWithCategory(id)
 				.filter(CommunityResource::isActive)
 				.orElseThrow(() -> ResourceNotFoundException.byId(id));
-		return ResourceDetails.from(resource);
+		return toResourceDetailsWithHours(resource);
 	}
 
 	@Transactional(readOnly = true)
 	public ResourceDetails getActiveBySlug(String slug) {
 		CommunityResource resource = resourceRepository.findBySlugAndActiveTrueWithCategory(slug)
 				.orElseThrow(() -> ResourceNotFoundException.bySlug(slug));
-		return ResourceDetails.from(resource);
+		return toResourceDetailsWithHours(resource);
 	}
 
 	/**
-	 * The single public listing/search method (Milestone 6A) — {@code query}
-	 * and {@code categoryId} are both independently optional. See ADR-010 for
-	 * why this replaced the previous {@code listActive}/{@code listActiveByCategory}
-	 * pair once keyword search became a second independent optional filter.
+	 * The single public listing/search method (Milestone 6A, extended in 6B
+	 * with {@code costType}/{@code verificationStatus}/{@code openNow}) —
+	 * every filter is independently optional. See ADR-010 for why this
+	 * replaced the previous {@code listActive}/{@code listActiveByCategory}
+	 * pair, and ADR-011 for the open-now filtering/batch-loading strategy.
 	 *
 	 * <p>A blank/whitespace-only {@code query} is treated identically to a
 	 * {@code null} one (no keyword filter) — {@link ResourceSearchQuery#normalize}
 	 * makes that translation. An over-length query throws
 	 * {@code InvalidSearchQueryException} (400) before any database query
-	 * runs.
+	 * runs. {@code costType}/{@code verificationStatus} must exactly match an
+	 * existing enum constant (case-insensitively); {@code openNow} must be
+	 * {@code "true"}/{@code "false"} (or blank/absent, meaning no filter) —
+	 * any other value throws the corresponding {@code Invalid*Exception}
+	 * (400).
+	 *
+	 * <p>Halifax "now" is computed exactly once here and reused both for the
+	 * database's {@code openNow} predicate and for every resource's
+	 * {@link OpenNowCalculator} evaluation on this page, so every resource on
+	 * one response is judged against the identical instant (ADR-011).
 	 */
 	@Transactional(readOnly = true)
-	public ResourcePage search(String query, Long categoryId, int page, int size, String sort) {
+	public ResourcePage search(String query, Long categoryId, String costType, String verificationStatus,
+			String openNow, int page, int size, String sort) {
 		String normalizedQuery = ResourceSearchQuery.normalize(query);
 		String likePattern = normalizedQuery != null ? ResourceSearchQuery.toLikePattern(normalizedQuery) : null;
-		return ResourcePage.from(resourceRepository.search(categoryId, likePattern, pageable(page, size, sort)));
+		CostType costTypeFilter = resolveCostType(costType);
+		VerificationStatus verificationStatusFilter = resolveVerificationStatus(verificationStatus);
+		boolean openNowOnly = resolveOpenNowFilter(openNow);
+
+		ZonedDateTime nowHalifax = openNowCalculator.nowInHalifax();
+		DayOfWeek today = nowHalifax.getDayOfWeek();
+		DayOfWeek yesterday = today.minus(1);
+		LocalTime now = nowHalifax.toLocalTime();
+
+		var results = resourceRepository.search(categoryId, likePattern, costTypeFilter, verificationStatusFilter,
+				openNowOnly, today, yesterday, now, pageable(page, size, sort));
+
+		List<UUID> resourceIds = results.getContent().stream().map(CommunityResource::getId).toList();
+		Map<UUID, List<OperatingHoursEntry>> hoursByResourceId = loadHoursByResourceIds(resourceIds);
+
+		List<ResourceDetails> content = results.getContent().stream()
+				.map(resource -> toResourceDetails(
+						resource, hoursByResourceId.getOrDefault(resource.getId(), List.of()), nowHalifax))
+				.toList();
+
+		return new ResourcePage(content, results.getNumber(), results.getSize(), results.getTotalElements(),
+				results.getTotalPages());
+	}
+
+	/**
+	 * Fully replaces a resource's weekly schedule (delete-then-insert, one
+	 * transaction) — see ADR-011's "Schedule Write Contract" section. Not
+	 * public: {@code ResourceController} exposes this only to {@code ADMIN}/
+	 * {@code MODERATOR} callers (see {@code SecurityConfig}).
+	 */
+	@Transactional
+	public OperatingHoursResponse replaceOperatingHours(UUID id, ReplaceOperatingHoursRequest request) {
+		findRequiredById(id);
+		OperatingHoursValidation.Normalized normalized = OperatingHoursValidation.validate(request);
+
+		operatingHoursRepository.deleteByResourceId(id);
+		operatingHoursRepository.flush();
+
+		List<ResourceOperatingHours> entities = normalized.entries().stream()
+				.map(entry -> new ResourceOperatingHours(id, entry.dayOfWeek(), entry.closed(), entry.opensAt(),
+						entry.closesAt()))
+				.toList();
+		operatingHoursRepository.saveAll(entities);
+
+		ZonedDateTime nowHalifax = openNowCalculator.nowInHalifax();
+		OpenNowCalculator.Result result = openNowCalculator.calculate(normalized.entries(), nowHalifax);
+		return OperatingHoursResponse.from(normalized.entries(), result.status(), result.openNow());
+	}
+
+	private ResourceDetails toResourceDetailsWithHours(CommunityResource resource) {
+		List<OperatingHoursEntry> hours = operatingHoursRepository.findByResourceId(resource.getId()).stream()
+				.map(OperatingHoursEntry::from)
+				.toList();
+		return toResourceDetails(resource, hours, openNowCalculator.nowInHalifax());
+	}
+
+	private ResourceDetails toResourceDetails(CommunityResource resource, List<OperatingHoursEntry> hours,
+			ZonedDateTime nowHalifax) {
+		OpenNowCalculator.Result result = openNowCalculator.calculate(hours, nowHalifax);
+		return ResourceDetails.from(resource, result.status(), result.openNow(), hours);
+	}
+
+	private Map<UUID, List<OperatingHoursEntry>> loadHoursByResourceIds(List<UUID> resourceIds) {
+		if (resourceIds.isEmpty()) {
+			return Map.of();
+		}
+		return operatingHoursRepository.findByResourceIdIn(resourceIds).stream()
+				.collect(Collectors.groupingBy(ResourceOperatingHours::getResourceId,
+						Collectors.mapping(OperatingHoursEntry::from, Collectors.toList())));
+	}
+
+	private static CostType resolveCostType(String costType) {
+		if (costType == null || costType.isBlank()) {
+			return null;
+		}
+		try {
+			return CostType.valueOf(costType.trim().toUpperCase(Locale.ROOT));
+		} catch (IllegalArgumentException e) {
+			throw new InvalidCostTypeException(
+					"costType must be one of " + Arrays.toString(CostType.values()) + " (got '" + costType + "').");
+		}
+	}
+
+	private static VerificationStatus resolveVerificationStatus(String verificationStatus) {
+		if (verificationStatus == null || verificationStatus.isBlank()) {
+			return null;
+		}
+		try {
+			return VerificationStatus.valueOf(verificationStatus.trim().toUpperCase(Locale.ROOT));
+		} catch (IllegalArgumentException e) {
+			throw new InvalidVerificationStatusException("verificationStatus must be one of "
+					+ Arrays.toString(VerificationStatus.values()) + " (got '" + verificationStatus + "').");
+		}
+	}
+
+	/** Missing/blank/"false" all mean "no filter"; only "true" narrows to currently-open resources. */
+	private static boolean resolveOpenNowFilter(String openNow) {
+		if (openNow == null || openNow.isBlank()) {
+			return false;
+		}
+		String normalized = openNow.trim();
+		if ("true".equalsIgnoreCase(normalized)) {
+			return true;
+		}
+		if ("false".equalsIgnoreCase(normalized)) {
+			return false;
+		}
+		throw new InvalidOpenNowFilterException("openNow must be 'true' or 'false' (got '" + openNow + "').");
 	}
 
 	private CommunityResource findRequiredById(UUID id) {

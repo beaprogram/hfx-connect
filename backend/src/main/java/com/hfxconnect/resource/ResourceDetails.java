@@ -1,6 +1,7 @@
 package com.hfxconnect.resource;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -12,6 +13,12 @@ import java.util.UUID;
  * separate category lookup — {@link ResourceService}'s read methods use the
  * {@code *WithCategory} repository queries specifically so this mapping never
  * triggers a lazy-loading N+1 query.
+ *
+ * <p>{@code hoursStatus}/{@code openNow}/{@code weeklyHours} are computed by
+ * {@link OpenNowCalculator} from a separately batch-loaded (or single-lookup)
+ * set of {@link OperatingHoursEntry} rows — see ADR-011 — never lazily
+ * derived from the entity itself, since {@link CommunityResource} has no
+ * relationship to its hours (avoiding N+1 is the entire point).
  */
 public record ResourceDetails(
 		UUID id,
@@ -35,9 +42,18 @@ public record ResourceDetails(
 		VerificationStatus verificationStatus,
 		boolean active,
 		Instant createdAt,
-		Instant updatedAt) {
+		Instant updatedAt,
+		HoursStatus hoursStatus,
+		Boolean openNow,
+		List<OperatingHoursEntry> weeklyHours) {
 
+	/** A resource with no computed hours yet (freshly created/updated) is UNKNOWN — see ADR-011. */
 	static ResourceDetails from(CommunityResource resource) {
+		return from(resource, HoursStatus.UNKNOWN, null, List.of());
+	}
+
+	static ResourceDetails from(CommunityResource resource, HoursStatus hoursStatus, Boolean openNow,
+			List<OperatingHoursEntry> weeklyHours) {
 		return new ResourceDetails(
 				resource.getId(),
 				resource.getCategory().getId(),
@@ -60,7 +76,10 @@ public record ResourceDetails(
 				resource.getVerificationStatus(),
 				resource.isActive(),
 				resource.getCreatedAt(),
-				resource.getUpdatedAt());
+				resource.getUpdatedAt(),
+				hoursStatus,
+				openNow,
+				weeklyHours);
 	}
 
 }

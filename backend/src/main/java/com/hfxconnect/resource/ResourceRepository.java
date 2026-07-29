@@ -1,5 +1,7 @@
 package com.hfxconnect.resource;
 
+import java.time.DayOfWeek;
+import java.time.LocalTime;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.domain.Page;
@@ -34,14 +36,17 @@ public interface ResourceRepository extends JpaRepository<CommunityResource, UUI
 	Optional<CommunityResource> findBySlugAndActiveTrueWithCategory(String slug);
 
 	/**
-	 * The single query behind the public resource listing (Milestone 6A) —
-	 * active-only, with two independently optional filters: {@code categoryId}
-	 * and a keyword {@code likePattern}. Expressed as one parameterized query
-	 * with {@code (:param IS NULL OR ...)} predicates rather than as separate
-	 * methods per filter combination — see ADR-010's "One Unified Query"
-	 * section for why this replaced the previous
-	 * {@code findByActiveWithCategory}/{@code findByCategoryIdAndActiveWithCategory}
-	 * pair.
+	 * The single query behind the public resource listing (Milestone 6A,
+	 * extended in 6B) — active-only, with independently optional filters:
+	 * {@code categoryId}, a keyword {@code likePattern}, {@code costType},
+	 * {@code verificationStatus}, and {@code openNowOnly}. Expressed as one
+	 * parameterized query with {@code (:param IS NULL OR ...)} predicates
+	 * rather than as separate methods per filter combination — see ADR-010's
+	 * "One Unified Query" section, extended by ADR-011's "Open-Now
+	 * Filtering" section for why {@code openNowOnly} is a correlated
+	 * {@code EXISTS} subquery evaluated in the database rather than filtered
+	 * in the service layer after pagination (which would corrupt
+	 * {@code totalElements}/{@code totalPages}).
 	 *
 	 * <p>{@code likePattern} is always either {@code null} (no keyword filter)
 	 * or an already-lowercased, already-escaped, {@code "%"}-wrapped literal
@@ -54,6 +59,15 @@ public interface ResourceRepository extends JpaRepository<CommunityResource, UUI
 	 * {@code description}, {@code addressLine1}, {@code city} — see ADR-010
 	 * for why province/postal code/category name/contact fields are
 	 * deliberately excluded.
+	 *
+	 * <p>{@code today}/{@code yesterday}/{@code now} are the caller's Halifax
+	 * "now" (computed once per request/page by {@code ResourceService} via
+	 * {@code OpenNowCalculator#nowInHalifax}), never the database session's
+	 * own idea of "now" — bind parameters only, never string-concatenated.
+	 * The {@code EXISTS} subquery mirrors {@code OpenNowCalculator}'s exact
+	 * same-day/overnight/overnight-continuation logic against
+	 * {@code ResourceOperatingHours} rows, so the count query and the page
+	 * query agree with the single-resource calculation exactly.
 	 */
 	@Query(value = "SELECT r FROM CommunityResource r JOIN FETCH r.category WHERE r.active = true "
 			+ "AND (:categoryId IS NULL OR r.category.id = :categoryId) "
@@ -61,14 +75,30 @@ public interface ResourceRepository extends JpaRepository<CommunityResource, UUI
 			+ "LOWER(r.name) LIKE :likePattern ESCAPE '\\' OR "
 			+ "LOWER(r.description) LIKE :likePattern ESCAPE '\\' OR "
 			+ "LOWER(r.addressLine1) LIKE :likePattern ESCAPE '\\' OR "
-			+ "LOWER(r.city) LIKE :likePattern ESCAPE '\\')",
+			+ "LOWER(r.city) LIKE :likePattern ESCAPE '\\') "
+			+ "AND (:costType IS NULL OR r.costType = :costType) "
+			+ "AND (:verificationStatus IS NULL OR r.verificationStatus = :verificationStatus) "
+			+ "AND (:openNowOnly = false OR EXISTS (SELECT 1 FROM ResourceOperatingHours h WHERE h.resourceId = r.id "
+			+ "AND h.closed = false AND ("
+			+ "(h.dayOfWeek = :today AND h.opensAt < h.closesAt AND :now >= h.opensAt AND :now < h.closesAt) OR "
+			+ "(h.dayOfWeek = :today AND h.opensAt > h.closesAt AND :now >= h.opensAt) OR "
+			+ "(h.dayOfWeek = :yesterday AND h.opensAt > h.closesAt AND :now < h.closesAt))))",
 			countQuery = "SELECT count(r) FROM CommunityResource r WHERE r.active = true "
 			+ "AND (:categoryId IS NULL OR r.category.id = :categoryId) "
 			+ "AND (:likePattern IS NULL OR "
 			+ "LOWER(r.name) LIKE :likePattern ESCAPE '\\' OR "
 			+ "LOWER(r.description) LIKE :likePattern ESCAPE '\\' OR "
 			+ "LOWER(r.addressLine1) LIKE :likePattern ESCAPE '\\' OR "
-			+ "LOWER(r.city) LIKE :likePattern ESCAPE '\\')")
-	Page<CommunityResource> search(Long categoryId, String likePattern, Pageable pageable);
+			+ "LOWER(r.city) LIKE :likePattern ESCAPE '\\') "
+			+ "AND (:costType IS NULL OR r.costType = :costType) "
+			+ "AND (:verificationStatus IS NULL OR r.verificationStatus = :verificationStatus) "
+			+ "AND (:openNowOnly = false OR EXISTS (SELECT 1 FROM ResourceOperatingHours h WHERE h.resourceId = r.id "
+			+ "AND h.closed = false AND ("
+			+ "(h.dayOfWeek = :today AND h.opensAt < h.closesAt AND :now >= h.opensAt AND :now < h.closesAt) OR "
+			+ "(h.dayOfWeek = :today AND h.opensAt > h.closesAt AND :now >= h.opensAt) OR "
+			+ "(h.dayOfWeek = :yesterday AND h.opensAt > h.closesAt AND :now < h.closesAt))))")
+	Page<CommunityResource> search(Long categoryId, String likePattern, CostType costType,
+			VerificationStatus verificationStatus, boolean openNowOnly, DayOfWeek today, DayOfWeek yesterday,
+			LocalTime now, Pageable pageable);
 
 }

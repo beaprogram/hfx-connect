@@ -25,7 +25,9 @@ public record ResourceResponse(
 		boolean active,
 		CategorySummaryResponse category,
 		Instant createdAt,
-		Instant updatedAt) {
+		Instant updatedAt,
+		@Schema(description = "Weekly schedule and currently-calculated open status, evaluated in America/Halifax. See ADR-011.")
+		OperatingHoursResponse hours) {
 
 	static ResourceResponse from(ResourceDetails details) {
 		return new ResourceResponse(
@@ -48,7 +50,8 @@ public record ResourceResponse(
 				details.active(),
 				CategorySummaryResponse.from(details),
 				details.createdAt(),
-				details.updatedAt());
+				details.updatedAt(),
+				OperatingHoursResponse.from(details.weeklyHours(), details.hoursStatus(), details.openNow()));
 	}
 
 }
