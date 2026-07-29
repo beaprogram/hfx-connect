@@ -524,6 +524,70 @@ The decision — and the exact trigger for revisiting it (real evidence of
 slow queries at real scale) — is written down, not left as something only
 discoverable by reading the code.
 
+## Answerable Now (Milestone 6B)
+
+**How do you calculate "is this place open right now" correctly, including
+overnight hours?** Store each day's schedule as plain local times (no
+timezone component — they mean "this is what the sign on the door says").
+An entry is "overnight" purely by comparing its own two times: if the
+closing time is earlier in the day than the opening time, the interval
+crosses midnight. To check "open now," I evaluate two conditions: does
+*today's* entry cover the current time (handling both the same-day case
+and, for an overnight entry, "after opening, before midnight"), or does
+*yesterday's* entry, if it was overnight, still cover the current time
+because it hasn't reached its closing time yet? That second condition is
+the one people forget — a resource open until 2am is still open at 1am
+even though "today," by the calendar, technically started at midnight.
+
+**Why inject a `Clock` instead of just calling `Instant.now()`?** Because
+"is it open right now" is exactly the kind of logic that's nearly
+impossible to unit-test properly against the real clock — you'd either
+need to run tests at specific times of day, or only test the "obviously
+open" and "obviously closed" cases and hope the boundaries are right. With
+a `java.time.Clock` injected as a constructor dependency, tests supply
+`Clock.fixed(...)` at an exact chosen instant, so I can assert "exactly at
+opening time is open, one second before is closed" and "this exact instant
+during a daylight-saving transition converts to the correct Halifax local
+time" — deterministically, every run, not just whenever the test happens
+to execute.
+
+**How did you make sure the SQL filter and the display calculation agree
+with each other?** They're necessarily two separate expressions — one a
+correlated `EXISTS` subquery for the `openNow=true` filter, one a Java
+method for what a resource's detail page shows — and I was honest with
+myself that duplicated logic is exactly where the two commonly drift out
+of sync. So both are tested against identical seeded data at the service
+layer: a resource whose schedule makes `OpenNowCalculator` say "open" is
+also asserted to actually appear when filtering `openNow=true`, for the
+same clock, same schedule, same request. If they ever disagreed, that
+assertion — not a bug report from a confused user — would be the first
+thing to fail.
+
+**Why does an empty schedule mean "unknown," but a schedule that just
+doesn't cover today mean "closed"?** Because those are genuinely different
+facts. A resource with zero schedule rows has never told anyone its hours
+at all — claiming "closed" would be a guess. A resource with, say, only a
+Monday-Friday schedule and no Saturday entry has told me enough to know
+it's not scheduled to be open on Saturday — that's a real, if incomplete,
+answer, not a guess. I drew the line at "does this resource have *any*
+schedule data," not "does it have data for today specifically," because a
+per-day unknown would make the `openNow=true` filter ambiguous — would an
+unknown-for-today resource count as a candidate or not? With one dividing
+line, the filter has exactly one meaning: "currently calculated as open."
+
+**You verified the time-serialization format against a live server before
+writing frontend code for it — why does that matter?** Because the
+milestone's own written brief gave an example (`"09:00"`) that turned out
+not to match what the backend actually sends (`"09:00:00"`, because
+Jackson's default time formatter always includes seconds). If I'd trusted
+the brief's example instead of checking, I'd have shipped a frontend time
+parser that worked in my head and failed the first time it touched real
+data. Writing a backend test that asserts on the literal JSON string
+before building anything downstream of it turned an assumption into a
+verified fact — and left a permanent regression test behind, so if a
+future dependency upgrade ever changed that serialization format, it would
+fail loudly in CI instead of silently breaking every frontend consumer.
+
 ## To Be Added in Later Milestones
 
 - How moderation approval and audit-history writes are made transactional (Milestone

@@ -13,6 +13,8 @@ const baseResource: ResourceSummaryResponse = {
   active: true,
   category: { id: 1, name: "Study Spaces", slug: "study-spaces" },
   createdAt: "2026-07-15T00:00:00Z",
+  hoursStatus: "UNKNOWN",
+  openNow: null,
 };
 
 describe("ResourceCard", () => {
@@ -49,5 +51,25 @@ describe("ResourceCard", () => {
     render(<ResourceCard resource={baseResource} />);
 
     expect(screen.getAllByRole("link")).toHaveLength(1);
+  });
+
+  it("shows 'Hours unavailable' rather than an open/closed claim when hoursStatus is UNKNOWN", () => {
+    render(<ResourceCard resource={baseResource} />);
+
+    expect(screen.getByText("Hours unavailable")).toBeInTheDocument();
+    expect(screen.queryByText("Open now")).not.toBeInTheDocument();
+    expect(screen.queryByText("Closed")).not.toBeInTheDocument();
+  });
+
+  it("shows 'Open now' when the resource is currently open", () => {
+    render(<ResourceCard resource={{ ...baseResource, hoursStatus: "OPEN", openNow: true }} />);
+
+    expect(screen.getByText("Open now")).toBeInTheDocument();
+  });
+
+  it("shows 'Closed' when the resource is currently closed", () => {
+    render(<ResourceCard resource={{ ...baseResource, hoursStatus: "CLOSED", openNow: false }} />);
+
+    expect(screen.getByText("Closed")).toBeInTheDocument();
   });
 });

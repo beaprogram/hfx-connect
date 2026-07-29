@@ -25,7 +25,7 @@ one begins.
 | 5B | `milestone/05b-authentication-sessions` | Login, access tokens, refresh cookies, logout |
 | 5C | `milestone/05c-role-authorization` | Roles, backend authorization, protected frontend routes |
 | 6A | `milestone/06a-keyword-search` | Public keyword search, combined with category filtering, sorting, and pagination |
-| 6B | `milestone/06b-operating-hours` | Structured operating hours, open-now logic |
+| 6B | `milestone/06b-operating-hours-filters` | Structured operating hours, open-now logic, cost/verification filters |
 | 7 | `milestone/07-geospatial-search` | PostGIS nearby queries, map, marker clustering, list/map sync |
 | 8 | `milestone/08-user-features` | Saved resources, submissions, correction reports |
 | 9 | `milestone/09-moderation` | Moderation queue, approvals, verification status, audit trail |

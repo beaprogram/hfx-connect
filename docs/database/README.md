@@ -11,6 +11,7 @@ As of Milestone 5B, the schema contains five Flyway migrations:
 | 3 | `backend/src/main/resources/db/migration/V3__create_resources_table.sql` | Creates the `resources` table |
 | 4 | `backend/src/main/resources/db/migration/V4__create_users_table.sql` | Creates the `users` table |
 | 5 | `backend/src/main/resources/db/migration/V5__create_refresh_sessions_table.sql` | Creates the `refresh_sessions` table |
+| 6 | `backend/src/main/resources/db/migration/V6__create_resource_operating_hours.sql` | Creates the `resource_operating_hours` table |
 
 ### `categories`
 
@@ -131,6 +132,42 @@ constraint on `token_hash` already provides its own lookup index.
 Not exposed as its own resource — only read/written internally by
 `AuthController`'s login/refresh/logout endpoints.
 
+### `resource_operating_hours`
+
+One row per resource/day-of-week — see
+[ADR-011](../decisions/ADR-011-operating-hours-and-open-now.md) for the full
+timezone, overnight-interval, and open-now-calculation design this table
+supports. `id` is `BIGINT GENERATED ALWAYS AS IDENTITY`, matching
+`categories`' reasoning (never independently addressable in a URL or public
+API) rather than `resources`'/`users`' `UUID`.
+
+| Column | Type | Constraints |
+|---|---|---|
+| `id` | `BIGINT` | Primary key, `GENERATED ALWAYS AS IDENTITY` |
+| `resource_id` | `UUID` | `NOT NULL`, `REFERENCES resources(id) ON DELETE CASCADE` — an hours row has no meaning independent of its resource |
+| `day_of_week` | `VARCHAR(9)` | `NOT NULL` — the readable `java.time.DayOfWeek` name (`MONDAY`..`SUNDAY`), checked against the seven valid values |
+| `opens_at` | `TIME` | nullable — local time, no zone component; required (with `closes_at`) unless `closed` |
+| `closes_at` | `TIME` | nullable — same; if earlier than `opens_at`, the interval crosses midnight |
+| `closed` | `BOOLEAN` | `NOT NULL`, defaults `FALSE` |
+| `created_at` | `TIMESTAMPTZ` | `NOT NULL`, defaults to `now()` |
+| `updated_at` | `TIMESTAMPTZ` | `NOT NULL`, defaults to `now()` |
+
+`UNIQUE (resource_id, day_of_week)` — at most one entry per resource/day. A
+`CHECK` constraint enforces "closed days have no times; open days have both
+times, and they are not equal" at the database level (equal `opens_at`/
+`closes_at` was deliberately rejected as an implicit 24-hour convention —
+see ADR-011).
+
+Indexes: `resource_operating_hours_resource_id_idx` on `(resource_id)` —
+supports both the single-resource lookup and the batch `findByResourceIdIn`
+query the public resource list uses to avoid N+1 (see ADR-011's
+"Batch-Loading" section).
+
+Read/written by `ResourceService` (`getActiveById`/`getActiveBySlug`/
+`search`, and `replaceOperatingHours` for the `ADMIN`/`MODERATOR`-only
+`PUT /api/v1/resources/{id}/operating-hours` endpoint — see
+`docs/api/README.md`). Never exposed as its own standalone resource.
+
 ## Database Engine
 
 PostgreSQL 17 with the PostGIS 3.5 extension, via the `postgis/postgis:17-3.5` Docker
@@ -145,8 +182,9 @@ auto-configuration, migrations are triggered by an explicit configuration class 
 see [ADR-004](../decisions/ADR-004-manual-flyway-configuration.md) for why, and
 `backend/README.md` for how to run and inspect migrations locally.
 
-Hibernate/JPA is used for reading and writing rows (`categories` and `resources` both
-have JPA entities), but never for schema creation or changes —
+Hibernate/JPA is used for reading and writing rows (`categories`, `resources`, and
+`resource_operating_hours` all have JPA entities), but never for schema creation
+or changes —
 `spring.jpa.hibernate.ddl-auto=validate` makes Hibernate check that entity mappings
 match what Flyway already created, and fail startup if they don't, rather than ever
 creating or altering a table itself.
@@ -155,6 +193,7 @@ creating or altering a table itself.
 
 The remaining entities anticipated by the product requirements are listed in
 [docs/architecture/system-overview.md](../architecture/system-overview.md#data-model-direction):
-`organizations`, `operating_hours`, `saved_resources`, `resource_reports`,
-`resource_submissions`, `events`, and `resource_history`. These will be introduced as
-real Flyway migrations in later milestones.
+`organizations`, `saved_resources`, `resource_reports`,
+`resource_submissions`, `events`, and `resource_history` (`operating_hours`
+is now implemented, as `resource_operating_hours` above — Milestone 6B).
+These will be introduced as real Flyway migrations in later milestones.

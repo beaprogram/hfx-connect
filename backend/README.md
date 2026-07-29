@@ -7,7 +7,8 @@ the intended API and module design.
 
 **Status:** category management (Milestone 3A), a public resource API (Milestone 3C,
 built on the persistence/business layer Milestone 3B added, now with keyword
-search as of Milestone 6A), CORS support for the Milestone 4 public frontend,
+search (6A) and structured operating hours/open-now/cost/verification
+filtering (6B)), CORS support for the Milestone 4 public frontend,
 account registration (Milestone 5A), login/refresh/logout (Milestone 5B), and
 request authentication plus role-based authorization (Milestone 5C) — see
 [Category API](#category-api-v1categories),
@@ -202,6 +203,14 @@ curl "http://localhost:8080/api/v1/resources?categoryId=1&sort=createdAt&size=20
 
 # Keyword search (Milestone 6A) — combines with categoryId/sort/pagination
 curl "http://localhost:8080/api/v1/resources?q=library&categoryId=1"
+
+# Cost/verification/open-now filters (Milestone 6B) — all combine freely
+curl "http://localhost:8080/api/v1/resources?costType=FREE&verificationStatus=VERIFIED&openNow=true"
+
+# Replace a resource's weekly schedule (Milestone 6B) — ADMIN or MODERATOR only
+curl -X PUT "http://localhost:8080/api/v1/resources/{id}/operating-hours" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"hours":[{"dayOfWeek":"MONDAY","closed":false,"opensAt":"09:00","closesAt":"17:00"}]}'
 ```
 
 **Keyword search (`q`, Milestone 6A):** case-insensitive substring match
@@ -210,6 +219,15 @@ after normalization (trim, whitespace collapse); blank is treated as no
 filter; `%`/`_` are escaped and matched literally, never as `LIKE`
 wildcards; no relevance ranking. Full design:
 [ADR-010](../docs/decisions/ADR-010-keyword-search-design.md).
+
+**Operating hours and filters (Milestone 6B):** every resource read
+includes an `hours` object (`timezone`, `weeklyHours`, `hoursStatus`,
+`openNow`) evaluated in `America/Halifax`; `costType`/`verificationStatus`/
+`openNow` are optional public list filters, each independently combinable
+with `q`/`categoryId`/`sort`/pagination. `PUT
+/api/v1/resources/{id}/operating-hours` fully replaces a resource's weekly
+schedule and requires an `ADMIN`/`MODERATOR` Bearer token. Full design:
+[ADR-011](../docs/decisions/ADR-011-operating-hours-and-open-now.md).
 
 A resource is created under an existing, active category (`categories.id`, a
 `BIGINT` — not the `UUID` a resource's own `id` is; see
@@ -403,6 +421,8 @@ backend/
       V5__create_refresh_sessions_table.sql  Fifth Flyway migration
                                                              (Milestone 5C added no new migration — Role/
                                                              AccountStatus already existed on V4's users table)
+      V6__create_resource_operating_hours.sql Sixth Flyway migration (Milestone 6B —
+                                                             see ADR-011)
   src/test/java/com/hfxconnect/
     AbstractPostgresIntegrationTest.java   Shared Testcontainers setup (public — extended
                                                              from sub-packages like category/, resource/)

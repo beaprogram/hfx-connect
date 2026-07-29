@@ -15,7 +15,11 @@ public record ResourceSummaryResponse(
 		VerificationStatus verificationStatus,
 		boolean active,
 		CategorySummaryResponse category,
-		Instant createdAt) {
+		Instant createdAt,
+		@Schema(description = "UNKNOWN when the resource has no operating-hours schedule at all; otherwise always OPEN or CLOSED. See ADR-011.")
+		HoursStatus hoursStatus,
+		@Schema(description = "True/false when hoursStatus is OPEN/CLOSED; null when hoursStatus is UNKNOWN.")
+		Boolean openNow) {
 
 	static ResourceSummaryResponse from(ResourceDetails details) {
 		return new ResourceSummaryResponse(
@@ -28,7 +32,9 @@ public record ResourceSummaryResponse(
 				details.verificationStatus(),
 				details.active(),
 				CategorySummaryResponse.from(details),
-				details.createdAt());
+				details.createdAt(),
+				details.hoursStatus(),
+				details.openNow());
 	}
 
 }

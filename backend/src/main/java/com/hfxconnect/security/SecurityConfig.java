@@ -34,6 +34,9 @@ import org.springframework.web.cors.CorsConfigurationSource;
  *   <li>{@code POST /api/v1/categories} — {@code ADMIN} only.
  *   <li>{@code POST /api/v1/resources} — {@code ADMIN} or {@code MODERATOR}.
  *       {@code ORGANIZATION} is deliberately excluded — see ADR-009.
+ *   <li>{@code PUT /api/v1/resources/{id}/operating-hours} — {@code ADMIN} or
+ *       {@code MODERATOR} (Milestone 6B — see ADR-011), the same pairing as
+ *       resource creation.
  *   <li>Everything else: {@code authenticated()} — fail closed, not fail
  *       open, for any route this list doesn't already name.
  * </ul>
@@ -82,6 +85,8 @@ public class SecurityConfig {
 						.requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
 						.requestMatchers(HttpMethod.POST, "/api/v1/categories").hasRole("ADMIN")
 						.requestMatchers(HttpMethod.POST, "/api/v1/resources").hasAnyRole("ADMIN", "MODERATOR")
+						.requestMatchers(HttpMethod.PUT, "/api/v1/resources/*/operating-hours")
+						.hasAnyRole("ADMIN", "MODERATOR")
 						.anyRequest().authenticated())
 				.addFilterBefore(new JwtAuthenticationFilter(accessTokenService, userRepository),
 						UsernamePasswordAuthenticationFilter.class);

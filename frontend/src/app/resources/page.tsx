@@ -28,6 +28,9 @@ export default async function ResourcesPage({ searchParams }: { searchParams: Pr
         categoryId: params.categoryId,
         sort: params.sort,
         q: params.q,
+        costType: params.costType,
+        verificationStatus: params.verificationStatus,
+        openNow: params.openNow,
       }),
       queryFn: () =>
         getResources({
@@ -36,6 +39,9 @@ export default async function ResourcesPage({ searchParams }: { searchParams: Pr
           categoryId: params.categoryId,
           sort: params.sort,
           q: params.q,
+          costType: params.costType,
+          verificationStatus: params.verificationStatus,
+          openNow: params.openNow,
         }),
     }),
     queryClient.prefetchQuery({

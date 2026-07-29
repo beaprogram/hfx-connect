@@ -23,6 +23,16 @@ const fullResource: ResourceResponse = {
   category: { id: 1, name: "Study Spaces", slug: "study-spaces" },
   createdAt: "2026-07-15T00:00:00Z",
   updatedAt: "2026-07-15T00:00:00Z",
+  hours: {
+    timezone: "America/Halifax",
+    weeklyHours: [
+      { dayOfWeek: "MONDAY", closed: false, opensAt: "09:00:00", closesAt: "17:00:00", overnight: false },
+      { dayOfWeek: "TUESDAY", closed: true, opensAt: null, closesAt: null, overnight: false },
+      { dayOfWeek: "FRIDAY", closed: false, opensAt: "22:00:00", closesAt: "02:00:00", overnight: true },
+    ],
+    hoursStatus: "OPEN",
+    openNow: true,
+  },
 };
 
 describe("ResourceDetail", () => {
@@ -91,5 +101,68 @@ describe("ResourceDetail", () => {
     render(<ResourceDetail resource={fullResource} />);
 
     expect(screen.queryByText(/Accessibility/i)).not.toBeInTheDocument();
+  });
+
+  it("shows the current open status badge", () => {
+    render(<ResourceDetail resource={fullResource} />);
+
+    expect(screen.getByText("Open now")).toBeInTheDocument();
+  });
+
+  it("lists the weekly schedule Monday through Sunday, in order", () => {
+    render(<ResourceDetail resource={fullResource} />);
+
+    const dayLabels = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+    let previous: Element | null = null;
+    for (const label of dayLabels) {
+      const element = screen.getByText(label);
+      if (previous) {
+        expect(previous.compareDocumentPosition(element) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      }
+      previous = element;
+    }
+  });
+
+  it("shows 'Closed' for an explicitly closed day", () => {
+    render(<ResourceDetail resource={fullResource} />);
+
+    const tuesdayRow = screen.getByText("Tuesday").closest("div");
+    expect(tuesdayRow).toHaveTextContent("Closed");
+  });
+
+  it("shows 'Hours unavailable' for a day with no schedule entry, distinct from Closed", () => {
+    render(<ResourceDetail resource={fullResource} />);
+
+    const wednesdayRow = screen.getByText("Wednesday").closest("div");
+    expect(wednesdayRow).toHaveTextContent("Hours unavailable");
+  });
+
+  it("formats an ordinary interval as readable 12-hour times", () => {
+    render(<ResourceDetail resource={fullResource} />);
+
+    const mondayRow = screen.getByText("Monday").closest("div");
+    expect(mondayRow).toHaveTextContent("9:00 AM");
+    expect(mondayRow).toHaveTextContent("5:00 PM");
+  });
+
+  it("clearly marks an overnight interval that crosses midnight", () => {
+    render(<ResourceDetail resource={fullResource} />);
+
+    const fridayRow = screen.getByText("Friday").closest("div");
+    expect(fridayRow).toHaveTextContent("10:00 PM");
+    expect(fridayRow).toHaveTextContent("2:00 AM");
+    expect(fridayRow).toHaveTextContent(/continues past midnight/i);
+  });
+
+  it("shows a plain 'no hours added yet' message instead of a fabricated schedule when hoursStatus is UNKNOWN", () => {
+    const noScheduleResource: ResourceResponse = {
+      ...fullResource,
+      hours: { timezone: "America/Halifax", weeklyHours: [], hoursStatus: "UNKNOWN", openNow: null },
+    };
+
+    render(<ResourceDetail resource={noScheduleResource} />);
+
+    expect(screen.getByText(/Hours have not been added/i)).toBeInTheDocument();
+    expect(screen.queryByText("Monday")).not.toBeInTheDocument();
   });
 });

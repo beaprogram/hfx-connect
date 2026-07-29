@@ -3,8 +3,15 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef } from "react";
-import { RESOURCE_SORT_OPTIONS, type ResourceSort } from "@/lib/constants/resources";
-import { buildResourcesHref } from "@/lib/query/resource-list-params";
+import {
+  COST_TYPE_FILTER_OPTIONS,
+  RESOURCE_SORT_OPTIONS,
+  VERIFICATION_STATUS_FILTER_OPTIONS,
+  type CostTypeFilterValue,
+  type ResourceSort,
+  type VerificationStatusFilterValue,
+} from "@/lib/constants/resources";
+import { buildResourcesHref, type ResourceListParams } from "@/lib/query/resource-list-params";
 import type { CategoryResponse } from "@/lib/validation/schemas";
 
 /**
@@ -29,29 +36,44 @@ export function ResourceFilterForm({
   categoryId,
   sort,
   q,
+  costType,
+  verificationStatus,
+  openNow,
 }: {
   categories: CategoryResponse[];
   categoryId?: number;
   sort: ResourceSort;
   q?: string;
+  costType?: CostTypeFilterValue;
+  verificationStatus?: VerificationStatusFilterValue;
+  openNow?: boolean;
 }) {
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
+
+  const hasAnyFilter = Boolean(categoryId || (q && q.length > 0) || costType || verificationStatus || openNow);
 
   function submitViaRouter() {
     const form = formRef.current;
     if (!form) return;
     const data = new FormData(form);
-    const query = new URLSearchParams();
     const selectedCategoryId = data.get("categoryId");
     const selectedSort = data.get("sort");
     const rawQ = data.get("q");
     const selectedQ = typeof rawQ === "string" ? rawQ.trim().replace(/\s+/g, " ") : "";
-    if (selectedCategoryId) query.set("categoryId", String(selectedCategoryId));
-    if (selectedSort && selectedSort !== "name") query.set("sort", String(selectedSort));
-    if (selectedQ) query.set("q", selectedQ);
-    const queryString = query.toString();
-    router.push(queryString ? `/resources?${queryString}` : "/resources");
+    const selectedCostType = data.get("costType");
+    const selectedVerificationStatus = data.get("verificationStatus");
+    const selectedOpenNow = data.get("openNow") === "true";
+
+    const params: Partial<ResourceListParams> = {
+      categoryId: selectedCategoryId ? Number(selectedCategoryId) : undefined,
+      sort: (selectedSort as ResourceSort) || undefined,
+      q: selectedQ || undefined,
+      costType: (selectedCostType as CostTypeFilterValue) || undefined,
+      verificationStatus: (selectedVerificationStatus as VerificationStatusFilterValue) || undefined,
+      openNow: selectedOpenNow || undefined,
+    };
+    router.push(buildResourcesHref(params));
   }
 
   return (
@@ -81,7 +103,7 @@ export function ResourceFilterForm({
           />
           {q && (
             <Link
-              href={buildResourcesHref({ categoryId, sort })}
+              href={buildResourcesHref({ categoryId, sort, costType, verificationStatus, openNow })}
               className="whitespace-nowrap rounded-sm text-sm font-medium text-slate-600 underline underline-offset-2 hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
               aria-label="Clear search"
             >
@@ -130,12 +152,77 @@ export function ResourceFilterForm({
         </select>
       </div>
 
+      <div className="flex flex-col gap-1">
+        <label htmlFor="costType" className="text-sm font-medium text-slate-700">
+          Cost
+        </label>
+        <select
+          id="costType"
+          name="costType"
+          defaultValue={costType ?? ""}
+          onChange={submitViaRouter}
+          className="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+        >
+          <option value="">All cost types</option>
+          {COST_TYPE_FILTER_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="flex flex-col gap-1">
+        <label htmlFor="verificationStatus" className="text-sm font-medium text-slate-700">
+          Verification
+        </label>
+        <select
+          id="verificationStatus"
+          name="verificationStatus"
+          defaultValue={verificationStatus ?? ""}
+          onChange={submitViaRouter}
+          className="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+        >
+          <option value="">All resources</option>
+          {VERIFICATION_STATUS_FILTER_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="flex flex-col gap-1">
+        <span className="text-sm font-medium text-slate-700">Availability</span>
+        <label className="flex items-center gap-2 py-2 text-sm text-slate-900">
+          <input
+            id="openNow"
+            name="openNow"
+            type="checkbox"
+            value="true"
+            defaultChecked={openNow ?? false}
+            onChange={submitViaRouter}
+            className="h-4 w-4 rounded-sm border-slate-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+          />
+          Open now
+        </label>
+      </div>
+
       <button
         type="submit"
         className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
       >
         Apply
       </button>
+
+      {hasAnyFilter && (
+        <Link
+          href="/resources"
+          className="whitespace-nowrap rounded-sm text-sm font-medium text-slate-600 underline underline-offset-2 hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+        >
+          Reset all filters
+        </Link>
+      )}
     </form>
   );
 }

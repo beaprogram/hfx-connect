@@ -5,7 +5,11 @@ import { useQuery } from "@tanstack/react-query";
 import { getCategories } from "@/lib/api/categories";
 import { getResources } from "@/lib/api/resources";
 import { categoryKeys, resourceKeys } from "@/lib/query/keys";
-import { RESOURCE_LIST_PAGE_SIZE } from "@/lib/constants/resources";
+import {
+  COST_TYPE_FILTER_OPTIONS,
+  RESOURCE_LIST_PAGE_SIZE,
+  VERIFICATION_STATUS_FILTER_OPTIONS,
+} from "@/lib/constants/resources";
 import type { ResourceListParams } from "@/lib/query/resource-list-params";
 import { ResourceFilterForm } from "@/components/resources/resource-filter-form";
 import { ResourceGrid } from "@/components/resources/resource-grid";
@@ -27,6 +31,9 @@ export function ResourceListView({ params }: { params: ResourceListParams }) {
       categoryId: params.categoryId,
       sort: params.sort,
       q: params.q,
+      costType: params.costType,
+      verificationStatus: params.verificationStatus,
+      openNow: params.openNow,
     }),
     queryFn: ({ signal }) =>
       getResources({
@@ -35,6 +42,9 @@ export function ResourceListView({ params }: { params: ResourceListParams }) {
         categoryId: params.categoryId,
         sort: params.sort,
         q: params.q,
+        costType: params.costType,
+        verificationStatus: params.verificationStatus,
+        openNow: params.openNow,
         signal,
       }),
   });
@@ -43,6 +53,8 @@ export function ResourceListView({ params }: { params: ResourceListParams }) {
   const selectedCategory = params.categoryId !== undefined ? categories.find((c) => c.id === params.categoryId) : undefined;
   const categoryUnresolvable = params.categoryId !== undefined && categoryQuery.isSuccess && !selectedCategory;
   const hasSearch = params.q !== undefined && params.q.length > 0;
+  const hasAdditionalFilters = Boolean(params.costType || params.verificationStatus || params.openNow);
+  const hasAnyFilter = hasSearch || Boolean(selectedCategory) || hasAdditionalFilters;
 
   return (
     <div className="mx-auto w-full max-w-5xl px-4 py-12 sm:px-6">
@@ -53,7 +65,15 @@ export function ResourceListView({ params }: { params: ResourceListParams }) {
       </p>
 
       <div className="mt-6">
-        <ResourceFilterForm categories={categories} categoryId={params.categoryId} sort={params.sort} q={params.q} />
+        <ResourceFilterForm
+          categories={categories}
+          categoryId={params.categoryId}
+          sort={params.sort}
+          q={params.q}
+          costType={params.costType}
+          verificationStatus={params.verificationStatus}
+          openNow={params.openNow}
+        />
       </div>
 
       {categoryUnresolvable && (
@@ -65,7 +85,7 @@ export function ResourceListView({ params }: { params: ResourceListParams }) {
         </p>
       )}
 
-      {!categoryUnresolvable && (selectedCategory || hasSearch) && (
+      {!categoryUnresolvable && hasAnyFilter && (
         <p className="mt-3 text-sm text-slate-600">
           {hasSearch && (
             <>
@@ -74,6 +94,10 @@ export function ResourceListView({ params }: { params: ResourceListParams }) {
           )}
           {hasSearch && selectedCategory && " in "}
           {selectedCategory && <span className="font-medium text-slate-900">{selectedCategory.name}</span>}
+          {hasAdditionalFilters && (hasSearch || selectedCategory) && " · "}
+          {hasAdditionalFilters && (
+            <span className="font-medium text-slate-900">{activeFilterSummary(params)}</span>
+          )}
           {" · "}
           <Link href="/resources" className="underline underline-offset-2">
             Reset filters
@@ -89,9 +113,11 @@ export function ResourceListView({ params }: { params: ResourceListParams }) {
         )}
 
         {resourceQuery.isSuccess && resourceQuery.data.content.length === 0 && (
-          <EmptyState heading={noResultsHeading(hasSearch, params.q, selectedCategory?.name)}>
+          <EmptyState heading={noResultsHeading(hasSearch, params.q, selectedCategory?.name, hasAdditionalFilters)}>
             {hasSearch ? (
               <p>Try a different or shorter search term, or check the spelling.</p>
+            ) : hasAdditionalFilters ? (
+              <p>Try removing one or more filters.</p>
             ) : (
               !selectedCategory && (
                 <Link href="/" className="underline underline-offset-2">
@@ -100,8 +126,8 @@ export function ResourceListView({ params }: { params: ResourceListParams }) {
               )
             )}
             {/* The "Reset filters" action already appears once, in the filter-summary line
-                above, whenever selectedCategory or hasSearch is set — repeating it here
-                would put two identically-labelled links on the page. */}
+                above, whenever any filter is set — repeating it here would put two
+                identically-labelled links on the page. */}
           </EmptyState>
         )}
 
@@ -117,6 +143,9 @@ export function ResourceListView({ params }: { params: ResourceListParams }) {
               categoryId={params.categoryId}
               sort={params.sort}
               q={params.q}
+              costType={params.costType}
+              verificationStatus={params.verificationStatus}
+              openNow={params.openNow}
             />
           </>
         )}
@@ -146,7 +175,30 @@ function resultSummary(total: number, hasSearch: boolean, q: string | undefined,
   return `${total} ${noun} found`;
 }
 
-function noResultsHeading(hasSearch: boolean, q: string | undefined, categoryName: string | undefined): string {
+/** Describes only the cost/verification/openNow filters — category and search already have their own summary clauses. */
+function activeFilterSummary(params: ResourceListParams): string {
+  const parts: string[] = [];
+  if (params.costType) {
+    parts.push(COST_TYPE_FILTER_OPTIONS.find((o) => o.value === params.costType)?.label ?? params.costType);
+  }
+  if (params.verificationStatus) {
+    parts.push(
+      VERIFICATION_STATUS_FILTER_OPTIONS.find((o) => o.value === params.verificationStatus)?.label ??
+        params.verificationStatus,
+    );
+  }
+  if (params.openNow) {
+    parts.push("Open now");
+  }
+  return parts.join(", ");
+}
+
+function noResultsHeading(
+  hasSearch: boolean,
+  q: string | undefined,
+  categoryName: string | undefined,
+  hasAdditionalFilters: boolean,
+): string {
   if (hasSearch && categoryName) {
     return `No active resources matched "${q}" in ${categoryName}.`;
   }
@@ -155,6 +207,9 @@ function noResultsHeading(hasSearch: boolean, q: string | undefined, categoryNam
   }
   if (categoryName) {
     return `No active resources in ${categoryName} yet.`;
+  }
+  if (hasAdditionalFilters) {
+    return "No active resources match the selected filters.";
   }
   return "No active resources are published yet.";
 }

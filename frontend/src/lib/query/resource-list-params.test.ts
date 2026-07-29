@@ -57,6 +57,31 @@ describe("parseResourceListParams", () => {
   it("takes the first value when q is repeated", () => {
     expect(parseResourceListParams({ q: ["first", "second"] }).q).toBe("first");
   });
+
+  // ---- Cost/verification/openNow filters (Milestone 6B — see ADR-011) ----
+
+  it("parses valid costType and verificationStatus values", () => {
+    const result = parseResourceListParams({ costType: "FREE", verificationStatus: "VERIFIED" });
+    expect(result.costType).toBe("FREE");
+    expect(result.verificationStatus).toBe("VERIFIED");
+  });
+
+  it("falls back to undefined for an invalid costType or verificationStatus", () => {
+    expect(parseResourceListParams({ costType: "NOT_REAL" }).costType).toBeUndefined();
+    expect(parseResourceListParams({ verificationStatus: "NOT_REAL" }).verificationStatus).toBeUndefined();
+  });
+
+  it("only treats openNow=true (exact) as true; anything else is undefined", () => {
+    expect(parseResourceListParams({ openNow: "true" }).openNow).toBe(true);
+    expect(parseResourceListParams({ openNow: "false" }).openNow).toBeUndefined();
+    expect(parseResourceListParams({ openNow: "maybe" }).openNow).toBeUndefined();
+    expect(parseResourceListParams({}).openNow).toBeUndefined();
+  });
+
+  it("takes the first value when costType/verificationStatus/openNow are repeated", () => {
+    expect(parseResourceListParams({ costType: ["FREE", "PAID"] }).costType).toBe("FREE");
+    expect(parseResourceListParams({ openNow: ["true", "false"] }).openNow).toBe(true);
+  });
 });
 
 describe("buildResourcesHref", () => {
@@ -81,5 +106,17 @@ describe("buildResourcesHref", () => {
     expect(buildResourcesHref({ q: "library", categoryId: 4, sort: "createdAt" })).toBe(
       "/resources?categoryId=4&sort=createdAt&q=library",
     );
+  });
+
+  it("includes costType and verificationStatus when set", () => {
+    expect(buildResourcesHref({ costType: "FREE", verificationStatus: "VERIFIED" })).toBe(
+      "/resources?costType=FREE&verificationStatus=VERIFIED",
+    );
+  });
+
+  it("includes openNow only when true; omits it entirely when false or absent", () => {
+    expect(buildResourcesHref({ openNow: true })).toBe("/resources?openNow=true");
+    expect(buildResourcesHref({ openNow: false })).toBe("/resources");
+    expect(buildResourcesHref({})).toBe("/resources");
   });
 });

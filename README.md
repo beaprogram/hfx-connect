@@ -9,26 +9,31 @@ newcomer services, recreation, and events — that are currently scattered acros
 municipal websites, organization pages, and social media, and adds transparent
 verification so users can trust what they find.
 
-**Project status: Milestone 6A (Keyword Search and Public Resource Filtering)
-complete.** The backend has three working REST APIs: categories (Milestone 3A —
+**Project status: Milestone 6B (Structured Operating Hours, Open-Now Logic,
+and Cost/Verification Filters) complete.** The backend has three working REST
+APIs: categories (Milestone 3A —
 [backend/README.md](backend/README.md#category-api-apiv1categories)), resources
 (Milestone 3C, built on the persistence/business layer Milestone 3B added, now
-with keyword search as of Milestone 6A —
+with keyword search (Milestone 6A) and structured operating hours/open-now/
+cost/verification filtering (Milestone 6B) —
 [backend/README.md](backend/README.md#resource-api-apiv1resources)), and
 authentication — registration (Milestone 5A), login/refresh/logout (Milestone
 5B), and a current-user endpoint (Milestone 5C —
 [docs/api/README.md](docs/api/README.md#auth-apiv1auth)). Every request is
 authenticated by a Bearer access token where required, and role-based
-authorization protects category/resource creation — see
+authorization protects category/resource creation and operating-hours
+replacement — see
 [docs/architecture/security-architecture.md](docs/architecture/security-architecture.md)
 for the full design. The frontend has real authentication (`/login`,
 `/register`, a protected `/dashboard`, an in-memory access token, and session
 restoration via the `HttpOnly` refresh cookie — see
 [docs/architecture/frontend-architecture.md](docs/architecture/frontend-architecture.md#authentication-architecture))
-and a searchable public resource list — `/resources` now supports a keyword
-search combined with category filtering, sorting, and pagination, all
-enforced server-side (see
-[ADR-010](docs/decisions/ADR-010-keyword-search-design.md)). See
+and a filterable public resource list — `/resources` supports keyword search,
+category filtering, cost/verification/open-now filtering, sorting, and
+pagination, all enforced server-side, plus a resource detail page showing the
+real weekly schedule and current open status (see
+[ADR-010](docs/decisions/ADR-010-keyword-search-design.md) and
+[ADR-011](docs/decisions/ADR-011-operating-hours-and-open-now.md)). See
 [docs/milestones/](docs/milestones/) for exactly what each milestone delivered, and
 [docs/development-workflow.md](docs/development-workflow.md) for the full
 12-milestone roadmap (Milestones 3, 5, and 6 are each split into lettered
@@ -59,18 +64,19 @@ submit new listings, and report incorrect information; let organizations manage 
 own approved listings and events; and let moderators and administrators review
 submissions and reports, manage verification status, and maintain an audit history.
 
-The public browsing slice of this (browse, filter by category, keyword search,
-sort, view detail) is now real — see [Local Setup](#local-setup) to run it.
-Account registration, login, and a protected dashboard (`/login`, `/register`,
-`/dashboard` on the frontend; `POST /api/v1/auth/register`, `/login`,
-`/refresh`, `/logout`, `GET /api/v1/users/me` on the backend) are real too,
-with backend-enforced role-based authorization on category/resource creation.
-Maps, saved resources, submissions, organization/moderator tooling, and
-role-specific dashboards are not implemented yet. There is no update/delete
-endpoint on any backend API yet either, and keyword search has no relevance
-ranking, typo tolerance, or structured operating-hours/open-now filtering yet
-(Milestone 6B). Everything else in this section describes the plan, not the
-current state.
+The public browsing slice of this (browse, filter by category/cost/
+verification/open-now, keyword search, sort, view detail with the real
+weekly schedule and current open status) is now real — see
+[Local Setup](#local-setup) to run it. Account registration, login, and a
+protected dashboard (`/login`, `/register`, `/dashboard` on the frontend;
+`POST /api/v1/auth/register`, `/login`, `/refresh`, `/logout`,
+`GET /api/v1/users/me` on the backend) are real too, with backend-enforced
+role-based authorization on category/resource creation and operating-hours
+replacement. Maps, saved resources, submissions, organization/moderator
+tooling, and role-specific dashboards are not implemented yet. There is no
+update/delete endpoint on any backend API yet either, and keyword search
+still has no relevance ranking or typo tolerance. Everything else in this
+section describes the plan, not the current state.
 
 ## Technology Stack
 
@@ -211,6 +217,7 @@ Runs on [http://localhost:3000](http://localhost:3000) and expects the backend a
 - [Milestone 5B: Login, Token Refresh, and Logout](docs/milestones/milestone-05b-authentication-sessions.md)
 - [Milestone 5C: Request Authentication, Role Authorization, and Protected Frontend Routes](docs/milestones/milestone-05c-role-authorization.md)
 - [Milestone 6A: Keyword Search and Public Resource Filtering](docs/milestones/milestone-06a-keyword-search.md)
+- [Milestone 6B: Structured Operating Hours, Open-Now Logic, and Cost/Verification Filters](docs/milestones/milestone-06b-operating-hours-filters.md)
 - [Wireframes](docs/wireframes/)
 - [API Documentation](docs/api/README.md)
 - [Database Documentation](docs/database/)
@@ -222,11 +229,12 @@ Runs on [http://localhost:3000](http://localhost:3000) and expects the backend a
 - [ADR-008: Authentication Session Architecture](docs/decisions/ADR-008-authentication-session-architecture.md)
 - [ADR-009: Request Authentication and Role Authorization](docs/decisions/ADR-009-request-authentication-and-role-authorization.md)
 - [ADR-010: Keyword Search Design](docs/decisions/ADR-010-keyword-search-design.md)
+- [ADR-011: Operating Hours and Open-Now Design](docs/decisions/ADR-011-operating-hours-and-open-now.md)
 - [Development Log](docs/development-log/)
 - [Resume Evidence](docs/career/resume-evidence.md)
 - [Interview Notes](docs/career/interview-notes.md)
 
-## Known Limitations (as of Milestone 6A)
+## Known Limitations (as of Milestone 6B)
 
 - **No rate limiting exists** — login accepts unlimited attempts. **No
   access-token revocation exists** — a compromised access token remains valid
@@ -256,19 +264,25 @@ Runs on [http://localhost:3000](http://localhost:3000) and expects the backend a
 - Neither the Category nor Resource API has an update or delete endpoint.
   `ResourceService.update`/`deactivate` exist and are fully tested but aren't exposed
   over HTTP yet.
-- The public resource list has no `verificationStatus` filter (nothing has ever been
-  `VERIFIED` yet — Milestone 9), no cost-type filter, and no `active` override
-  (would let anyone browse deactivated listings with no authentication
-  boundary to gate it behind). The frontend accordingly exposes no controls
-  for any of these.
+- The public resource list has real `costType`/`verificationStatus`/`openNow`
+  filters (Milestone 6B), but `verificationStatus=VERIFIED` currently
+  returns nothing (nothing has ever been `VERIFIED` yet — Milestone 9), each
+  filter accepts one value at a time (no multi-select), and there's still no
+  `active` override (would let anyone browse deactivated listings with no
+  authentication boundary to gate it behind).
 - Keyword search (Milestone 6A) has no typo tolerance, relevance ranking, or
   multi-word AND/OR semantics — a single-phrase, case-insensitive substring
   match across name/description/address/city only, with no `pg_trgm`/full-text
   index (an explicit, revisitable scale assumption — see
   [ADR-010](docs/decisions/ADR-010-keyword-search-design.md)).
-- No structured operating hours or open-now filtering yet (Milestone 6B). No
-  distance/geospatial filtering, maps, saved resources, submissions,
-  moderation, or organizations exist yet (Milestone 6B-10).
+- Operating hours (Milestone 6B) support one interval per day only — no
+  split shifts, holiday exceptions, seasonal schedules, appointment-only
+  scheduling, next-opening-time prediction, or per-resource timezone
+  (`America/Halifax` is fixed for every resource — see
+  [ADR-011](docs/decisions/ADR-011-operating-hours-and-open-now.md)). There
+  is no public UI for editing hours — only an `ADMIN`/`MODERATOR` API
+  endpoint. No distance/geospatial filtering, maps, saved resources,
+  submissions, moderation, or organizations exist yet (Milestone 7-10).
 - No deployment workflow or hosted environment exists yet; CI currently verifies the
   backend and frontend only.
 - No automated dependency-vulnerability scanning is configured in this project.

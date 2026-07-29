@@ -33,6 +33,8 @@ const resourceSummary = {
   active: true,
   category: { id: 1, name: "Study Spaces", slug: "study-spaces" },
   createdAt: "2026-07-15T00:00:00Z",
+  hoursStatus: "UNKNOWN" as const,
+  openNow: null,
 };
 
 function renderWithQueryClient(ui: React.ReactElement) {
@@ -165,5 +167,43 @@ describe("ResourceListView", () => {
     await waitFor(() => expect(screen.getByText('1 resource matching "library"')).toBeInTheDocument());
     expect(screen.queryByText(/most relevant/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/relevance/i)).not.toBeInTheDocument();
+  });
+
+  // ---- Cost/verification/openNow filters (Milestone 6B — see ADR-011) ----
+
+  it("passes costType, verificationStatus, and openNow through to getResources", async () => {
+    mockGetResources.mockResolvedValue({ content: [resourceSummary], page: 0, size: 12, totalElements: 1, totalPages: 1 });
+
+    renderWithQueryClient(
+      <ResourceListView
+        params={{ page: 0, sort: "name", costType: "FREE", verificationStatus: "VERIFIED", openNow: true }}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(mockGetResources).toHaveBeenCalledWith(
+        expect.objectContaining({ costType: "FREE", verificationStatus: "VERIFIED", openNow: true }),
+      ),
+    );
+  });
+
+  it("shows an active-filter summary and a reset link when only cost/verification/openNow filters are set", async () => {
+    mockGetResources.mockResolvedValue({ content: [resourceSummary], page: 0, size: 12, totalElements: 1, totalPages: 1 });
+
+    renderWithQueryClient(<ResourceListView params={{ page: 0, sort: "name", costType: "FREE", openNow: true }} />);
+
+    await waitFor(() => expect(screen.getByText("Free, Open now")).toBeInTheDocument());
+    expect(screen.getByRole("link", { name: "Reset filters" })).toHaveAttribute("href", "/resources");
+  });
+
+  it("shows a filters-aware no-results message when cost/verification/openNow filters yield nothing", async () => {
+    mockGetResources.mockResolvedValue({ content: [], page: 0, size: 12, totalElements: 0, totalPages: 0 });
+
+    renderWithQueryClient(<ResourceListView params={{ page: 0, sort: "name", costType: "PAID" }} />);
+
+    await waitFor(() =>
+      expect(screen.getByText("No active resources match the selected filters.")).toBeInTheDocument(),
+    );
+    expect(screen.getByText(/Try removing one or more filters/i)).toBeInTheDocument();
   });
 });

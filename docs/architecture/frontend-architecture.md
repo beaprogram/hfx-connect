@@ -106,15 +106,18 @@ forever.
 `lib/query/keys.ts`:
 
 ```ts
-resourceKeys.list({ page, size, categoryId, sort, q })
+resourceKeys.list({ page, size, categoryId, sort, q, costType, verificationStatus, openNow })
 categoryKeys.list({ active })
 resourceKeys.detail(slug)
 ```
 
-`page`/`size`/`categoryId`/`sort`/`q` are all part of the resource-list key,
-so a filtered/searched view can never be served from a different filter's
-cache entry. `q` deliberately does not appear in `categoryKeys` — search is
-a resource-only concept (Milestone 6A, ADR-010).
+`page`/`size`/`categoryId`/`sort`/`q`/`costType`/`verificationStatus`/
+`openNow` (the last three added in Milestone 6B, see
+[ADR-011](../decisions/ADR-011-operating-hours-and-open-now.md)) are all
+part of the resource-list key, so a filtered/searched view can never be
+served from a different filter's cache entry. None of these appear in
+`categoryKeys` — filtering/search are resource-only concepts (Milestone 6A,
+ADR-010).
 
 ## URL State (`/resources`)
 
@@ -131,6 +134,14 @@ default rather than thrown:
 | A repeated query parameter (`?page=1&page=2`) | first value used |
 | Blank/whitespace-only `q` | `undefined` (no keyword filter) |
 | `q` over 100 characters | truncated to 100 (best-effort only — the backend independently re-validates and is authoritative; see [ADR-010](../decisions/ADR-010-keyword-search-design.md)) |
+| Unrecognized `costType`/`verificationStatus` | `undefined` (no filter) — validated against the real `CostType`/`VerificationStatus` enum values, never invented |
+| `openNow` other than exactly `"true"` | `undefined` (no filter) — `"false"`, blank, and anything else are all treated identically to "absent," matching the backend's own default |
+
+Milestone 6B's `costType`/`verificationStatus`/`openNow` filters (see
+[ADR-011](../decisions/ADR-011-operating-hours-and-open-now.md)) follow the
+same "safe fallback, never a crash, never a value the backend didn't
+actually receive" rule as `q` above — an invalid value in a hand-edited URL
+never renders as if the filter were active.
 
 Keyword search (Milestone 6A) reuses this exact pattern: `q` is parsed by
 the same function, included in `resourceKeys.list`'s query key (so a
