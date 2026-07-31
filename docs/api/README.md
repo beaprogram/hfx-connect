@@ -135,6 +135,8 @@ Full detail: `docs/milestones/milestone-03c-public-resource-api.md`. Summary:
 | `GET` | `/api/v1/resources/slug/{slug}` | Get an active resource by slug. Same `404` behavior. |
 | `GET` | `/api/v1/resources` | Paginated list of **active resources only** — there is no way to include inactive resources publicly yet. Optional `categoryId` filter. Optional `q` keyword search (Milestone 6A — see below). Optional `costType`, `verificationStatus`, `openNow` filters (Milestone 6B — see below). Optional `sort`: `name` (default, ascending) or `createdAt` (newest first); anything else returns `400 INVALID_SORT`. |
 | `PUT` | `/api/v1/resources/{id}/operating-hours` | Fully replace a resource's weekly schedule (Milestone 6B — see below). `ADMIN` or `MODERATOR` only. |
+| `PUT` | `/api/v1/resources/{id}/location` | Replace a resource's geographic coordinate (Milestone 7A — see below). `ADMIN` or `MODERATOR` only. |
+| `GET` | `/api/v1/resources/nearby` | Find active resources near a coordinate, ordered by distance (Milestone 7A — see below). Public. |
 
 Responses embed a small `CategorySummaryResponse` (`id`, `name`, `slug`) rather than
 the full category representation. List results use a leaner
@@ -239,13 +241,55 @@ resources yet — see ADR-009.
 endpoint this domain does expose over HTTP is the operating-hours
 replacement above.
 
+### Resource Locations and Nearby Search (Milestone 7A)
+
+Full design: [ADR-012](../decisions/ADR-012-postgis-nearby-search-design.md).
+
+**`PUT /api/v1/resources/{id}/location`** replaces a resource's geographic
+coordinate transactionally. Body: `{"latitude": 44.6488, "longitude":
+-63.5752}` — both required; `latitude` between `-90` and `90`, `longitude`
+between `-180` and `180`. Requires a Bearer access token for an `ADMIN` or
+`MODERATOR` account (the same pairing as `POST /api/v1/resources` and the
+operating-hours endpoint). Returns the saved coordinate (`200`). Invalid
+coordinates return `400 VALIDATION_ERROR` with field-level detail. There
+is no public endpoint for editing a resource's location.
+
+```bash
+curl -X PUT "http://localhost:8080/api/v1/resources/$ID/location" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"latitude":44.6488,"longitude":-63.5752}'
+```
+
+**`GET /api/v1/resources/nearby`** finds active resources within a radius
+of a coordinate, ordered nearest first. `latitude`/`longitude` are
+required; both missing or out-of-range values return `400
+INVALID_LATITUDE`/`INVALID_LONGITUDE`. `radiusKm` is optional (default
+`5`, maximum `50`; anything outside `(0, 50]` returns `400
+INVALID_RADIUS`). Combines freely with `q`/`categoryId`/`costType`/
+`verificationStatus`/`openNow`/`page`/`size` — identical semantics to
+`GET /api/v1/resources`. Resources with no saved coordinate are always
+excluded. Each result includes `latitude`, `longitude`, and
+`distanceMeters` (straight-line geographic distance from the search
+origin, in metres — **never** route distance, walking time, or driving
+time). No matches returns `200` with empty content, never `404`.
+
+```bash
+curl "http://localhost:8080/api/v1/resources/nearby?latitude=44.6488&longitude=-63.5752&radiusKm=10&costType=FREE"
+```
+
+**Privacy note.** `latitude`/`longitude` on `GET /nearby` are used only
+for that one request and never persisted, but — being `GET` query
+parameters, deliberately so the endpoint stays shareable and works
+without JavaScript — they can appear in browser history and server access
+logs, same as any other URL query parameter.
+
 ### Status codes
 
 | Status | Meaning |
 |---|---|
 | `201` | Resource created; `Location` header points to `GET /api/v1/resources/{id}` |
-| `200` | Successful retrieval, listing, or operating-hours replacement |
-| `400` | Validation failure, malformed JSON, invalid pagination/sort, an over-length `q` (`INVALID_SEARCH_QUERY`), an invalid `costType`/`verificationStatus`/`openNow` filter, an invalid operating-hours schedule (`VALIDATION_ERROR`), or an inactive category (`INACTIVE_CATEGORY`) |
+| `200` | Successful retrieval, listing, or operating-hours/location replacement |
+| `400` | Validation failure, malformed JSON, invalid pagination/sort, an over-length `q` (`INVALID_SEARCH_QUERY`), an invalid `costType`/`verificationStatus`/`openNow` filter, an invalid operating-hours schedule (`VALIDATION_ERROR`), an invalid `latitude`/`longitude`/`radiusKm` on `/nearby` (`INVALID_LATITUDE`/`INVALID_LONGITUDE`/`INVALID_RADIUS`), an invalid location body (`VALIDATION_ERROR`), or an inactive category (`INACTIVE_CATEGORY`) |
 | `401` | `POST`/`PUT` only — missing or invalid access token |
 | `403` | `POST`/`PUT` only — authenticated, but not an `ADMIN` or `MODERATOR` account |
 | `404` | No active resource exists with the given ID/slug, or the referenced category doesn't exist (`CATEGORY_NOT_FOUND`) |

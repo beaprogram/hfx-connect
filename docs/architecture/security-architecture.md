@@ -97,6 +97,8 @@ matrix is expressed:
 | `GET /api/v1/users/me` | Any authenticated, `ACTIVE` account |
 | `POST /api/v1/categories` | `ADMIN` only |
 | `POST /api/v1/resources` | `ADMIN` or `MODERATOR` |
+| `PUT /api/v1/resources/{id}/operating-hours` | `ADMIN` or `MODERATOR` (Milestone 6B) |
+| `PUT /api/v1/resources/{id}/location` | `ADMIN` or `MODERATOR` (Milestone 7A) |
 | Everything else | `authenticated()` — fail closed by default |
 
 `ORGANIZATION` accounts cannot create resources yet, even though the role

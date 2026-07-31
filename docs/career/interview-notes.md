@@ -588,6 +588,63 @@ verified fact — and left a permanent regression test behind, so if a
 future dependency upgrade ever changed that serialization format, it would
 fail loudly in CI instead of silently breaking every frontend consumer.
 
+## Answerable Now (Milestone 7A)
+
+**Why not use Hibernate Spatial to map the new location column onto your
+entity?** I checked, rather than assumed. I fetched the exact POM for the
+`hibernate-spatial` version matching this project's actual
+`hibernate-core` version straight from Maven Central, and found it
+depends on Geolatte-geom — not JTS, which is what most Hibernate Spatial
+tutorials and Stack Overflow answers you'd find assume. Adopting it would
+have meant either learning a second geometry library or bolting on an
+unverified JTS integration with zero precedent in this project's own
+dependency history. And since nearby search was always going to need a
+native `ST_DWithin`/`ST_Distance` query anyway — those have no JPQL
+equivalent — an entity-mapped geometry field would only ever have been
+used for the simple "read this resource's own coordinate back" case,
+which a native query handles just as well with a plain `Double`. So I
+kept the column entirely outside the ORM's entity mapping and did every
+geospatial operation through native SQL instead — a real trade-off I made
+deliberately and wrote down, not a corner I cut because mapping it looked
+hard.
+
+**How do you make sure PostGIS's `ST_MakePoint(longitude, latitude)`
+argument order — which is backwards from how people say it out loud —
+never gets swapped?** Two things. First, I never pass a bare "pair" of
+numbers anywhere — every DTO field is named explicitly `latitude`/
+`longitude`, and every query binds them by name, not position. Second, I
+tested with real, deliberately asymmetric coordinates — Halifax is around
+44.6° latitude and -63.6° longitude, different enough in both magnitude
+and sign that if I'd swapped them by accident, the test would have failed
+by miles, not by a suspiciously-plausible small amount. A test that uses
+`(1.0, 2.0)` as its coordinates would happily pass even with a swap bug;
+mine wouldn't.
+
+**Tell me about a bug you found in your own tests, not the implementation.**
+My first version of a distance-ordering test asserted the *first* result
+in an unscoped nearby-search query had a positive distance from the
+origin. It passed running alone, but failed once the full suite ran
+together — because a completely different test class, using real HTTP
+calls that commit independently of my test's own transaction rollback,
+had already saved a resource at the exact same coordinate I was using as
+my search origin, landing at distance zero and displacing my own
+"nearest" resource from position zero. The fix wasn't to loosen the
+assertion — it was to scope the query with a keyword filter unique to
+that one test, the same isolation pattern the rest of the test suite
+already used everywhere else. I'd just missed it in this one test.
+
+**How did you verify the spatial index actually helps, instead of just
+assuming it does because it exists?** I ran `EXPLAIN` against the real
+query PostgreSQL would actually execute, connected directly via `psql` —
+not inferred from documentation. The output showed `Index Scan using
+idx_resources_location_gist`, which is the concrete, verifiable proof
+that PostgreSQL's query planner is choosing to use the index for the
+`ST_DWithin` radius search, not falling back to a full table scan. I also
+wrote down explicitly that this project's actual dataset is far too small
+for a real latency benchmark to mean anything yet — I'd rather say "I
+haven't measured that at scale" than imply a number I never actually
+produced.
+
 ## To Be Added in Later Milestones
 
 - How moderation approval and audit-history writes are made transactional (Milestone

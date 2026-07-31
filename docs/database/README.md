@@ -2,7 +2,7 @@
 
 ## Current Schema
 
-As of Milestone 5B, the schema contains five Flyway migrations:
+As of Milestone 7A, the schema contains seven Flyway migrations:
 
 | Version | File | Purpose |
 |---|---|---|
@@ -12,6 +12,7 @@ As of Milestone 5B, the schema contains five Flyway migrations:
 | 4 | `backend/src/main/resources/db/migration/V4__create_users_table.sql` | Creates the `users` table |
 | 5 | `backend/src/main/resources/db/migration/V5__create_refresh_sessions_table.sql` | Creates the `refresh_sessions` table |
 | 6 | `backend/src/main/resources/db/migration/V6__create_resource_operating_hours.sql` | Creates the `resource_operating_hours` table |
+| 7 | `backend/src/main/resources/db/migration/V7__add_resource_location.sql` | Adds `resources.location` (geography) and its GiST index |
 
 ### `categories`
 
@@ -59,10 +60,15 @@ anticipated this when categories' ID type was decided.
 | `active` | `BOOLEAN` | `NOT NULL`, defaults to `TRUE` |
 | `created_at` | `TIMESTAMPTZ` | `NOT NULL`, defaults to `now()` |
 | `updated_at` | `TIMESTAMPTZ` | `NOT NULL`, defaults to `now()` |
+| `location` | `GEOGRAPHY(POINT, 4326)` | nullable — added by V7 (Milestone 7A); see ADR-012. Never mapped as a Hibernate entity field — read/written entirely through native SQL on `ResourceRepository` (`updateLocation`/`findNearby`) |
 
 Indexes: `resources_category_id_idx` on `(category_id)` (category-based access, and
 the FK's own lookups); `resources_active_name_idx` on `(active, name)` (mirrors
-categories' pattern — active-resource listing sorted by name).
+categories' pattern — active-resource listing sorted by name);
+`idx_resources_location_gist` — a **GiST** index on `(location)` (Milestone 7A),
+the only index type PostGIS geography/geometry columns support for spatial
+predicates (`ST_DWithin`, `ST_Distance`); confirmed via `EXPLAIN` to actually be
+used by the nearby-search query (`docs/decisions/ADR-012-postgis-nearby-search-design.md`).
 
 **Note on `category_id`'s type:** an earlier planning document for this milestone
 suggested a `UUID` foreign key. That is inconsistent with `categories.id`, which is

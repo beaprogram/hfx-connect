@@ -7,8 +7,9 @@ the intended API and module design.
 
 **Status:** category management (Milestone 3A), a public resource API (Milestone 3C,
 built on the persistence/business layer Milestone 3B added, now with keyword
-search (6A) and structured operating hours/open-now/cost/verification
-filtering (6B)), CORS support for the Milestone 4 public frontend,
+search (6A), structured operating hours/open-now/cost/verification
+filtering (6B), and PostGIS resource locations/nearby search (7A)), CORS
+support for the Milestone 4 public frontend,
 account registration (Milestone 5A), login/refresh/logout (Milestone 5B), and
 request authentication plus role-based authorization (Milestone 5C) — see
 [Category API](#category-api-v1categories),
@@ -211,6 +212,14 @@ curl "http://localhost:8080/api/v1/resources?costType=FREE&verificationStatus=VE
 curl -X PUT "http://localhost:8080/api/v1/resources/{id}/operating-hours" \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"hours":[{"dayOfWeek":"MONDAY","closed":false,"opensAt":"09:00","closesAt":"17:00"}]}'
+
+# Nearby search (Milestone 7A) — combines with q/categoryId/costType/verificationStatus/openNow
+curl "http://localhost:8080/api/v1/resources/nearby?latitude=44.6488&longitude=-63.5752&radiusKm=10"
+
+# Replace a resource's coordinate (Milestone 7A) — ADMIN or MODERATOR only
+curl -X PUT "http://localhost:8080/api/v1/resources/{id}/location" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"latitude":44.6488,"longitude":-63.5752}'
 ```
 
 **Keyword search (`q`, Milestone 6A):** case-insensitive substring match
@@ -228,6 +237,18 @@ with `q`/`categoryId`/`sort`/pagination. `PUT
 /api/v1/resources/{id}/operating-hours` fully replaces a resource's weekly
 schedule and requires an `ADMIN`/`MODERATOR` Bearer token. Full design:
 [ADR-011](../docs/decisions/ADR-011-operating-hours-and-open-now.md).
+
+**Nearby search and locations (Milestone 7A):** `GET
+/api/v1/resources/nearby` finds active resources within `radiusKm`
+(default 5, maximum 50) of a required `latitude`/`longitude`, ordered
+nearest first, combining with every existing filter above.
+`distanceMeters` in each result is straight-line geographic distance —
+never route distance or travel time. `PUT /api/v1/resources/{id}/location`
+replaces a resource's coordinate and requires an `ADMIN`/`MODERATOR`
+Bearer token. `location` is a PostGIS `geography(Point, 4326)` column,
+deliberately never mapped as a Hibernate entity field — every geospatial
+read/write goes through native SQL. Full design:
+[ADR-012](../docs/decisions/ADR-012-postgis-nearby-search-design.md).
 
 A resource is created under an existing, active category (`categories.id`, a
 `BIGINT` — not the `UUID` a resource's own `id` is; see
@@ -423,6 +444,8 @@ backend/
                                                              AccountStatus already existed on V4's users table)
       V6__create_resource_operating_hours.sql Sixth Flyway migration (Milestone 6B —
                                                              see ADR-011)
+      V7__add_resource_location.sql            Seventh Flyway migration (Milestone 7A —
+                                                             see ADR-012)
   src/test/java/com/hfxconnect/
     AbstractPostgresIntegrationTest.java   Shared Testcontainers setup (public — extended
                                                              from sub-packages like category/, resource/)

@@ -372,6 +372,36 @@ this stayed one query rather than migrating to Spring Data
 that keeps the operating-hours lookup at one additional query per list
 request rather than N+1.
 
+Milestone 7A's `ResourceRepository.findNearby` follows the identical
+shape, expressed as a **native** SQL query instead of JPQL — a correlated
+`ST_DWithin`/`ST_Distance` geography predicate has no JPQL equivalent —
+returning a closed interface projection rather than an entity, since
+`location` is deliberately never Hibernate-mapped (see
+[ADR-012](../decisions/ADR-012-postgis-nearby-search-design.md)). The
+`openNow` `EXISTS` subquery is re-expressed with raw SQL column names but
+is otherwise the identical logic `search`'s JPQL version already uses —
+one algorithm, two syntaxes, not two divergent implementations.
+
+## Native SQL Instead of an Unverified ORM-Mapping Dependency
+
+Not every persisted column needs a Hibernate-mapped entity field.
+`resources.location` (a PostGIS `geography` column, Milestone 7A) is
+deliberately **not** mapped on `CommunityResource` at all — every read and
+write goes through native `@Query`/`@Modifying` methods on
+`ResourceRepository` instead. This was a considered choice, not a gap:
+`hibernate-spatial` (the version matching this project's actual
+`hibernate-core`) maps through `org.geolatte.geom`, not
+`org.locationtech.jts.geom` (the more commonly-documented option online),
+and adopting it would mean either learning a second geometry library or an
+unverified JTS integration with no precedent in this project's dependency
+history — exactly the "copy an older example without checking
+compatibility" risk this project's conventions elsewhere warn against
+(see ADR-012 for the full reasoning). `spring.jpa.hibernate.ddl-auto
+=validate` (this project's schema-authority rule) only validates columns
+an entity actually maps — it does not require every table column to have
+one, so an unmapped column is fully compatible with that rule, not a
+workaround for it.
+
 ## Deterministic Time via Injected `Clock`
 
 Anywhere business logic needs "the current date/time" for a calculation
