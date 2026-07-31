@@ -1,12 +1,14 @@
 package com.hfxconnect.resource;
 
 import java.time.DayOfWeek;
+import java.time.Instant;
 import java.time.LocalTime;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 
 public interface ResourceRepository extends JpaRepository<CommunityResource, UUID> {
@@ -100,5 +102,85 @@ public interface ResourceRepository extends JpaRepository<CommunityResource, UUI
 	Page<CommunityResource> search(Long categoryId, String likePattern, CostType costType,
 			VerificationStatus verificationStatus, boolean openNowOnly, DayOfWeek today, DayOfWeek yesterday,
 			LocalTime now, Pageable pageable);
+
+	/**
+	 * Replaces a resource's coordinate directly via native SQL — see
+	 * ADR-012 for why {@code location} is never mapped as a Hibernate
+	 * entity field. {@code longitude} is bound first, matching
+	 * {@code ST_MakePoint(x, y)}'s own X-then-Y (longitude-then-latitude)
+	 * parameter order; never swapped. {@code clearAutomatically}: nothing
+	 * else in this transaction re-reads the entity, but clearing the
+	 * persistence context is the standard, defensive precaution for a bulk/
+	 * native update that bypasses the entity's own in-memory state.
+	 */
+	@Modifying(clearAutomatically = true)
+	@Query(value = "UPDATE resources SET location = ST_SetSRID(ST_MakePoint(:longitude, :latitude), 4326)::geography, "
+			+ "updated_at = :updatedAt WHERE id = :id", nativeQuery = true)
+	int updateLocation(UUID id, double latitude, double longitude, Instant updatedAt);
+
+	/**
+	 * The nearby-search query (Milestone 7B — see ADR-012). A native SQL
+	 * query, not JPQL: {@code ST_DWithin}/{@code ST_Distance} have no JPQL
+	 * equivalent. Otherwise follows the exact same shape ADR-010/ADR-011
+	 * established for {@link #search} — every filter independently
+	 * optional via {@code (:param IS NULL OR ...)} predicates (SQL column
+	 * names here instead of JPQL property names), the identical
+	 * same-day/overnight/overnight-continuation {@code EXISTS} subquery for
+	 * {@code openNowOnly}, and an explicit {@code countQuery} sharing the
+	 * identical {@code WHERE} clause so pagination totals stay exact.
+	 *
+	 * <p>{@code longitude} is always bound before {@code latitude} to
+	 * {@code ST_MakePoint} — never swapped (see ADR-012's "Coordinate
+	 * Order" section). {@code radiusMetres} is the caller's {@code radiusKm}
+	 * already converted to metres by {@code ResourceService}.
+	 *
+	 * <p>{@code ORDER BY} is a fixed literal — distance ascending, then
+	 * {@code name}, then {@code id} as deterministic tie-breakers — never
+	 * influenced by a caller-supplied sort parameter; nearby search has
+	 * exactly one meaningful order.
+	 */
+	@Query(value = "SELECT r.id AS id, r.name AS name, r.slug AS slug, r.city AS city, r.province AS province, "
+			+ "r.cost_type AS costType, r.verification_status AS verificationStatus, r.active AS active, "
+			+ "r.created_at AS createdAt, c.id AS categoryId, c.name AS categoryName, c.slug AS categorySlug, "
+			+ "ST_Y(r.location::geometry) AS latitude, ST_X(r.location::geometry) AS longitude, "
+			+ "ST_Distance(r.location, ST_SetSRID(ST_MakePoint(:longitude, :latitude), 4326)::geography) AS distanceMeters "
+			+ "FROM resources r JOIN categories c ON c.id = r.category_id "
+			+ "WHERE r.active = true AND r.location IS NOT NULL "
+			+ "AND ST_DWithin(r.location, ST_SetSRID(ST_MakePoint(:longitude, :latitude), 4326)::geography, :radiusMetres) "
+			+ "AND (:categoryId IS NULL OR r.category_id = :categoryId) "
+			+ "AND (:likePattern IS NULL OR "
+			+ "LOWER(r.name) LIKE :likePattern ESCAPE '\\' OR "
+			+ "LOWER(r.description) LIKE :likePattern ESCAPE '\\' OR "
+			+ "LOWER(r.address_line_1) LIKE :likePattern ESCAPE '\\' OR "
+			+ "LOWER(r.city) LIKE :likePattern ESCAPE '\\') "
+			+ "AND (:costType IS NULL OR r.cost_type = :costType) "
+			+ "AND (:verificationStatus IS NULL OR r.verification_status = :verificationStatus) "
+			+ "AND (:openNowOnly = false OR EXISTS (SELECT 1 FROM resource_operating_hours h WHERE h.resource_id = r.id "
+			+ "AND h.closed = false AND ("
+			+ "(h.day_of_week = :today AND h.opens_at < h.closes_at AND CAST(:now AS time) >= h.opens_at AND CAST(:now AS time) < h.closes_at) OR "
+			+ "(h.day_of_week = :today AND h.opens_at > h.closes_at AND CAST(:now AS time) >= h.opens_at) OR "
+			+ "(h.day_of_week = :yesterday AND h.opens_at > h.closes_at AND CAST(:now AS time) < h.closes_at)))) "
+			+ "ORDER BY distanceMeters ASC, r.name ASC, r.id ASC",
+			countQuery = "SELECT count(*) "
+			+ "FROM resources r "
+			+ "WHERE r.active = true AND r.location IS NOT NULL "
+			+ "AND ST_DWithin(r.location, ST_SetSRID(ST_MakePoint(:longitude, :latitude), 4326)::geography, :radiusMetres) "
+			+ "AND (:categoryId IS NULL OR r.category_id = :categoryId) "
+			+ "AND (:likePattern IS NULL OR "
+			+ "LOWER(r.name) LIKE :likePattern ESCAPE '\\' OR "
+			+ "LOWER(r.description) LIKE :likePattern ESCAPE '\\' OR "
+			+ "LOWER(r.address_line_1) LIKE :likePattern ESCAPE '\\' OR "
+			+ "LOWER(r.city) LIKE :likePattern ESCAPE '\\') "
+			+ "AND (:costType IS NULL OR r.cost_type = :costType) "
+			+ "AND (:verificationStatus IS NULL OR r.verification_status = :verificationStatus) "
+			+ "AND (:openNowOnly = false OR EXISTS (SELECT 1 FROM resource_operating_hours h WHERE h.resource_id = r.id "
+			+ "AND h.closed = false AND ("
+			+ "(h.day_of_week = :today AND h.opens_at < h.closes_at AND CAST(:now AS time) >= h.opens_at AND CAST(:now AS time) < h.closes_at) OR "
+			+ "(h.day_of_week = :today AND h.opens_at > h.closes_at AND CAST(:now AS time) >= h.opens_at) OR "
+			+ "(h.day_of_week = :yesterday AND h.opens_at > h.closes_at AND CAST(:now AS time) < h.closes_at))))",
+			nativeQuery = true)
+	Page<NearbyResourceProjection> findNearby(double latitude, double longitude, double radiusMetres,
+			Long categoryId, String likePattern, String costType, String verificationStatus, boolean openNowOnly,
+			String today, String yesterday, LocalTime now, Pageable pageable);
 
 }
