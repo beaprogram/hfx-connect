@@ -3,12 +3,16 @@ package com.hfxconnect.resource;
 import com.hfxconnect.category.Category;
 import com.hfxconnect.category.CategoryRepository;
 import com.hfxconnect.common.error.InvalidCostTypeException;
+import com.hfxconnect.common.error.InvalidLatitudeException;
+import com.hfxconnect.common.error.InvalidLongitudeException;
 import com.hfxconnect.common.error.InvalidOpenNowFilterException;
 import com.hfxconnect.common.error.InvalidPaginationException;
+import com.hfxconnect.common.error.InvalidRadiusException;
 import com.hfxconnect.common.error.InvalidSortException;
 import com.hfxconnect.common.error.InvalidVerificationStatusException;
 import com.hfxconnect.common.error.ValidationException;
 import java.time.DayOfWeek;
+import java.time.Instant;
 import java.time.LocalTime;
 import java.time.ZonedDateTime;
 import java.util.Arrays;
@@ -41,6 +45,18 @@ import org.springframework.transaction.annotation.Transactional;
 public class ResourceService {
 
 	static final int MAX_PAGE_SIZE = 100;
+
+	/**
+	 * Nearby-search radius defaults/limits (Milestone 7A — see ADR-012's
+	 * "Radius" section). Deliberately Halifax-scoped: 5 km default covers
+	 * most of the urban core from a central point; 50 km comfortably covers
+	 * the whole Halifax Regional Municipality without an effectively-
+	 * unbounded search. Coordinates themselves are never restricted to a
+	 * Halifax bounding box — only the radius is.
+	 */
+	static final double DEFAULT_RADIUS_KM = 5.0;
+	static final double MAX_RADIUS_KM = 50.0;
+	private static final double METRES_PER_KILOMETRE = 1000.0;
 
 	/**
 	 * Allowlisted values for the public {@code sort} query parameter — see
@@ -220,6 +236,119 @@ public class ResourceService {
 		ZonedDateTime nowHalifax = openNowCalculator.nowInHalifax();
 		OpenNowCalculator.Result result = openNowCalculator.calculate(normalized.entries(), nowHalifax);
 		return OperatingHoursResponse.from(normalized.entries(), result.status(), result.openNow());
+	}
+
+	/**
+	 * Replaces a resource's geographic coordinate (Milestone 7A — see
+	 * ADR-012). Not public: {@code ResourceController} exposes this only to
+	 * {@code ADMIN}/{@code MODERATOR} callers. The response echoes back the
+	 * just-validated input coordinates directly rather than re-querying —
+	 * the write already proves what was stored, so a second round-trip
+	 * would be redundant.
+	 */
+	@Transactional
+	public ResourceLocationResponse replaceLocation(UUID id, ResourceLocationRequest request) {
+		findRequiredById(id);
+		ResourceLocationValidation.Normalized coordinates = ResourceLocationValidation.validate(request);
+
+		Instant updatedAt = Instant.now();
+		resourceRepository.updateLocation(id, coordinates.latitude(), coordinates.longitude(), updatedAt);
+
+		return new ResourceLocationResponse(id, coordinates.latitude(), coordinates.longitude(), updatedAt);
+	}
+
+	/**
+	 * Public nearby-resource search (Milestone 7A — see ADR-012). {@code
+	 * latitude}/{@code longitude} are required; every other parameter is
+	 * independently optional and combines exactly like {@link #search}'s
+	 * filters (same keyword/cost/verification/open-now semantics, same
+	 * active-only visibility, same batch-loaded operating hours). Ordered
+	 * nearest-first — there is no separate {@code sort} parameter.
+	 */
+	@Transactional(readOnly = true)
+	public NearbyResourcePageResponse nearby(Double latitude, Double longitude, Double radiusKm, String query,
+			Long categoryId, String costType, String verificationStatus, String openNow, int page, int size) {
+		requireLatitude(latitude);
+		requireLongitude(longitude);
+		double radiusMetres = resolveRadiusMetres(radiusKm);
+
+		String normalizedQuery = ResourceSearchQuery.normalize(query);
+		String likePattern = normalizedQuery != null ? ResourceSearchQuery.toLikePattern(normalizedQuery) : null;
+		CostType costTypeFilter = resolveCostType(costType);
+		VerificationStatus verificationStatusFilter = resolveVerificationStatus(verificationStatus);
+		boolean openNowOnly = resolveOpenNowFilter(openNow);
+
+		ZonedDateTime nowHalifax = openNowCalculator.nowInHalifax();
+		DayOfWeek today = nowHalifax.getDayOfWeek();
+		DayOfWeek yesterday = today.minus(1);
+		LocalTime now = nowHalifax.toLocalTime();
+
+		var results = resourceRepository.findNearby(latitude, longitude, radiusMetres, categoryId, likePattern,
+				costTypeFilter == null ? null : costTypeFilter.name(),
+				verificationStatusFilter == null ? null : verificationStatusFilter.name(),
+				openNowOnly, today.name(), yesterday.name(), now, unsortedPageable(page, size));
+
+		List<UUID> resourceIds = results.getContent().stream().map(NearbyResourceProjection::getId).toList();
+		Map<UUID, List<OperatingHoursEntry>> hoursByResourceId = loadHoursByResourceIds(resourceIds);
+
+		List<NearbyResourceDetails> content = results.getContent().stream()
+				.map(projection -> {
+					List<OperatingHoursEntry> hours = hoursByResourceId.getOrDefault(projection.getId(), List.of());
+					OpenNowCalculator.Result result = openNowCalculator.calculate(hours, nowHalifax);
+					return NearbyResourceDetails.from(projection, result.status(), result.openNow());
+				})
+				.toList();
+
+		NearbyResourcePage nearbyPage = new NearbyResourcePage(content, results.getNumber(), results.getSize(),
+				results.getTotalElements(), results.getTotalPages());
+		return NearbyResourcePageResponse.from(nearbyPage);
+	}
+
+	private static void requireLatitude(Double latitude) {
+		if (latitude == null) {
+			throw new InvalidLatitudeException("latitude is required.");
+		}
+		if (!CoordinateValidation.isValidLatitude(latitude)) {
+			throw new InvalidLatitudeException("latitude must be a finite number between "
+					+ CoordinateValidation.MIN_LATITUDE + " and " + CoordinateValidation.MAX_LATITUDE + ".");
+		}
+	}
+
+	private static void requireLongitude(Double longitude) {
+		if (longitude == null) {
+			throw new InvalidLongitudeException("longitude is required.");
+		}
+		if (!CoordinateValidation.isValidLongitude(longitude)) {
+			throw new InvalidLongitudeException("longitude must be a finite number between "
+					+ CoordinateValidation.MIN_LONGITUDE + " and " + CoordinateValidation.MAX_LONGITUDE + ".");
+		}
+	}
+
+	/** Missing/blank means the default 5 km radius; anything outside (0, 50] km is rejected. */
+	private static double resolveRadiusMetres(Double radiusKm) {
+		double km = radiusKm == null ? DEFAULT_RADIUS_KM : radiusKm;
+		if (!Double.isFinite(km) || km <= 0 || km > MAX_RADIUS_KM) {
+			throw new InvalidRadiusException(
+					"radiusKm must be a finite number greater than 0 and at most " + MAX_RADIUS_KM + " (got '" + radiusKm + "').");
+		}
+		return km * METRES_PER_KILOMETRE;
+	}
+
+	/**
+	 * Nearby search has exactly one meaningful order (distance ascending,
+	 * baked into the native query itself — see {@code ResourceRepository
+	 * .findNearby}), so this deliberately returns a {@code Pageable} with no
+	 * {@code Sort} rather than reusing {@link #pageable}, which always
+	 * attaches one.
+	 */
+	private static Pageable unsortedPageable(int page, int size) {
+		if (page < 0) {
+			throw new InvalidPaginationException("page must not be negative.");
+		}
+		if (size < 1 || size > MAX_PAGE_SIZE) {
+			throw new InvalidPaginationException("size must be between 1 and " + MAX_PAGE_SIZE + ".");
+		}
+		return PageRequest.of(page, size);
 	}
 
 	private ResourceDetails toResourceDetailsWithHours(CommunityResource resource) {

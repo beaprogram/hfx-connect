@@ -89,12 +89,12 @@ the public API contract can evolve independently.
 ## Data Model Direction
 
 Core entities anticipated by the product requirements: `users`, `organizations`,
-`categories`, `resources`, `operating_hours`, `saved_resources`,
+`categories`, `resources` (now with a geographic `location` column, Milestone
+7A — see [ADR-012](../decisions/ADR-012-postgis-nearby-search-design.md)),
+`resource_operating_hours` (Milestone 6B), `saved_resources`,
 `resource_reports`, `resource_submissions`, `events`, and `resource_history`. The
-authoritative, versioned schema will live in Flyway migration files starting in
-Milestone 2; a detailed entity-relationship description will be added under
-`docs/database/` once those migrations exist, so the documentation never claims a
-schema that isn't actually in the repository.
+authoritative, versioned schema lives in Flyway migration files (see
+`docs/database/README.md` for the current, real schema — not a plan).
 
 ## Deployment Path
 

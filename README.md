@@ -9,20 +9,21 @@ newcomer services, recreation, and events — that are currently scattered acros
 municipal websites, organization pages, and social media, and adds transparent
 verification so users can trust what they find.
 
-**Project status: Milestone 6B (Structured Operating Hours, Open-Now Logic,
-and Cost/Verification Filters) complete.** The backend has three working REST
-APIs: categories (Milestone 3A —
+**Project status: Milestone 7A (PostGIS Resource Locations and Nearby
+Search) complete.** The backend has three working REST APIs: categories
+(Milestone 3A —
 [backend/README.md](backend/README.md#category-api-apiv1categories)), resources
 (Milestone 3C, built on the persistence/business layer Milestone 3B added, now
-with keyword search (Milestone 6A) and structured operating hours/open-now/
-cost/verification filtering (Milestone 6B) —
+with keyword search (Milestone 6A), structured operating hours/open-now/
+cost/verification filtering (Milestone 6B), and PostGIS-backed nearby
+search (Milestone 7A) —
 [backend/README.md](backend/README.md#resource-api-apiv1resources)), and
 authentication — registration (Milestone 5A), login/refresh/logout (Milestone
 5B), and a current-user endpoint (Milestone 5C —
 [docs/api/README.md](docs/api/README.md#auth-apiv1auth)). Every request is
 authenticated by a Bearer access token where required, and role-based
-authorization protects category/resource creation and operating-hours
-replacement — see
+authorization protects category/resource creation and operating-hours/
+location replacement — see
 [docs/architecture/security-architecture.md](docs/architecture/security-architecture.md)
 for the full design. The frontend has real authentication (`/login`,
 `/register`, a protected `/dashboard`, an in-memory access token, and session
@@ -32,12 +33,15 @@ and a filterable public resource list — `/resources` supports keyword search,
 category filtering, cost/verification/open-now filtering, sorting, and
 pagination, all enforced server-side, plus a resource detail page showing the
 real weekly schedule and current open status (see
-[ADR-010](docs/decisions/ADR-010-keyword-search-design.md) and
-[ADR-011](docs/decisions/ADR-011-operating-hours-and-open-now.md)). See
+[ADR-010](docs/decisions/ADR-010-keyword-search-design.md),
+[ADR-011](docs/decisions/ADR-011-operating-hours-and-open-now.md), and
+[ADR-012](docs/decisions/ADR-012-postgis-nearby-search-design.md)).
+Milestone 7A's nearby-search API has no visual frontend yet — that is
+Milestone 7B. See
 [docs/milestones/](docs/milestones/) for exactly what each milestone delivered, and
 [docs/development-workflow.md](docs/development-workflow.md) for the full
 12-milestone roadmap (Milestones 3, 5, and 6 are each split into lettered
-sub-milestones — 3A/3B/3C, 5A/5B/5C, 6A/6B). A baseline GitHub Actions workflow
+sub-milestones — 3A/3B/3C, 5A/5B/5C, 6A/6B, 7A/7B). A baseline GitHub Actions workflow
 verifies the backend and frontend on pull requests; deployment automation
 remains part of the later release milestone.
 
@@ -218,6 +222,7 @@ Runs on [http://localhost:3000](http://localhost:3000) and expects the backend a
 - [Milestone 5C: Request Authentication, Role Authorization, and Protected Frontend Routes](docs/milestones/milestone-05c-role-authorization.md)
 - [Milestone 6A: Keyword Search and Public Resource Filtering](docs/milestones/milestone-06a-keyword-search.md)
 - [Milestone 6B: Structured Operating Hours, Open-Now Logic, and Cost/Verification Filters](docs/milestones/milestone-06b-operating-hours-filters.md)
+- [Milestone 7A: PostGIS Resource Locations and Nearby Search](docs/milestones/milestone-07a-postgis-nearby-search.md)
 - [Wireframes](docs/wireframes/)
 - [API Documentation](docs/api/README.md)
 - [Database Documentation](docs/database/)
@@ -230,11 +235,12 @@ Runs on [http://localhost:3000](http://localhost:3000) and expects the backend a
 - [ADR-009: Request Authentication and Role Authorization](docs/decisions/ADR-009-request-authentication-and-role-authorization.md)
 - [ADR-010: Keyword Search Design](docs/decisions/ADR-010-keyword-search-design.md)
 - [ADR-011: Operating Hours and Open-Now Design](docs/decisions/ADR-011-operating-hours-and-open-now.md)
+- [ADR-012: PostGIS Nearby-Search Design](docs/decisions/ADR-012-postgis-nearby-search-design.md)
 - [Development Log](docs/development-log/)
 - [Resume Evidence](docs/career/resume-evidence.md)
 - [Interview Notes](docs/career/interview-notes.md)
 
-## Known Limitations (as of Milestone 6B)
+## Known Limitations (as of Milestone 7A)
 
 - **No rate limiting exists** — login accepts unlimited attempts. **No
   access-token revocation exists** — a compromised access token remains valid
@@ -281,8 +287,17 @@ Runs on [http://localhost:3000](http://localhost:3000) and expects the backend a
   (`America/Halifax` is fixed for every resource — see
   [ADR-011](docs/decisions/ADR-011-operating-hours-and-open-now.md)). There
   is no public UI for editing hours — only an `ADMIN`/`MODERATOR` API
-  endpoint. No distance/geospatial filtering, maps, saved resources,
-  submissions, moderation, or organizations exist yet (Milestone 7-10).
+  endpoint.
+- Nearby search (Milestone 7A) has a real, working backend API
+  (`GET /api/v1/resources/nearby`), but no visual map, browser
+  geolocation, or map/list synchronization yet (Milestone 7B). Distance is
+  straight-line geography distance only — never route distance, walking
+  time, or driving time. Resource coordinates are entered only through a
+  protected `ADMIN`/`MODERATOR` API endpoint — no address geocoding and no
+  public UI for entering or viewing a resource's location yet (see
+  [ADR-012](docs/decisions/ADR-012-postgis-nearby-search-design.md)). No
+  saved resources, submissions, moderation, or organizations exist yet
+  (Milestone 7B-10).
 - No deployment workflow or hosted environment exists yet; CI currently verifies the
   backend and frontend only.
 - No automated dependency-vulnerability scanning is configured in this project.

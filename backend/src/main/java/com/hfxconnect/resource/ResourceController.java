@@ -44,12 +44,12 @@ import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
  * {@code docs/milestones/milestone-03c-public-resource-api.md} for why
  * {@code ResourceService.update}/{@code deactivate} (both already
  * implemented and tested since Milestone 3B) are not exposed over HTTP yet.
- * The one exception is {@code PUT /{id}/operating-hours} (Milestone 6B — see
- * ADR-011), a narrow, focused endpoint for replacing a resource's weekly
- * schedule, gated by the same {@code ADMIN}/{@code MODERATOR} pairing as
- * {@code POST}.
+ * The exceptions are {@code PUT /{id}/operating-hours} (Milestone 6B — see
+ * ADR-011) and {@code PUT /{id}/location} (Milestone 7A — see ADR-012), two
+ * narrow, focused endpoints gated by the same {@code ADMIN}/
+ * {@code MODERATOR} pairing as {@code POST}.
  */
-@Tag(name = "Resources", description = "Public resource directory (list/filter/search/read). POST and PUT /{id}/operating-hours require an ADMIN or MODERATOR access token; only active resources are ever visible — see class-level Javadoc.")
+@Tag(name = "Resources", description = "Public resource directory (list/filter/search/read/nearby). POST and both PUT endpoints require an ADMIN or MODERATOR access token; only active resources are ever visible — see class-level Javadoc.")
 @RestController
 @RequestMapping("/api/v1/resources")
 public class ResourceController {
@@ -133,6 +133,42 @@ public class ResourceController {
 	public OperatingHoursResponse replaceOperatingHours(
 			@PathVariable UUID id, @RequestBody ReplaceOperatingHoursRequest request) {
 		return resourceService.replaceOperatingHours(id, request);
+	}
+
+	@Operation(summary = "Replace a resource's geographic location", description = "Replaces the resource's coordinate transactionally. latitude must be between -90 and 90; longitude must be between -180 and 180. Requires a Bearer access token for an ADMIN or MODERATOR account. See ADR-012.")
+	@SecurityRequirement(name = "bearerAuth")
+	@ApiResponses({
+			@ApiResponse(responseCode = "200", description = "Updated location"),
+			@ApiResponse(responseCode = "400", description = "Missing or out-of-range latitude/longitude", content = @Content(schema = @Schema(implementation = ApiError.class))),
+			@ApiResponse(responseCode = "401", description = "Missing or invalid access token", content = @Content(schema = @Schema(implementation = ApiError.class))),
+			@ApiResponse(responseCode = "403", description = "Authenticated, but not an ADMIN or MODERATOR account", content = @Content(schema = @Schema(implementation = ApiError.class))),
+			@ApiResponse(responseCode = "404", description = "No resource exists with the given id", content = @Content(schema = @Schema(implementation = ApiError.class)))
+	})
+	@PutMapping("/{id}/location")
+	public ResourceLocationResponse replaceLocation(
+			@PathVariable UUID id, @RequestBody ResourceLocationRequest request) {
+		return resourceService.replaceLocation(id, request);
+	}
+
+	@Operation(summary = "Find active resources near a coordinate", description = "Public. Ordered nearest first (distanceMeters is straight-line geographic distance, not route distance or travel time). Resources without a saved location, and inactive resources, are always excluded. radiusKm defaults to " + ResourceService.DEFAULT_RADIUS_KM + " and must be greater than 0 and at most " + ResourceService.MAX_RADIUS_KM + ". Combines with q/categoryId/costType/verificationStatus/openNow exactly like GET /api/v1/resources. See ADR-012.")
+	@ApiResponses({
+			@ApiResponse(responseCode = "200", description = "Nearby-resource page, possibly empty"),
+			@ApiResponse(responseCode = "400", description = "Missing/invalid latitude or longitude, invalid radiusKm, or an invalid q/categoryId/costType/verificationStatus/openNow/page/size value", content = @Content(schema = @Schema(implementation = ApiError.class)))
+	})
+	@GetMapping("/nearby")
+	public NearbyResourcePageResponse nearby(
+			@Parameter(description = "Required. Between -90 and 90.") @RequestParam(required = false) Double latitude,
+			@Parameter(description = "Required. Between -180 and 180.") @RequestParam(required = false) Double longitude,
+			@Parameter(description = "Optional search radius in kilometres. Defaults to " + ResourceService.DEFAULT_RADIUS_KM + "; must be greater than 0 and at most " + ResourceService.MAX_RADIUS_KM + ".") @RequestParam(required = false) Double radiusKm,
+			@Parameter(description = "Optional keyword search — same semantics as GET /api/v1/resources.") @RequestParam(required = false) String q,
+			@Parameter(description = "Optional category filter.") @RequestParam(required = false) Long categoryId,
+			@Parameter(description = "Optional exact cost-type filter: FREE, LOW_COST, PAID, or UNKNOWN.") @RequestParam(required = false) String costType,
+			@Parameter(description = "Optional exact verification-status filter: UNVERIFIED or VERIFIED.") @RequestParam(required = false) String verificationStatus,
+			@Parameter(description = "Optional 'true'/'false'. true returns only resources currently OPEN (America/Halifax).") @RequestParam(required = false) String openNow,
+			@Parameter(description = "Zero-based page index.") @RequestParam(defaultValue = "0") int page,
+			@Parameter(description = "Page size, 1-" + ResourceService.MAX_PAGE_SIZE + ".") @RequestParam(defaultValue = "20") int size) {
+		return resourceService.nearby(
+				latitude, longitude, radiusKm, q, categoryId, costType, verificationStatus, openNow, page, size);
 	}
 
 }

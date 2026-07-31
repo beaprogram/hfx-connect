@@ -865,3 +865,83 @@ coverage.
 [MEASURE AFTER DEPLOYMENT]: correlated-subquery `openNow` filter latency at
 real production data volume, and whether the single `resource_operating_hours_resource_id_idx`
 index remains sufficient once the dataset is large enough to matter.
+
+## PostGIS Resource Locations and Nearby Search
+
+### Product Purpose
+The backend foundation for "what's near me" — the first time this
+platform can answer a genuinely geographic question, rather than only
+name/category/cost/verification/open-now filtering. Sets up a stable,
+documented API contract for the visual map a following milestone builds
+on top of.
+
+### Technologies Used
+PostgreSQL/PostGIS (`geography(Point, 4326)`, `ST_DWithin`, `ST_Distance`,
+`ST_MakePoint`, GiST spatial indexing), Spring Data JPA native
+`@Query`/`@Modifying` queries and closed interface projections, `EXPLAIN`
+query-plan verification.
+
+### Engineering Complexity
+Before writing any mapping code, fetched the exact published POM for the
+`hibernate-spatial` version matching this project's actual
+`hibernate-core` version from Maven Central directly — rather than
+assume from a tutorial — and found it depends on Geolatte-geom, not JTS
+(the geometry library most public examples assume), with no verified
+compatibility precedent anywhere in this project's own dependency
+history. Rather than adopt that risk for a feature that already needed
+native SQL regardless (`ST_DWithin`/`ST_Distance` have no JPQL
+equivalent), made the deliberate architectural call to keep the new
+`location` column entirely outside the ORM's entity mapping — every read
+and write goes through a native query with a closed-projection read
+model — and documented the reasoning as an ADR rather than leaving it to
+be rediscovered. Extended an already-established "one unified,
+independently-optional-filter query" pattern (from two prior milestones)
+into native SQL syntax without duplicating its `openNow` logic — the same
+same-day/overnight-continuation algorithm, expressed once in Java and
+once in SQL, deliberately kept in sync by testing both against identical
+seeded data. Found and fixed a genuine cross-test-class isolation bug in
+my own new test suite (an HTTP-driven test in a different test class had
+committed real data at the same coordinate my repository test used as its
+search origin) by adding proper scoping rather than loosening the
+assertion. Proved the spatial index was actually being used — not just
+present — with a live `EXPLAIN` showing `Index Scan using
+idx_resources_location_gist`, rather than assuming an index helps just
+because it exists.
+
+### Implementation
+`backend/src/main/resources/db/migration/V7__add_resource_location.sql`,
+`backend/src/main/java/com/hfxconnect/resource/ResourceRepository.java`
+(`updateLocation`/`findNearby`), `NearbyResourceProjection.java`,
+`ResourceService.java` (`replaceLocation`/`nearby`),
+`CoordinateValidation.java`, `ResourceLocationValidation.java`.
+
+### Tests
+73 new backend tests (16 coordinate-validation unit tests; migration/
+spatial/nearby repository tests including a live `EXPLAIN` check; 22
+service-integration tests covering distance ordering, radius boundaries,
+and every filter combination; 17 HTTP-layer integration tests; 5
+role-matrix tests) alongside the existing 409 (482 total, 0 failures).
+177 existing frontend tests reconfirmed passing unchanged — this
+milestone was deliberately backend-only.
+
+### Evidence
+Commits on branch `milestone/07a-postgis-nearby-search`; see
+`docs/development-log/2026-07-30.md` for the full session record and
+`docs/milestones/milestone-07a-postgis-nearby-search.md` for acceptance
+criteria.
+
+### Potential Resume Wording
+Designed and implemented a PostGIS-backed geospatial search feature for a
+Spring Boot REST API, verifying a third-party ORM-mapping library's actual
+transitive dependencies against its published artifact before adopting
+it — discovering an undocumented incompatibility with the assumed
+approach and choosing a native-SQL strategy instead, backed by a live
+`EXPLAIN`-verified spatial index; extended an existing unified-filter
+query design into native SQL without duplicating business logic; and
+authored 73 new automated tests, including catching and fixing a genuine
+cross-test-class data-isolation bug during development.
+
+### Measurements Still Needed
+[MEASURE AFTER DEPLOYMENT]: nearby-search query latency at real production
+data volume and geographic density, to validate the current single-GiST-index
+approach against `<->` KNN-operator ordering as a future optimization.

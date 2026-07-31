@@ -178,6 +178,62 @@ class AuthorizationMatrixApiIntegrationTest extends AbstractPostgresIntegrationT
 		assertOperatingHoursReplacementStatus(Role.ADMIN, HttpStatus.OK);
 	}
 
+	// ---- Location replacement: role matrix (Milestone 7A — see ADR-012) ----
+
+	@Test
+	void locationReplacementWithNoTokenIsRejectedWithAuthenticationRequired() {
+		Category category = activeCategory();
+		UUID resourceId = createResource(category.getId());
+
+		ResponseEntity<String> response = restTemplate.exchange(
+				"/api/v1/resources/" + resourceId + "/location", HttpMethod.PUT,
+				new HttpEntity<>(locationRequest(), jsonHeaders()), String.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+		assertThat(response.getBody()).contains("\"code\":\"AUTHENTICATION_REQUIRED\"");
+	}
+
+	@Test
+	void locationReplacementAsUserIsForbidden() {
+		assertLocationReplacementStatus(Role.USER, HttpStatus.FORBIDDEN);
+	}
+
+	@Test
+	void locationReplacementAsOrganizationIsForbidden() {
+		assertLocationReplacementStatus(Role.ORGANIZATION, HttpStatus.FORBIDDEN);
+	}
+
+	@Test
+	void locationReplacementAsModeratorSucceeds() {
+		assertLocationReplacementStatus(Role.MODERATOR, HttpStatus.OK);
+	}
+
+	@Test
+	void locationReplacementAsAdminSucceeds() {
+		assertLocationReplacementStatus(Role.ADMIN, HttpStatus.OK);
+	}
+
+	// ---- GET /api/v1/resources/nearby: public regardless of authentication ----
+
+	@Test
+	void nearbySearchIsPublicForAnAnonymousCaller() {
+		ResponseEntity<String> response = restTemplate.getForEntity(
+				"/api/v1/resources/nearby?latitude=44.6488&longitude=-63.5752", String.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+	}
+
+	@Test
+	void nearbySearchIsAlsoAccessibleToAnAuthenticatedUser() {
+		HttpHeaders headers = authHeaders(Role.USER);
+
+		ResponseEntity<String> response = restTemplate.exchange(
+				"/api/v1/resources/nearby?latitude=44.6488&longitude=-63.5752", HttpMethod.GET,
+				new HttpEntity<>(headers), String.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+	}
+
 	// ---- GET /api/v1/users/me: request authentication edge cases ----
 
 	@Test
@@ -334,6 +390,23 @@ class AuthorizationMatrixApiIntegrationTest extends AbstractPostgresIntegrationT
 				new HttpEntity<>(operatingHoursRequest(), headers), String.class);
 
 		assertThat(response.getStatusCode()).isEqualTo(expected);
+	}
+
+	private void assertLocationReplacementStatus(Role role, HttpStatus expected) {
+		Category category = activeCategory();
+		UUID resourceId = createResource(category.getId());
+		HttpHeaders headers = authHeaders(role);
+		headers.setContentType(MediaType.APPLICATION_JSON);
+
+		ResponseEntity<String> response = restTemplate.exchange(
+				"/api/v1/resources/" + resourceId + "/location", HttpMethod.PUT,
+				new HttpEntity<>(locationRequest(), headers), String.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(expected);
+	}
+
+	private static String locationRequest() {
+		return "{\"latitude\":44.6488,\"longitude\":-63.5752}";
 	}
 
 	private UUID createResource(Long categoryId) {
