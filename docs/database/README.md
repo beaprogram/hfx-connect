@@ -65,10 +65,10 @@ anticipated this when categories' ID type was decided.
 Indexes: `resources_category_id_idx` on `(category_id)` (category-based access, and
 the FK's own lookups); `resources_active_name_idx` on `(active, name)` (mirrors
 categories' pattern — active-resource listing sorted by name);
-`idx_resources_location_gist` — a **GiST** index on `(location)` (Milestone 7A),
-the only index type PostGIS geography/geometry columns support for spatial
-predicates (`ST_DWithin`, `ST_Distance`); confirmed via `EXPLAIN` to actually be
-used by the nearby-search query (`docs/decisions/ADR-012-postgis-nearby-search-design.md`).
+`idx_resources_location_gist` on `(location)` (Milestone 7A). A GiST spatial
+index was selected because it supports the project's geography-based
+ST_DWithin radius queries and was confirmed through EXPLAIN to be used by
+PostgreSQL (`docs/decisions/ADR-012-postgis-nearby-search-design.md`).
 
 **Note on `category_id`'s type:** an earlier planning document for this milestone
 suggested a `UUID` foreign key. That is inconsistent with `categories.id`, which is
