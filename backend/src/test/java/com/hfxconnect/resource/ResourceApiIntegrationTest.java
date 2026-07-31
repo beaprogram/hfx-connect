@@ -692,11 +692,282 @@ class ResourceApiIntegrationTest extends AbstractPostgresIntegrationTest {
 		assertThat(response.getBody()).contains("/api/v1/resources/{id}/operating-hours");
 	}
 
+	// ---- Resource location and nearby search (Milestone 7A) — see ADR-012 ----
+
+	private static final double LIBRARY_LAT = 44.6488;
+	private static final double LIBRARY_LON = -63.5752;
+	private static final double DALHOUSIE_LAT = 44.6366;
+	private static final double DALHOUSIE_LON = -63.5934;
+	private static final double TORONTO_LAT = 43.6532;
+	private static final double TORONTO_LON = -79.3832;
+
+	@Test
+	void replaceLocationAsAdminSucceeds() {
+		Category category = activeCategory("Http Replace Location Check");
+		ResourceResponse created = restTemplate.postForEntity("/api/v1/resources",
+				createRequest(category.getId(), "Http Replace Location Resource " + UUID.randomUUID()),
+				ResourceResponse.class).getBody();
+
+		HttpEntity<String> request = jsonEntity(
+				String.format(Locale.ROOT, "{\"latitude\":%s,\"longitude\":%s}", LIBRARY_LAT, LIBRARY_LON));
+		ResponseEntity<ResourceLocationResponse> response = restTemplate.exchange(
+				"/api/v1/resources/" + created.id() + "/location", HttpMethod.PUT, request,
+				ResourceLocationResponse.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+		assertThat(response.getBody().resourceId()).isEqualTo(created.id());
+		assertThat(response.getBody().latitude()).isEqualTo(LIBRARY_LAT);
+		assertThat(response.getBody().longitude()).isEqualTo(LIBRARY_LON);
+	}
+
+	@Test
+	void replaceLocationRejectsInvalidCoordinatesWith400() {
+		Category category = activeCategory("Http Invalid Location Check");
+		ResourceResponse created = restTemplate.postForEntity("/api/v1/resources",
+				createRequest(category.getId(), "Http Invalid Location Resource " + UUID.randomUUID()),
+				ResourceResponse.class).getBody();
+
+		HttpEntity<String> request = jsonEntity("{\"latitude\":91,\"longitude\":0}");
+		ResponseEntity<String> response = restTemplate.exchange(
+				"/api/v1/resources/" + created.id() + "/location", HttpMethod.PUT, request, String.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+		assertThat(response.getBody()).contains("\"code\":\"VALIDATION_ERROR\"", "\"latitude\"");
+	}
+
+	@Test
+	void replaceLocationForAMissingResourceReturns404() {
+		HttpEntity<String> request = jsonEntity(
+				String.format(Locale.ROOT, "{\"latitude\":%s,\"longitude\":%s}", LIBRARY_LAT, LIBRARY_LON));
+
+		ResponseEntity<String> response = restTemplate.exchange(
+				"/api/v1/resources/" + UUID.randomUUID() + "/location", HttpMethod.PUT, request, String.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+		assertThat(response.getBody()).contains("\"code\":\"RESOURCE_NOT_FOUND\"");
+	}
+
+	@Test
+	void nearbyReturnsResourcesWithinTheRadiusOrderedNearestFirst() {
+		Category category = activeCategory("Http Nearby Order Check");
+		String marker = UUID.randomUUID().toString();
+		ResourceResponse near = restTemplate.postForEntity("/api/v1/resources",
+				createRequest(category.getId(), "Http Nearby Near " + marker), ResourceResponse.class).getBody();
+		ResourceResponse far = restTemplate.postForEntity("/api/v1/resources",
+				createRequest(category.getId(), "Http Nearby Far " + marker), ResourceResponse.class).getBody();
+		putLocation(near.id(), DALHOUSIE_LAT, DALHOUSIE_LON);
+		putLocation(far.id(), LIBRARY_LAT + 0.02, LIBRARY_LON + 0.02);
+
+		ResponseEntity<NearbyResourcePageResponse> response = restTemplate.getForEntity(
+				"/api/v1/resources/nearby?latitude=" + LIBRARY_LAT + "&longitude=" + LIBRARY_LON
+						+ "&radiusKm=10&q=" + encode(marker),
+				NearbyResourcePageResponse.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+		assertThat(response.getBody().content()).extracting(NearbyResourceSummaryResponse::name)
+				.containsExactly("Http Nearby Near " + marker, "Http Nearby Far " + marker);
+	}
+
+	@Test
+	void nearbyExcludesAResourceWithNoLocation() {
+		Category category = activeCategory("Http Nearby No Location Check");
+		String marker = UUID.randomUUID().toString();
+		restTemplate.postForEntity("/api/v1/resources",
+				createRequest(category.getId(), "Http Nearby No Location " + marker), ResourceResponse.class);
+
+		ResponseEntity<NearbyResourcePageResponse> response = restTemplate.getForEntity(
+				"/api/v1/resources/nearby?latitude=" + LIBRARY_LAT + "&longitude=" + LIBRARY_LON
+						+ "&radiusKm=50&q=" + encode(marker),
+				NearbyResourcePageResponse.class);
+
+		assertThat(response.getBody().content()).isEmpty();
+		assertThat(response.getBody().totalElements()).isZero();
+	}
+
+	@Test
+	void nearbyUsesTheDefaultRadiusOverHttp() {
+		Category category = activeCategory("Http Nearby Default Radius Check");
+		String marker = UUID.randomUUID().toString();
+		ResourceResponse created = restTemplate.postForEntity("/api/v1/resources",
+				createRequest(category.getId(), "Http Nearby Default Radius " + marker), ResourceResponse.class).getBody();
+		putLocation(created.id(), DALHOUSIE_LAT, DALHOUSIE_LON);
+
+		ResponseEntity<NearbyResourcePageResponse> response = restTemplate.getForEntity(
+				"/api/v1/resources/nearby?latitude=" + LIBRARY_LAT + "&longitude=" + LIBRARY_LON
+						+ "&q=" + encode(marker),
+				NearbyResourcePageResponse.class);
+
+		assertThat(response.getBody().content()).extracting(NearbyResourceSummaryResponse::name)
+				.containsExactly("Http Nearby Default Radius " + marker);
+	}
+
+	@Test
+	void nearbyMissingLatitudeReturns400() {
+		ResponseEntity<String> response = restTemplate.getForEntity(
+				"/api/v1/resources/nearby?longitude=" + LIBRARY_LON, String.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+		assertThat(response.getBody()).contains("\"code\":\"INVALID_LATITUDE\"");
+	}
+
+	@Test
+	void nearbyMissingLongitudeReturns400() {
+		ResponseEntity<String> response = restTemplate.getForEntity(
+				"/api/v1/resources/nearby?latitude=" + LIBRARY_LAT, String.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+		assertThat(response.getBody()).contains("\"code\":\"INVALID_LONGITUDE\"");
+	}
+
+	@Test
+	void nearbyOutOfRangeLatitudeReturns400() {
+		ResponseEntity<String> response = restTemplate.getForEntity(
+				"/api/v1/resources/nearby?latitude=91&longitude=" + LIBRARY_LON, String.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+		assertThat(response.getBody()).contains("\"code\":\"INVALID_LATITUDE\"");
+	}
+
+	@Test
+	void nearbyOutOfRangeLongitudeReturns400() {
+		ResponseEntity<String> response = restTemplate.getForEntity(
+				"/api/v1/resources/nearby?latitude=" + LIBRARY_LAT + "&longitude=181", String.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+		assertThat(response.getBody()).contains("\"code\":\"INVALID_LONGITUDE\"");
+	}
+
+	@Test
+	void nearbyRadiusAboveTheMaximumReturns400() {
+		ResponseEntity<String> response = restTemplate.getForEntity(
+				"/api/v1/resources/nearby?latitude=" + LIBRARY_LAT + "&longitude=" + LIBRARY_LON + "&radiusKm=51",
+				String.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+		assertThat(response.getBody()).contains("\"code\":\"INVALID_RADIUS\"");
+	}
+
+	@Test
+	void nearbyNonPositiveRadiusReturns400() {
+		ResponseEntity<String> response = restTemplate.getForEntity(
+				"/api/v1/resources/nearby?latitude=" + LIBRARY_LAT + "&longitude=" + LIBRARY_LON + "&radiusKm=0",
+				String.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+		assertThat(response.getBody()).contains("\"code\":\"INVALID_RADIUS\"");
+	}
+
+	@Test
+	void nearbyNoMatchesReturns200WithEmptyContentNotAnError() {
+		ResponseEntity<NearbyResourcePageResponse> response = restTemplate.getForEntity(
+				"/api/v1/resources/nearby?latitude=" + TORONTO_LAT + "&longitude=" + TORONTO_LON
+						+ "&radiusKm=1&q=" + encode("no-resource-should-ever-match-" + UUID.randomUUID()),
+				NearbyResourcePageResponse.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+		assertThat(response.getBody().content()).isEmpty();
+		assertThat(response.getBody().totalElements()).isZero();
+	}
+
+	@Test
+	void nearbyCombinesWithCostTypeAndVerificationStatusOverHttp() {
+		Category category = activeCategory("Http Nearby Combined Filters Check");
+		String marker = UUID.randomUUID().toString();
+		ResourceResponse created = restTemplate.postForEntity("/api/v1/resources",
+				createRequest(category.getId(), "Http Nearby Combined " + marker), ResourceResponse.class).getBody();
+		putLocation(created.id(), LIBRARY_LAT, LIBRARY_LON);
+
+		ResponseEntity<NearbyResourcePageResponse> response = restTemplate.getForEntity(
+				"/api/v1/resources/nearby?latitude=" + LIBRARY_LAT + "&longitude=" + LIBRARY_LON
+						+ "&radiusKm=5&q=" + encode(marker) + "&verificationStatus=UNVERIFIED",
+				NearbyResourcePageResponse.class);
+
+		assertThat(response.getBody().content()).extracting(NearbyResourceSummaryResponse::name)
+				.containsExactly("Http Nearby Combined " + marker);
+	}
+
+	@Test
+	void nearbyPaginationTotalsAreCorrectOverHttp() {
+		Category category = activeCategory("Http Nearby Pagination Check");
+		String marker = UUID.randomUUID().toString();
+		for (int i = 0; i < 3; i++) {
+			ResourceResponse created = restTemplate.postForEntity("/api/v1/resources",
+					createRequest(category.getId(), "Http Nearby Paginated " + marker + " " + i),
+					ResourceResponse.class).getBody();
+			putLocation(created.id(), LIBRARY_LAT, LIBRARY_LON);
+		}
+
+		ResponseEntity<NearbyResourcePageResponse> response = restTemplate.getForEntity(
+				"/api/v1/resources/nearby?latitude=" + LIBRARY_LAT + "&longitude=" + LIBRARY_LON
+						+ "&radiusKm=5&q=" + encode(marker) + "&size=2",
+				NearbyResourcePageResponse.class);
+
+		assertThat(response.getBody().content()).hasSize(2);
+		assertThat(response.getBody().totalElements()).isEqualTo(3);
+		assertThat(response.getBody().totalPages()).isEqualTo(2);
+	}
+
+	@Test
+	void nearbyResponseIncludesCoordinatesAndDistance() {
+		Category category = activeCategory("Http Nearby Result Shape Check");
+		String marker = UUID.randomUUID().toString();
+		ResourceResponse created = restTemplate.postForEntity("/api/v1/resources",
+				createRequest(category.getId(), "Http Nearby Result Shape " + marker), ResourceResponse.class).getBody();
+		putLocation(created.id(), LIBRARY_LAT, LIBRARY_LON);
+
+		ResponseEntity<NearbyResourcePageResponse> response = restTemplate.getForEntity(
+				"/api/v1/resources/nearby?latitude=" + LIBRARY_LAT + "&longitude=" + LIBRARY_LON
+						+ "&radiusKm=1&q=" + encode(marker),
+				NearbyResourcePageResponse.class);
+
+		NearbyResourceSummaryResponse result = response.getBody().content().get(0);
+		assertThat(result.latitude()).isEqualTo(LIBRARY_LAT);
+		assertThat(result.longitude()).isEqualTo(LIBRARY_LON);
+		assertThat(result.distanceMeters()).isNotNull();
+	}
+
+	@Test
+	void nearbyRequiresNoAuthenticationToken() {
+		Category category = activeCategory("Http Nearby Public Access Check");
+		String marker = UUID.randomUUID().toString();
+		ResourceResponse created = restTemplate.postForEntity("/api/v1/resources",
+				createRequest(category.getId(), "Http Nearby Public " + marker), ResourceResponse.class).getBody();
+		putLocation(created.id(), LIBRARY_LAT, LIBRARY_LON);
+
+		// No Authorization header attached — a plain, unauthenticated GET.
+		ResponseEntity<NearbyResourcePageResponse> response = restTemplate.getForEntity(
+				"/api/v1/resources/nearby?latitude=" + LIBRARY_LAT + "&longitude=" + LIBRARY_LON
+						+ "&radiusKm=1&q=" + encode(marker),
+				NearbyResourcePageResponse.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+		assertThat(response.getBody().content()).extracting(NearbyResourceSummaryResponse::name)
+				.contains("Http Nearby Public " + marker);
+	}
+
+	@Test
+	void openApiDocumentIncludesNearbyAndLocationEndpoints() {
+		ResponseEntity<String> response = restTemplate.getForEntity("/v3/api-docs", String.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+		assertThat(response.getBody()).contains("/api/v1/resources/nearby");
+		assertThat(response.getBody()).contains("/api/v1/resources/{id}/location");
+		assertThat(response.getBody()).contains("\"name\":\"latitude\"");
+		assertThat(response.getBody()).contains("\"name\":\"longitude\"");
+		assertThat(response.getBody()).contains("\"name\":\"radiusKm\"");
+	}
+
 	@Test
 	void categoryEndpointsStillWorkAlongsideResourceEndpoints() {
 		ResponseEntity<String> response = restTemplate.getForEntity("/api/v1/categories?size=1", String.class);
 
 		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+	}
+
+	private void putLocation(UUID resourceId, double latitude, double longitude) {
+		HttpEntity<String> request = jsonEntity(
+				String.format(Locale.ROOT, "{\"latitude\":%s,\"longitude\":%s}", latitude, longitude));
+		restTemplate.exchange("/api/v1/resources/" + resourceId + "/location", HttpMethod.PUT, request, String.class);
 	}
 
 	private static String encode(String value) {

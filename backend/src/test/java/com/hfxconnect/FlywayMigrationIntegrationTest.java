@@ -35,14 +35,14 @@ class FlywayMigrationIntegrationTest extends AbstractPostgresIntegrationTest {
 	}
 
 	@Test
-	void allSixMigrationsAreAppliedExactlyOnceInOrder() {
+	void allSevenMigrationsAreAppliedExactlyOnceInOrder() {
 		JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
 
 		List<String> appliedVersions = jdbcTemplate.queryForList(
 				"SELECT version FROM flyway_schema_history WHERE success = true ORDER BY installed_rank",
 				String.class);
 
-		assertThat(appliedVersions).containsExactly("1", "2", "3", "4", "5", "6");
+		assertThat(appliedVersions).containsExactly("1", "2", "3", "4", "5", "6", "7");
 	}
 
 	@Test

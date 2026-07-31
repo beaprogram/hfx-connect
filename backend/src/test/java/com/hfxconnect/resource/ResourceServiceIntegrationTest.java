@@ -7,8 +7,11 @@ import com.hfxconnect.AbstractPostgresIntegrationTest;
 import com.hfxconnect.category.Category;
 import com.hfxconnect.category.CategoryRepository;
 import com.hfxconnect.common.error.InvalidCostTypeException;
+import com.hfxconnect.common.error.InvalidLatitudeException;
+import com.hfxconnect.common.error.InvalidLongitudeException;
 import com.hfxconnect.common.error.InvalidOpenNowFilterException;
 import com.hfxconnect.common.error.InvalidPaginationException;
+import com.hfxconnect.common.error.InvalidRadiusException;
 import com.hfxconnect.common.error.InvalidSearchQueryException;
 import com.hfxconnect.common.error.InvalidSortException;
 import com.hfxconnect.common.error.InvalidVerificationStatusException;
@@ -766,6 +769,287 @@ class ResourceServiceIntegrationTest extends AbstractPostgresIntegrationTest {
 		assertThat(page.content()).extracting(ResourceDetails::name).containsExactly("Batch Hours " + marker);
 		assertThat(page.content().get(0).hoursStatus()).isNotEqualTo(HoursStatus.UNKNOWN);
 		assertThat(page.content().get(0).weeklyHours()).hasSize(1);
+	}
+
+	// ---- Resource location and nearby search (Milestone 7A) — see ADR-012 ----
+
+	// Halifax Central Library, Dalhousie University, and Toronto — real,
+	// asymmetric coordinates chosen so a latitude/longitude swap or a
+	// distance-ordering bug would be immediately, obviously wrong.
+	private static final double LIBRARY_LAT = 44.6488;
+	private static final double LIBRARY_LON = -63.5752;
+	private static final double DALHOUSIE_LAT = 44.6366;
+	private static final double DALHOUSIE_LON = -63.5934;
+	private static final double TORONTO_LAT = 43.6532;
+	private static final double TORONTO_LON = -79.3832;
+
+	@Test
+	void replaceLocationSetsTheResourcesCoordinates() {
+		Category category = activeCategory("Replace Location Check");
+		ResourceDetails created = resourceService.create(validCommand(category.getId(), "Replace Location Resource"));
+
+		ResourceLocationResponse response = resourceService.replaceLocation(
+				created.id(), new ResourceLocationRequest(LIBRARY_LAT, LIBRARY_LON));
+
+		assertThat(response.resourceId()).isEqualTo(created.id());
+		assertThat(response.latitude()).isEqualTo(LIBRARY_LAT);
+		assertThat(response.longitude()).isEqualTo(LIBRARY_LON);
+	}
+
+	@Test
+	void replaceLocationCanCorrectAnExistingCoordinate() {
+		Category category = activeCategory("Correct Location Check");
+		ResourceDetails created = resourceService.create(validCommand(category.getId(), "Correct Location Resource"));
+		resourceService.replaceLocation(created.id(), new ResourceLocationRequest(TORONTO_LAT, TORONTO_LON));
+
+		ResourceLocationResponse response = resourceService.replaceLocation(
+				created.id(), new ResourceLocationRequest(LIBRARY_LAT, LIBRARY_LON));
+
+		assertThat(response.latitude()).isEqualTo(LIBRARY_LAT);
+		assertThat(response.longitude()).isEqualTo(LIBRARY_LON);
+	}
+
+	@Test
+	void replaceLocationThrowsNotFoundForAMissingResource() {
+		assertThatThrownBy(() -> resourceService.replaceLocation(
+				UUID.randomUUID(), new ResourceLocationRequest(LIBRARY_LAT, LIBRARY_LON)))
+				.isInstanceOf(ResourceNotFoundException.class);
+	}
+
+	@Test
+	void replaceLocationRejectsOutOfRangeCoordinates() {
+		Category category = activeCategory("Invalid Location Check");
+		ResourceDetails created = resourceService.create(validCommand(category.getId(), "Invalid Location Resource"));
+
+		assertThatThrownBy(() -> resourceService.replaceLocation(created.id(), new ResourceLocationRequest(91.0, 0.0)))
+				.isInstanceOf(ValidationException.class);
+	}
+
+	@Test
+	void nearbyReturnsAResourceInsideTheRadiusOrderedNearestFirst() {
+		Category category = activeCategory("Nearby Distance Order Check");
+		String marker = UUID.randomUUID().toString();
+		ResourceDetails near = resourceService.create(withName(validCommand(category.getId(), "placeholder"), "Nearby Near " + marker));
+		ResourceDetails far = resourceService.create(withName(validCommand(category.getId(), "placeholder"), "Nearby Far " + marker));
+		resourceService.replaceLocation(near.id(), new ResourceLocationRequest(DALHOUSIE_LAT, DALHOUSIE_LON));
+		resourceService.replaceLocation(far.id(), new ResourceLocationRequest(LIBRARY_LAT + 0.02, LIBRARY_LON + 0.02));
+
+		NearbyResourcePageResponse response = resourceService.nearby(
+				LIBRARY_LAT, LIBRARY_LON, 10.0, marker, null, null, null, null, 0, 20);
+
+		assertThat(response.content()).extracting(NearbyResourceSummaryResponse::name)
+				.containsExactly("Nearby Near " + marker, "Nearby Far " + marker);
+		assertThat(response.content().get(0).distanceMeters()).isLessThan(response.content().get(1).distanceMeters());
+	}
+
+	@Test
+	void nearbyExcludesResourcesOutsideTheRadius() {
+		Category category = activeCategory("Nearby Radius Exclusion Check");
+		String marker = UUID.randomUUID().toString();
+		ResourceDetails outside = resourceService.create(withName(validCommand(category.getId(), "placeholder"), "Nearby Outside " + marker));
+		resourceService.replaceLocation(outside.id(), new ResourceLocationRequest(TORONTO_LAT, TORONTO_LON));
+
+		NearbyResourcePageResponse response = resourceService.nearby(
+				LIBRARY_LAT, LIBRARY_LON, 10.0, marker, null, null, null, null, 0, 20);
+
+		assertThat(response.content()).isEmpty();
+	}
+
+	@Test
+	void nearbyExcludesResourcesWithNoLocation() {
+		Category category = activeCategory("Nearby No Location Check");
+		String marker = UUID.randomUUID().toString();
+		resourceService.create(withName(validCommand(category.getId(), "placeholder"), "Nearby No Location " + marker));
+
+		NearbyResourcePageResponse response = resourceService.nearby(
+				LIBRARY_LAT, LIBRARY_LON, ResourceService.MAX_RADIUS_KM, marker, null, null, null, null, 0, 20);
+
+		assertThat(response.content()).isEmpty();
+	}
+
+	@Test
+	void nearbyExcludesInactiveResources() {
+		Category category = activeCategory("Nearby Inactive Check");
+		String marker = UUID.randomUUID().toString();
+		ResourceDetails created = resourceService.create(withName(validCommand(category.getId(), "placeholder"), "Nearby Inactive " + marker));
+		resourceService.replaceLocation(created.id(), new ResourceLocationRequest(LIBRARY_LAT, LIBRARY_LON));
+		resourceService.deactivate(created.id());
+
+		NearbyResourcePageResponse response = resourceService.nearby(
+				LIBRARY_LAT, LIBRARY_LON, 1.0, marker, null, null, null, null, 0, 20);
+
+		assertThat(response.content()).isEmpty();
+	}
+
+	@Test
+	void nearbyUsesTheDefaultRadiusWhenNotSpecified() {
+		Category category = activeCategory("Nearby Default Radius Check");
+		String marker = UUID.randomUUID().toString();
+		ResourceDetails created = resourceService.create(withName(validCommand(category.getId(), "placeholder"), "Nearby Default Radius " + marker));
+		resourceService.replaceLocation(created.id(), new ResourceLocationRequest(DALHOUSIE_LAT, DALHOUSIE_LON));
+
+		NearbyResourcePageResponse response = resourceService.nearby(
+				LIBRARY_LAT, LIBRARY_LON, null, marker, null, null, null, null, 0, 20);
+
+		assertThat(response.content()).extracting(NearbyResourceSummaryResponse::name)
+				.containsExactly("Nearby Default Radius " + marker);
+	}
+
+	@Test
+	void nearbyReturnsAnEmptyPageWhenNothingMatches() {
+		NearbyResourcePageResponse response = resourceService.nearby(
+				LIBRARY_LAT, LIBRARY_LON, 1.0, "no-resource-should-ever-match-" + UUID.randomUUID(),
+				null, null, null, null, 0, 20);
+
+		assertThat(response.content()).isEmpty();
+		assertThat(response.totalElements()).isZero();
+	}
+
+	@Test
+	void nearbyRejectsAMissingLatitude() {
+		assertThatThrownBy(() -> resourceService.nearby(null, LIBRARY_LON, null, null, null, null, null, null, 0, 20))
+				.isInstanceOf(InvalidLatitudeException.class);
+	}
+
+	@Test
+	void nearbyRejectsAMissingLongitude() {
+		assertThatThrownBy(() -> resourceService.nearby(LIBRARY_LAT, null, null, null, null, null, null, null, 0, 20))
+				.isInstanceOf(InvalidLongitudeException.class);
+	}
+
+	@Test
+	void nearbyRejectsAnOutOfRangeLatitude() {
+		assertThatThrownBy(() -> resourceService.nearby(91.0, LIBRARY_LON, null, null, null, null, null, null, 0, 20))
+				.isInstanceOf(InvalidLatitudeException.class);
+	}
+
+	@Test
+	void nearbyRejectsAnOutOfRangeLongitude() {
+		assertThatThrownBy(() -> resourceService.nearby(LIBRARY_LAT, 181.0, null, null, null, null, null, null, 0, 20))
+				.isInstanceOf(InvalidLongitudeException.class);
+	}
+
+	@Test
+	void nearbyRejectsANonPositiveRadius() {
+		assertThatThrownBy(() -> resourceService.nearby(LIBRARY_LAT, LIBRARY_LON, 0.0, null, null, null, null, null, 0, 20))
+				.isInstanceOf(InvalidRadiusException.class);
+		assertThatThrownBy(() -> resourceService.nearby(LIBRARY_LAT, LIBRARY_LON, -5.0, null, null, null, null, null, 0, 20))
+				.isInstanceOf(InvalidRadiusException.class);
+	}
+
+	@Test
+	void nearbyRejectsARadiusAboveTheMaximum() {
+		assertThatThrownBy(() -> resourceService.nearby(
+				LIBRARY_LAT, LIBRARY_LON, ResourceService.MAX_RADIUS_KM + 1, null, null, null, null, null, 0, 20))
+				.isInstanceOf(InvalidRadiusException.class);
+	}
+
+	@Test
+	void nearbyCombinesWithCategoryFilter() {
+		Category categoryA = activeCategory("Nearby Category Combo A");
+		Category categoryB = activeCategory("Nearby Category Combo B");
+		String marker = UUID.randomUUID().toString();
+		ResourceDetails inA = resourceService.create(withName(validCommand(categoryA.getId(), "placeholder"), "Nearby In A " + marker));
+		ResourceDetails inB = resourceService.create(withName(validCommand(categoryB.getId(), "placeholder"), "Nearby In B " + marker));
+		resourceService.replaceLocation(inA.id(), new ResourceLocationRequest(LIBRARY_LAT, LIBRARY_LON));
+		resourceService.replaceLocation(inB.id(), new ResourceLocationRequest(LIBRARY_LAT, LIBRARY_LON));
+
+		NearbyResourcePageResponse response = resourceService.nearby(
+				LIBRARY_LAT, LIBRARY_LON, 5.0, marker, categoryA.getId(), null, null, null, 0, 20);
+
+		assertThat(response.content()).extracting(NearbyResourceSummaryResponse::name)
+				.containsExactly("Nearby In A " + marker);
+	}
+
+	@Test
+	void nearbyCombinesWithCostTypeFilter() {
+		Category category = activeCategory("Nearby Cost Combo");
+		String marker = UUID.randomUUID().toString();
+		ResourceDetails free = resourceService.create(withCostType(withName(validCommand(category.getId(), "placeholder"), "Nearby Free " + marker), CostType.FREE));
+		ResourceDetails paid = resourceService.create(withCostType(withName(validCommand(category.getId(), "placeholder"), "Nearby Paid " + marker), CostType.PAID));
+		resourceService.replaceLocation(free.id(), new ResourceLocationRequest(LIBRARY_LAT, LIBRARY_LON));
+		resourceService.replaceLocation(paid.id(), new ResourceLocationRequest(LIBRARY_LAT, LIBRARY_LON));
+
+		NearbyResourcePageResponse response = resourceService.nearby(
+				LIBRARY_LAT, LIBRARY_LON, 5.0, marker, null, "FREE", null, null, 0, 20);
+
+		assertThat(response.content()).extracting(NearbyResourceSummaryResponse::name)
+				.containsExactly("Nearby Free " + marker);
+	}
+
+	@Test
+	void nearbyCombinesWithVerificationStatusFilter() {
+		Category category = activeCategory("Nearby Verification Combo");
+		String marker = UUID.randomUUID().toString();
+		ResourceDetails created = resourceService.create(withName(validCommand(category.getId(), "placeholder"), "Nearby Unverified " + marker));
+		resourceService.replaceLocation(created.id(), new ResourceLocationRequest(LIBRARY_LAT, LIBRARY_LON));
+
+		NearbyResourcePageResponse matching = resourceService.nearby(
+				LIBRARY_LAT, LIBRARY_LON, 5.0, marker, null, null, "UNVERIFIED", null, 0, 20);
+		NearbyResourcePageResponse nonMatching = resourceService.nearby(
+				LIBRARY_LAT, LIBRARY_LON, 5.0, marker, null, null, "VERIFIED", null, 0, 20);
+
+		assertThat(matching.content()).extracting(NearbyResourceSummaryResponse::name)
+				.containsExactly("Nearby Unverified " + marker);
+		assertThat(nonMatching.content()).isEmpty();
+	}
+
+	@Test
+	void nearbyCombinesWithOpenNowFilter() {
+		Category category = activeCategory("Nearby Open Now Combo");
+		String marker = UUID.randomUUID().toString();
+		ResourceDetails open = resourceService.create(withName(validCommand(category.getId(), "placeholder"), "Nearby Open " + marker));
+		ResourceDetails unknown = resourceService.create(withName(validCommand(category.getId(), "placeholder"), "Nearby Unknown Hours " + marker));
+		resourceService.replaceLocation(open.id(), new ResourceLocationRequest(LIBRARY_LAT, LIBRARY_LON));
+		resourceService.replaceLocation(unknown.id(), new ResourceLocationRequest(LIBRARY_LAT, LIBRARY_LON));
+
+		DayOfWeek today = ZonedDateTime.now(HALIFAX_ZONE).getDayOfWeek();
+		LocalTime now = ZonedDateTime.now(HALIFAX_ZONE).toLocalTime();
+		resourceService.replaceOperatingHours(open.id(), new ReplaceOperatingHoursRequest(
+				List.of(new OperatingHoursEntryRequest(today, false, now.minusHours(1), now.plusHours(1)))));
+
+		NearbyResourcePageResponse response = resourceService.nearby(
+				LIBRARY_LAT, LIBRARY_LON, 5.0, marker, null, null, null, "true", 0, 20);
+
+		assertThat(response.content()).extracting(NearbyResourceSummaryResponse::name)
+				.containsExactly("Nearby Open " + marker);
+	}
+
+	@Test
+	void nearbyPaginatesResults() {
+		Category category = activeCategory("Nearby Pagination Check");
+		String marker = UUID.randomUUID().toString();
+		for (int i = 0; i < 3; i++) {
+			ResourceDetails created = resourceService.create(
+					withName(validCommand(category.getId(), "placeholder"), "Nearby Paginated " + marker + " " + i));
+			resourceService.replaceLocation(created.id(), new ResourceLocationRequest(LIBRARY_LAT, LIBRARY_LON));
+		}
+
+		NearbyResourcePageResponse firstPage = resourceService.nearby(
+				LIBRARY_LAT, LIBRARY_LON, 5.0, marker, null, null, null, null, 0, 2);
+		NearbyResourcePageResponse secondPage = resourceService.nearby(
+				LIBRARY_LAT, LIBRARY_LON, 5.0, marker, null, null, null, null, 1, 2);
+
+		assertThat(firstPage.content()).hasSize(2);
+		assertThat(secondPage.content()).hasSize(1);
+		assertThat(firstPage.totalElements()).isEqualTo(3);
+	}
+
+	@Test
+	void nearbyResultsIncludeDistanceCoordinatesAndHoursStatus() {
+		Category category = activeCategory("Nearby Result Shape Check");
+		String marker = UUID.randomUUID().toString();
+		ResourceDetails created = resourceService.create(withName(validCommand(category.getId(), "placeholder"), "Nearby Result Shape " + marker));
+		resourceService.replaceLocation(created.id(), new ResourceLocationRequest(LIBRARY_LAT, LIBRARY_LON));
+
+		NearbyResourcePageResponse response = resourceService.nearby(
+				LIBRARY_LAT, LIBRARY_LON, 1.0, marker, null, null, null, null, 0, 20);
+
+		NearbyResourceSummaryResponse result = response.content().get(0);
+		assertThat(result.latitude()).isEqualTo(LIBRARY_LAT);
+		assertThat(result.longitude()).isEqualTo(LIBRARY_LON);
+		assertThat(result.distanceMeters()).isEqualTo(0.0, org.assertj.core.data.Offset.offset(1.0));
+		assertThat(result.hoursStatus()).isEqualTo(HoursStatus.UNKNOWN);
 	}
 
 	private Category activeCategory(String namePrefix) {

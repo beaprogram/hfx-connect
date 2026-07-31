@@ -54,7 +54,9 @@ class ResourceRepositoryIntegrationTest extends AbstractPostgresIntegrationTest 
 		assertThat(columns).containsExactlyInAnyOrder(
 				"id", "category_id", "name", "slug", "description", "address_line_1", "address_line_2",
 				"city", "province", "postal_code", "phone", "email", "website_url", "cost_type",
-				"cost_details", "eligibility", "verification_status", "active", "created_at", "updated_at");
+				"cost_details", "eligibility", "verification_status", "active", "created_at", "updated_at",
+				// "location" added by V7 (Milestone 7A) — see ADR-012.
+				"location");
 	}
 
 	@Test
