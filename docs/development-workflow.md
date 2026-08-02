@@ -27,7 +27,7 @@ one begins.
 | 6A | `milestone/06a-keyword-search` | Public keyword search, combined with category filtering, sorting, and pagination |
 | 6B | `milestone/06b-operating-hours-filters` | Structured operating hours, open-now logic, cost/verification filters |
 | 7A | `milestone/07a-postgis-nearby-search` | PostGIS resource locations, nearby search, distance ordering (backend only) |
-| 7B | `milestone/07b-map-interface` | Visual map, browser geolocation, marker clustering, list/map sync |
+| 7B | `milestone/07b-interactive-map` | Visual map, browser geolocation, marker clustering, list/map sync |
 | 8 | `milestone/08-user-features` | Saved resources, submissions, correction reports |
 | 9 | `milestone/09-moderation` | Moderation queue, approvals, verification status, audit trail |
 | 10 | `milestone/10-organizations-events` | Organization ownership, events, expiry handling |

@@ -83,3 +83,13 @@ See `states.md`. Distinguished cases specific to this page:
   removed category) → the filter UI falls back to "All categories" and a small note
   explains the requested category couldn't be found, rather than crashing or
   silently ignoring the parameter.
+
+## Deviation — Milestone 7B: List/Map Presentation Switch
+
+This page (`/resources`) now sits behind a `ResourceExplorer` component that adds a
+**List | Map** toggle beside the H1. Everything above this note still describes the
+**List** presentation exactly as built for Milestone 6 — unmodified. Activating
+**Map** replaces the results section with the interactive nearby-search experience;
+see [map-explorer.md](map-explorer.md) for that layout. The filter form itself is
+reused as-is between both presentations (with the Sort control hidden in Map mode,
+since nearby results are always distance-ordered).

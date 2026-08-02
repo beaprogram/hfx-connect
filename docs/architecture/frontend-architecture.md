@@ -9,13 +9,18 @@
 > routes (`/login`, `/register`, `/dashboard`) and an in-memory session layer —
 > see "Authentication Architecture" below. Updated again in Milestone 6A,
 > which added keyword search to `/resources` — see "URL State (`/resources`)"
-> below.
+> below. Updated again in Milestone 7B, which added the interactive map,
+> browser geolocation, and List/Map presentation switch — see "Interactive
+> Map Architecture" below.
 
 ## Route Structure
 
 ```
 /                          Homepage — hero, category grid, resource preview, trust copy
-/resources                 Paginated, filterable, sortable resource list
+/resources                 Paginated, filterable, sortable resource list —
+                           or, in Map view (Milestone 7B), the same
+                           filters driving an interactive nearby-search
+                           map alongside a synchronized list
 /resources/[slug]          Full detail for one active resource
 /login                     Email/password login
 /register                  Account registration (does not log the caller in)
@@ -109,7 +114,14 @@ forever.
 resourceKeys.list({ page, size, categoryId, sort, q, costType, verificationStatus, openNow })
 categoryKeys.list({ active })
 resourceKeys.detail(slug)
+resourceKeys.nearby({ latitude, longitude, radiusKm, page, size, categoryId, q, costType, verificationStatus, openNow })
 ```
+
+`resourceKeys.nearby` (Milestone 7B) rounds latitude/longitude to 5 decimal
+places purely to keep the cache key stable against floating-point noise —
+never for the actual request. It deliberately excludes the selected
+resource: selection is UI state, not part of what identifies this
+server-state query — see "Interactive Map Architecture" below.
 
 `page`/`size`/`categoryId`/`sort`/`q`/`costType`/`verificationStatus`/
 `openNow` (the last three added in Milestone 6B, see
@@ -177,6 +189,50 @@ instant client-side transition instead — the visible submit button stays in
 place as a working fallback either way. Pagination links are plain `<Link>`s,
 which work with or without JavaScript by construction.
 
+## Interactive Map Architecture
+
+Full design rationale:
+[ADR-013](../decisions/ADR-013-interactive-map-and-geolocation-design.md).
+Summary of what actually exists in the code:
+
+- **`ResourceExplorer`** renders either `ResourceListView` (unmodified
+  since Milestone 6) or the new `MapExplorerView`, based on
+  `useMapSearch().view` — never a single component branching internally.
+  `ResourceListView` has zero dependency on `useMapSearch()`, so its
+  existing tests (rendered with no `MapSearchProvider`) keep passing
+  unmodified, and the map can never become the only way to reach a
+  resource.
+- **`MapSearchProvider`** (`lib/map/map-search-context.tsx`) is mounted at
+  `app/resources/layout.tsx` — a layout, not a page, so it survives a
+  filter-driven `/resources?...` navigation and a round trip to
+  `/resources/[slug]` and back. It owns `view`, `radiusKm`, `centre`,
+  `centreSource`, `pendingCentre`, `selectedResourceId`, and
+  `nearbyPage`. `view`/`radiusKm` are best-effort mirrored to the URL
+  (read once on mount, written on change, scoped to exactly the
+  `/resources` pathname); coordinates and selection are never written
+  anywhere outside React state.
+- **The map itself is client-only.** `components/map/nearby-map.tsx` is
+  loaded exclusively via `dynamic(() => import(...), { ssr: false })`
+  from inside `NearbyMapView` (already `"use client"`) — Leaflet reads
+  `window`/`document` at import time and would otherwise crash server
+  rendering. This is confirmed with a real production build
+  (`next build --webpack`), not just assumed from the dynamic-import
+  option existing.
+- **`lib/map/use-geolocation.ts`** wraps
+  `navigator.geolocation.getCurrentPosition` behind an explicit
+  `requestLocation()` call — nothing invokes it automatically. Its
+  status (`idle | requesting | success | permission-denied | unavailable
+  | timeout`) is transient, component-local state — it resets on
+  remount, unlike the durable centre committed to `MapSearchProvider`.
+- **List/map selection** is one shared `selectedResourceId` in
+  `MapSearchProvider`, read by both `NearbyResourceCard` and each
+  `Marker`. It is deliberately excluded from `resourceKeys.nearby`, so
+  selecting a card or marker never triggers a network request.
+- **"Search this area"** is driven by Leaflet's `moveend` event only
+  (never `move`/`drag`), recording a `pendingCentre`; a button appears
+  once that pending centre is at least 50 m from the currently-searched
+  one and, on activation, commits it as the new `centre`.
+
 ## Loading, Empty, Error, and Not-Found States
 
 See `docs/wireframes/states.md` for the full pattern catalogue. Two
@@ -223,14 +279,23 @@ Next.js-specific implementation notes:
 
 ## Responsive Verification
 
-Verified via the Tailwind breakpoint classes actually used, since no
-browser-automation tool was available in this environment for pixel-level
-visual verification (see the milestone doc's manual verification section for
-the full, honest account of what was and wasn't verified visually): card
-grids collapse `grid-cols-1` → `sm:grid-cols-2` → `lg:grid-cols-3`, the
-header's inline nav is `hidden` below `sm:` in favor of `MobileNav`, and the
-filter form's controls (`flex flex-wrap`) stack on narrow widths without any
-width-specific overrides needed.
+Through Milestone 6, verified via the Tailwind breakpoint classes actually
+used, since no browser-automation tool was available in this environment
+for pixel-level visual verification: card grids collapse `grid-cols-1` →
+`sm:grid-cols-2` → `lg:grid-cols-3`, the header's inline nav is `hidden`
+below `sm:` in favor of `MobileNav`, and the filter form's controls
+(`flex flex-wrap`) stack on narrow widths without any width-specific
+overrides needed.
+
+**Milestone 7B** had a headless-Chromium instance available (Playwright,
+already cached in the development environment) and used it for genuine
+pixel-level verification — real screenshots captured and reviewed at
+375px/768px/1024px/1440px, not inferred from class names alone — see the
+milestone doc's "Manual Verification" section. The map's own desktop
+split (`grid-cols-1` → `lg:grid-cols-2`) and mobile Map/List sub-toggle
+were confirmed visually this way, catching one real bug (a URL-mirroring
+leak onto the resource-detail page, described in ADR-013) that a
+class-name-only review would not have surfaced.
 
 ## Authentication Architecture
 
@@ -316,8 +381,6 @@ for the resulting `WebCorsConfig`.
 - Keyword search (Milestone 6A) has no autocomplete, typo tolerance, or
   relevance ranking — a submit-based, exact-substring, case-insensitive
   match only. No debounced/per-keystroke search either — see ADR-010.
-- No structured operating hours/open-now filtering (Milestone 6B), and no
-  distance/geospatial filtering or map — later milestones (6B-7).
 - No role-specific dashboards, category/resource creation forms, saved
   resources, submissions, or moderation UI — `/dashboard` shows only the
   current authenticated account's safe fields and a logout control (Milestone
@@ -330,8 +393,14 @@ for the resulting `WebCorsConfig`.
   tracks expiry proactively (refreshing before a known `expiresIn` elapses)
   rather than reacting to a 401 and replaying the original request. This was
   a deliberate scope trade per ADR-009, not an oversight.
-- Responsive/visual verification in this milestone was code-review-based
+- Responsive/visual verification through Milestone 6 was code-review-based
   (Tailwind breakpoint classes) and curl-based (rendered HTML content), not a
   live graphical browser session — no browser-automation tool was available
-  in the development environment used for this milestone. A real browser
-  should still be used before this ships publicly.
+  in the development environment used for those milestones. **Resolved in
+  Milestone 7B**: a headless-Chromium instance became available and was used
+  for genuine pixel-level verification — see "Responsive Verification" above.
+- No proactive resource-coordinate administration UI, address geocoding, or
+  reverse geocoding — a resource's location is entered only through the
+  protected `PUT /resources/{id}/location` API (Milestone 7A). No route
+  distance, walking/driving time, or turn-by-turn directions — the map's
+  distance display is always straight-line (ADR-012/ADR-013).

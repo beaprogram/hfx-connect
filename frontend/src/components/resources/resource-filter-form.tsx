@@ -39,6 +39,7 @@ export function ResourceFilterForm({
   costType,
   verificationStatus,
   openNow,
+  showSort = true,
 }: {
   categories: CategoryResponse[];
   categoryId?: number;
@@ -47,6 +48,8 @@ export function ResourceFilterForm({
   costType?: CostTypeFilterValue;
   verificationStatus?: VerificationStatusFilterValue;
   openNow?: boolean;
+  /** Hidden in map/nearby mode (Milestone 7B) — nearby results are always ordered by distance; "sort" has no effect there. Defaults to true so existing callers/tests are unaffected. */
+  showSort?: boolean;
 }) {
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
@@ -133,24 +136,26 @@ export function ResourceFilterForm({
         </select>
       </div>
 
-      <div className="flex flex-col gap-1">
-        <label htmlFor="sort" className="text-sm font-medium text-slate-700">
-          Sort
-        </label>
-        <select
-          id="sort"
-          name="sort"
-          defaultValue={sort}
-          onChange={submitViaRouter}
-          className="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
-        >
-          {RESOURCE_SORT_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-      </div>
+      {showSort && (
+        <div className="flex flex-col gap-1">
+          <label htmlFor="sort" className="text-sm font-medium text-slate-700">
+            Sort
+          </label>
+          <select
+            id="sort"
+            name="sort"
+            defaultValue={sort}
+            onChange={submitViaRouter}
+            className="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+          >
+            {RESOURCE_SORT_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       <div className="flex flex-col gap-1">
         <label htmlFor="costType" className="text-sm font-medium text-slate-700">

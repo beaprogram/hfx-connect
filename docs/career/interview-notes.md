@@ -645,13 +645,64 @@ for a real latency benchmark to mean anything yet — I'd rather say "I
 haven't measured that at scale" than imply a number I never actually
 produced.
 
+## Answerable Now (Milestone 7B)
+
+**How did you decide where the map's session state — search centre,
+radius, geolocation status, selection — should actually live?** This was
+the hardest design decision in the milestone. Three constraints pulled in
+different directions: the coordinate could never go in the URL or browser
+storage (privacy); the state had to survive a filter change, which
+already causes a full `/resources?...` navigation; and it also had to
+survive visiting a resource's detail page and clicking back. A plain
+`useState` in the page component would have been wiped out by either of
+those navigations. The fix was to mount a React Context provider at
+`app/resources/layout.tsx` instead of inside the page — in the Next.js
+App Router, a layout persists across navigations to sibling routes it
+wraps, while a page gets torn down and rebuilt. Once I understood that
+distinction, the rest of the design fell into place: `view`/`radiusKm`
+get a best-effort mirror to the URL for shareability, and everything
+location-related stays in memory only.
+
+**Walk me through a bug you found after your automated tests were
+already green.** The URL-mirroring feature I just described had a bug my
+test suite didn't catch, because I'd mocked `usePathname()` to a fixed
+value in every test. In a real browser, clicking "View details" from Map
+mode navigated to a resource's detail page, and the mirroring effect —
+which re-ran on every pathname change by design, so it could keep
+`view`/`radiusKm` in sync after a filter navigation — fired again on
+*that* navigation too, and unconditionally rewrote the current URL,
+leaving `?view=map&radiusKm=5` stuck onto a page where it means nothing.
+I only found this because I drove a real headless-Chromium session
+through the actual click, not because I re-read the code more carefully.
+The fix was a one-line guard — only mirror while the pathname is exactly
+`/resources` — and I added a test that mocks a *changing* pathname, not
+just a fixed one, so this specific failure mode can't silently come back.
+
+**How do you know the map isn't flooding your API with requests while
+someone drags it around?** Leaflet's `moveend` event — not `move` or
+`drag` — only fires once, after the gesture actually settles. My handler
+for it does nothing but update a local "pending centre" value; no network
+request happens until the user explicitly clicks "Search this area." I
+have a test that simulates a map move and asserts the nearby-fetch mock's
+call count didn't change afterward, so this isn't just something I
+believe about the code — it's asserted.
+
+**How did you verify the mapping library versions you picked actually
+work with this project's React/Next.js versions, instead of just
+following a tutorial?** I checked the real dependency tree first
+(`react@19.2.4`, `next@16.2.11`), then fetched each candidate package's
+own published `peerDependencies` straight from the npm registry — not a
+blog post's `package.json` — before installing anything.
+`react-leaflet@5.0.0` and `react-leaflet-cluster@4.1.3` both declared
+exact matches for React 19. After installing, I ran `npm ls` and
+confirmed a single deduped Leaflet instance across the whole tree, which
+rules out a common failure mode where a clustering plugin quietly pulls
+in its own separate copy.
+
 ## To Be Added in Later Milestones
 
 - How moderation approval and audit-history writes are made transactional (Milestone
   9).
-- How geographic search is kept fast as content grows (Milestone 7).
-- How map performance is protected through bounds-based queries and compact marker
-  payloads (Milestone 7).
-- How the product stays fully usable when location permission is denied or the map
-  cannot be used (Milestone 7).
+- How geographic search is kept fast as content grows at production scale (deferred —
+  Milestone 7A/7B's own datasets were too small to benchmark meaningfully).
 - Trade-offs made and limitations knowingly deferred, updated at each milestone.
