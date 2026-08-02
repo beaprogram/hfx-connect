@@ -945,3 +945,89 @@ cross-test-class data-isolation bug during development.
 [MEASURE AFTER DEPLOYMENT]: nearby-search query latency at real production
 data volume and geographic density, to validate the current single-GiST-index
 approach against `<->` KNN-operator ordering as a future optimization.
+
+## Interactive Map, Browser Geolocation, and List/Map Synchronization
+
+### Product Purpose
+The visual completion of "what's near me" — turns Milestone 7A's
+distance-in-a-list-row into an actual interactive map a visitor can pan,
+zoom, cluster-explore, and search from their own location, without ever
+losing the fully accessible list as a fallback.
+
+### Technologies Used
+Leaflet, React Leaflet 5, `react-leaflet-cluster`/`leaflet.markercluster`,
+the browser Geolocation API, Next.js `dynamic()` client-only loading,
+TanStack Query, React Context for session-scoped cross-route state, and
+(new to this project) Playwright for genuine headless-browser manual
+verification.
+
+### Engineering Complexity
+Before installing any mapping package, fetched each candidate's real
+published `peerDependencies` from the npm registry and cross-checked them
+against this project's actual `react@19.2.4`/`next@16.2.11` versions —
+rather than copy a React-Leaflet integration example that might target an
+incompatible major version — and confirmed a single deduped Leaflet
+instance across the whole dependency tree after installing. Solved a
+genuinely hard state-architecture problem: session state (search centre,
+radius, geolocation status, selection) had to survive both a filter-
+driven URL navigation and a resource-detail-page round trip, while a
+coordinate could never appear in the URL or browser storage at all —
+resolved by mounting a React Context provider at the Next.js App Router
+*layout* level (which persists across exactly those navigations) rather
+than the page level (which doesn't), a distinction that isn't obvious
+without understanding the framework's own route-segment lifecycle.
+Diagnosed and fixed a real, user-facing bug during manual verification
+that the automated test suite's mocked routing hadn't caught: a
+URL-shareability feature was leaking query parameters onto an unrelated
+page after a real client-side navigation — found only by driving an
+actual headless-Chromium session through the real interaction, not by
+reasoning about the code in isolation, then fixed at the root cause and
+covered by a new regression test before merging. Diagnosed and fixed a
+bundler-specific Leaflet default-icon asset-path issue and confirmed the
+fix against both a production build and real rendered marker icons in a
+live browser screenshot, rather than assuming a community fix would apply
+unmodified to this project's specific static-asset-import behavior.
+
+### Implementation
+`frontend/src/lib/map/map-search-context.tsx`,
+`frontend/src/lib/map/use-geolocation.ts`,
+`frontend/src/components/map/nearby-map.tsx`,
+`frontend/src/app/resources/layout.tsx`,
+`frontend/src/components/resources/{resource-explorer,map-explorer-view,
+nearby-map-view,nearby-resource-card,view-toggle}.tsx`.
+
+### Tests
+85 new frontend tests (nearby-API-client coordinate-order/validation
+tests; a full geolocation state-machine test suite including a real
+denial/timeout/retry path; map-search-state tests including a regression
+test for the URL-leak bug found during manual verification; Leaflet-
+mocked marker-coordination tests covering clustering, selection, and
+popup content; list/map view-coordination tests confirming a selection
+change never triggers a refetch; `ResourceExplorer` integration tests)
+alongside the existing 177 (262 total, 0 failures). All 482 backend tests
+reconfirmed passing unchanged — zero backend files were modified this
+milestone.
+
+### Evidence
+Commits on branch `milestone/07b-interactive-map`; see
+`docs/development-log/2026-08-02.md` for the full session record and
+`docs/milestones/milestone-07b-interactive-map.md` for acceptance
+criteria.
+
+### Potential Resume Wording
+Built an interactive map feature (Leaflet/React Leaflet, marker
+clustering) for a Next.js/React 19 application on top of an existing
+geospatial REST API, verifying third-party package compatibility against
+the project's real dependency versions before adoption; designed a
+React Context state architecture at the framework's route-layout level to
+correctly persist session state across client-side navigations while
+keeping precise location data out of the URL and browser storage
+entirely; and used real headless-browser automation to catch and fix a
+genuine navigation bug the mocked automated test suite couldn't have
+caught, then added regression coverage for it.
+
+### Measurements Still Needed
+[MEASURE AFTER DEPLOYMENT]: marker-rendering and clustering performance
+at a realistic production result-page size and marker density, and real
+OpenStreetMap tile-load latency from a production-region client, to
+validate whether a managed tile provider is needed sooner than assumed.

@@ -9,8 +9,9 @@ newcomer services, recreation, and events — that are currently scattered acros
 municipal websites, organization pages, and social media, and adds transparent
 verification so users can trust what they find.
 
-**Project status: Milestone 7A (PostGIS Resource Locations and Nearby
-Search) complete.** The backend has three working REST APIs: categories
+**Project status: Milestone 7B (Interactive Map, Browser Geolocation,
+Marker Clustering, and List/Map Synchronization) complete.** The backend
+has three working REST APIs: categories
 (Milestone 3A —
 [backend/README.md](backend/README.md#category-api-apiv1categories)), resources
 (Milestone 3C, built on the persistence/business layer Milestone 3B added, now
@@ -36,8 +37,13 @@ real weekly schedule and current open status (see
 [ADR-010](docs/decisions/ADR-010-keyword-search-design.md),
 [ADR-011](docs/decisions/ADR-011-operating-hours-and-open-now.md), and
 [ADR-012](docs/decisions/ADR-012-postgis-nearby-search-design.md)).
-Milestone 7A's nearby-search API has no visual frontend yet — that is
-Milestone 7B. See
+`/resources` now also has a **Map** view (Milestone 7B): an interactive
+Leaflet/OpenStreetMap map with marker clustering, explicit browser
+geolocation, a search-radius control, "Search this area," and full
+list/map selection synchronization, combining with every existing filter
+— the List view remains the complete, unmodified accessible fallback (see
+[ADR-013](docs/decisions/ADR-013-interactive-map-and-geolocation-design.md)).
+See
 [docs/milestones/](docs/milestones/) for exactly what each milestone delivered, and
 [docs/development-workflow.md](docs/development-workflow.md) for the full
 12-milestone roadmap (Milestones 3, 5, and 6 are each split into lettered
@@ -223,6 +229,7 @@ Runs on [http://localhost:3000](http://localhost:3000) and expects the backend a
 - [Milestone 6A: Keyword Search and Public Resource Filtering](docs/milestones/milestone-06a-keyword-search.md)
 - [Milestone 6B: Structured Operating Hours, Open-Now Logic, and Cost/Verification Filters](docs/milestones/milestone-06b-operating-hours-filters.md)
 - [Milestone 7A: PostGIS Resource Locations and Nearby Search](docs/milestones/milestone-07a-postgis-nearby-search.md)
+- [Milestone 7B: Interactive Map, Browser Geolocation, and List/Map Synchronization](docs/milestones/milestone-07b-interactive-map.md)
 - [Wireframes](docs/wireframes/)
 - [API Documentation](docs/api/README.md)
 - [Database Documentation](docs/database/)
@@ -236,11 +243,12 @@ Runs on [http://localhost:3000](http://localhost:3000) and expects the backend a
 - [ADR-010: Keyword Search Design](docs/decisions/ADR-010-keyword-search-design.md)
 - [ADR-011: Operating Hours and Open-Now Design](docs/decisions/ADR-011-operating-hours-and-open-now.md)
 - [ADR-012: PostGIS Nearby-Search Design](docs/decisions/ADR-012-postgis-nearby-search-design.md)
+- [ADR-013: Interactive Map and Geolocation Design](docs/decisions/ADR-013-interactive-map-and-geolocation-design.md)
 - [Development Log](docs/development-log/)
 - [Resume Evidence](docs/career/resume-evidence.md)
 - [Interview Notes](docs/career/interview-notes.md)
 
-## Known Limitations (as of Milestone 7A)
+## Known Limitations (as of Milestone 7B)
 
 - **No rate limiting exists** — login accepts unlimited attempts. **No
   access-token revocation exists** — a compromised access token remains valid
@@ -288,16 +296,22 @@ Runs on [http://localhost:3000](http://localhost:3000) and expects the backend a
   [ADR-011](docs/decisions/ADR-011-operating-hours-and-open-now.md)). There
   is no public UI for editing hours — only an `ADMIN`/`MODERATOR` API
   endpoint.
-- Nearby search (Milestone 7A) has a real, working backend API
-  (`GET /api/v1/resources/nearby`), but no visual map, browser
-  geolocation, or map/list synchronization yet (Milestone 7B). Distance is
-  straight-line geography distance only — never route distance, walking
-  time, or driving time. Resource coordinates are entered only through a
-  protected `ADMIN`/`MODERATOR` API endpoint — no address geocoding and no
-  public UI for entering or viewing a resource's location yet (see
-  [ADR-012](docs/decisions/ADR-012-postgis-nearby-search-design.md)). No
-  saved resources, submissions, moderation, or organizations exist yet
-  (Milestone 7B-10).
+- Nearby search (Milestone 7A) and the interactive map built on top of it
+  (Milestone 7B) both work end to end — `/resources`'s **Map** view
+  supports browser geolocation, marker clustering, a search radius,
+  "Search this area," and full list/map synchronization. Distance is
+  still straight-line geography distance only — never route distance,
+  walking time, driving time, or turn-by-turn directions — and there is
+  no address geocoding, reverse geocoding, or rectangular map-bounds
+  search; "Search this area" is radius-based, centred on the map's
+  current centre point. Resource coordinates are entered only through a
+  protected `ADMIN`/`MODERATOR` API endpoint — no public UI for entering
+  or viewing a resource's location yet (see
+  [ADR-012](docs/decisions/ADR-012-postgis-nearby-search-design.md) and
+  [ADR-013](docs/decisions/ADR-013-interactive-map-and-geolocation-design.md)).
+  The map uses the public OpenStreetMap tile server directly — no
+  production tile-provider contract exists yet. No saved resources,
+  submissions, moderation, or organizations exist yet (Milestone 8-10).
 - No deployment workflow or hosted environment exists yet; CI currently verifies the
   backend and frontend only.
 - No automated dependency-vulnerability scanning is configured in this project.

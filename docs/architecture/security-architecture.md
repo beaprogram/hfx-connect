@@ -248,12 +248,38 @@ Authentication" and "Role-Based Authorization" above. See
   genuinely simultaneous legitimate refresh requests presenting the same
   token can trigger a false-positive family-wide revocation.
 
+## Geospatial Search and the Map (Milestone 7A/7B)
+
+`GET /api/v1/resources/nearby` (Milestone 7A) and the interactive map
+built on top of it (Milestone 7B) intentionally sit outside the
+authentication model above:
+
+- Nearby search is public, exactly like the plain resource list — no
+  token, no session, no role check. Only `PUT /resources/{id}/location`
+  (writing a resource's coordinate) requires an `ADMIN`/`MODERATOR`
+  access token, unchanged from every other resource-mutation endpoint.
+- Browser geolocation (Milestone 7B) is a frontend-only, client-side
+  browser permission — it has no relationship to this project's
+  authentication session at all. A caller's geolocated coordinate is
+  never sent to any endpoint that requires authentication, never
+  attached to a user account, and never persisted anywhere (see
+  [ADR-013](../decisions/ADR-013-interactive-map-and-geolocation-design.md)'s
+  "Location Privacy" section for the full accounting, including the
+  honest caveat that the coordinate is still visible in the request URL
+  itself, the same inherent property any `GET` query parameter has).
+- The map's `ViewToggle`/List-Map presentation switch is UI state only —
+  it is not, and is not described anywhere as, an authorization boundary.
+  The backend's existing role checks remain the sole authority for every
+  protected operation.
+
 ## See Also
 
 - [ADR-007: User Identity and Password Hashing](../decisions/ADR-007-user-identity-and-password-hashing.md)
 - [ADR-008: Authentication Session Architecture](../decisions/ADR-008-authentication-session-architecture.md)
 - [ADR-009: Request Authentication and Role Authorization](../decisions/ADR-009-request-authentication-and-role-authorization.md)
 - [ADR-006: Frontend-Backend Connectivity (CORS)](../decisions/ADR-006-frontend-backend-connectivity.md)
+- [ADR-012: PostGIS Resource Locations and Nearby-Search Design](../decisions/ADR-012-postgis-nearby-search-design.md)
+- [ADR-013: Interactive Map and Geolocation Design](../decisions/ADR-013-interactive-map-and-geolocation-design.md)
 - [Backend Architecture](backend-architecture.md)
 - [Frontend Architecture](frontend-architecture.md)
 - [API Documentation](../api/README.md)

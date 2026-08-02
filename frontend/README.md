@@ -7,20 +7,27 @@ documentation.
 **Status:** public browsing experience (Milestone 4) — a homepage, a filterable/sortable/
 searchable paginated resource list (keyword search added in Milestone 6A;
 cost/verification/open-now filters and weekly-schedule display added in
-Milestone 6B), and a resource detail page, all backed by the real Category
-and Resource APIs (Milestones 3A/3C/6A/6B) —
+Milestone 6B), a resource detail page, and an interactive **Map** view
+(Milestone 7B — Leaflet/OpenStreetMap, browser geolocation, marker
+clustering, list/map synchronization, consuming Milestone 7A's PostGIS
+nearby-search API), all backed by the real Category and Resource APIs
+(Milestones 3A/3C/6A/6B/7A) —
 plus real authentication (Milestone 5C): `/login`, `/register`, and a protected
 `/dashboard`, with an in-memory access token and refresh-cookie-based session
 restoration. See
 [docs/architecture/frontend-architecture.md](../docs/architecture/frontend-architecture.md#authentication-architecture)
-for the authentication design and its
+for the authentication design, its
 ["URL State" section](../docs/architecture/frontend-architecture.md#url-state-resources)
-for the search design. Saved resources, submissions, maps, and role-specific
-dashboards are not implemented yet.
+for the search design, and its
+["Interactive Map Architecture" section](../docs/architecture/frontend-architecture.md#interactive-map-architecture)
+for the map. Saved resources, submissions, and role-specific dashboards are
+not implemented yet.
 
 ## Stack
 
 Next.js (App Router) with TypeScript in strict mode, Tailwind CSS, TanStack Query, Zod,
+Leaflet/React Leaflet (Milestone 7B — see
+[ADR-013](../docs/decisions/ADR-013-interactive-map-and-geolocation-design.md)),
 ESLint, and Jest + React Testing Library.
 
 ## Local Development
@@ -84,7 +91,9 @@ frontend/
     app/                       Route segments (App Router)
       page.tsx                     Homepage
       resources/
-        page.tsx                     Resource list (filter/sort/pagination)
+        layout.tsx                    Mounts MapSearchProvider (Milestone 7B)
+        page.tsx                     Resource list/map (filter/sort/pagination,
+                                            or the Map view, see ResourceExplorer)
         loading.tsx, error.tsx
         [slug]/
           page.tsx                     Resource detail
@@ -97,7 +106,13 @@ frontend/
       resources/                Resource card/grid, filter form (incl. keyword search
                                             (6A) and cost/verification/open-now filters
                                             (6B)), pagination, detail (incl. weekly
-                                            schedule, Milestone 6B), status-badges
+                                            schedule, Milestone 6B), status-badges,
+                                            ResourceExplorer/MapExplorerView/
+                                            NearbyMapView/ViewToggle (Milestone 7B)
+      map/                          The Leaflet map, marker clustering, "Use my
+                                            location", radius selector, "Search this
+                                            area", nearby pagination (Milestone 7B —
+                                            client-only, loaded via next/dynamic)
       navigation/                Mobile disclosure nav (auth-aware as of Milestone 5C)
       auth/                          Login/register forms, dashboard content, the
                                             protected-route guard, and the auth-aware
@@ -109,10 +124,14 @@ frontend/
                                             resource (categories.ts, resources.ts, auth.ts)
       auth/                         AuthProvider/useAuth — the in-memory session
                                             (Milestone 5C)
+      map/                          MapSearchProvider/useMapSearch (session-scoped
+                                            centre/radius/geolocation/selection state,
+                                            mounted at the /resources layout) and
+                                            useGeolocation (Milestone 7B)
       validation/                Zod schemas mirroring the real backend contract
       query/                       TanStack Query client/provider/keys, URL-param parsing
-      formatting/               Label/date/address formatting helpers
-      constants/                 Allowlisted sort values, page sizes
+      formatting/               Label/date/address/distance formatting helpers
+      constants/                 Allowlisted sort values, page sizes, map defaults
   jest.config.mjs        Jest configuration (see the file's own comment for why
                                     this is .mjs rather than .ts)
   jest.setup.ts             Testing Library / jest-dom setup
@@ -132,7 +151,10 @@ loudly and safely instead of rendering broken data). `lib/api/categories.ts`,
 the frontend actually needs — nothing speculative. `lib/api/resources.ts`'s
 `getResources` accepts an optional `q` (keyword search, Milestone 6A) and
 optional `costType`/`verificationStatus`/`openNow` (Milestone 6B), each
-omitted from the request entirely when unset. See
+omitted from the request entirely when unset. The same file's
+`getNearbyResources` (Milestone 7B) calls Milestone 7A's
+`GET /resources/nearby`, validating latitude/longitude/radius synchronously
+before any request is sent. See
 `docs/architecture/frontend-architecture.md` for the full data-fetching
 strategy, its "Authentication Architecture" section for how the access
 token/session are handled, and its "URL State (`/resources`)" section for
@@ -150,4 +172,10 @@ the search design.
   AI coding agents that this Next.js version may include breaking changes relative to
   older training data — confirmed true during Milestone 4 (see
   `docs/architecture/frontend-architecture.md`'s notes on `params`/`searchParams` as
-  Promises and `error.tsx`'s `unstable_retry` prop).
+  Promises and `error.tsx`'s `unstable_retry` prop) and again during Milestone 7B (the
+  `ssr: false` `next/dynamic` restriction was confirmed against this version's own
+  bundled documentation, not assumed).
+- `npm audit` reports four pre-existing high-severity advisories in `next`/`postcss`/
+  `sharp`/`brace-expansion` — none introduced by Milestone 7B's new dependencies
+  (`leaflet`, `react-leaflet`, `react-leaflet-cluster`, `leaflet.markercluster`, all
+  clean); fixing them requires downgrading Next.js itself, out of scope here.

@@ -96,6 +96,12 @@ Core entities anticipated by the product requirements: `users`, `organizations`,
 authoritative, versioned schema lives in Flyway migration files (see
 `docs/database/README.md` for the current, real schema — not a plan).
 
+Milestone 7B built the first visual consumer of that geographic column: an
+interactive Leaflet/OpenStreetMap frontend map over the existing
+`GET /resources/nearby` endpoint, with browser geolocation and marker
+clustering — no new database schema (see
+[ADR-013](../decisions/ADR-013-interactive-map-and-geolocation-design.md)).
+
 ## Deployment Path
 
 | Stage | Setup |

@@ -6,6 +6,7 @@ structure plans, not visual design — see each page's own file for what it cove
 
 - [Homepage](homepage.md)
 - [Resource List (`/resources`)](resource-list.md)
+- [Interactive Map (`/resources`, Map view)](map-explorer.md)
 - [Resource Detail (`/resources/[slug]`)](resource-detail.md)
 - [Mobile Navigation](mobile-navigation.md)
 - [Loading, Empty, and Error States](states.md)
