@@ -1,4 +1,4 @@
-import { getResources, getResourceBySlug } from "./resources";
+import { getResources, getResourceBySlug, getNearbyResources } from "./resources";
 import { ApiRequestError, ApiResponseShapeError } from "./errors";
 
 const resourceSummary = {
@@ -248,5 +248,196 @@ describe("getResourceBySlug", () => {
 
     expect(error).toBeInstanceOf(ApiRequestError);
     expect((error as ApiRequestError).status).toBe(404);
+  });
+});
+
+// ---- getNearbyResources (Milestone 7B, consuming Milestone 7A's GET /resources/nearby) ----
+
+const nearbyResourceSummary = {
+  ...resourceSummary,
+  latitude: 44.6488,
+  longitude: -63.5752,
+  distanceMeters: 1204.7,
+};
+
+describe("getNearbyResources", () => {
+  beforeEach(() => {
+    global.fetch = jest.fn();
+  });
+
+  it("requests the nearby endpoint with latitude/longitude in the correct order (not swapped)", async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ content: [nearbyResourceSummary], page: 0, size: 12, totalElements: 1, totalPages: 1 }),
+    });
+
+    await getNearbyResources({ latitude: 44.6488, longitude: -63.5752 });
+
+    const requestedUrl = new URL((global.fetch as jest.Mock).mock.calls[0][0] as string);
+    expect(requestedUrl.pathname).toBe("/api/v1/resources/nearby");
+    expect(requestedUrl.searchParams.get("latitude")).toBe("44.6488");
+    expect(requestedUrl.searchParams.get("longitude")).toBe("-63.5752");
+  });
+
+  it("defaults radiusKm/page/size when not provided", async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ content: [], page: 0, size: 12, totalElements: 0, totalPages: 0 }),
+    });
+
+    await getNearbyResources({ latitude: 44.6488, longitude: -63.5752 });
+
+    const requestedUrl = new URL((global.fetch as jest.Mock).mock.calls[0][0] as string);
+    expect(requestedUrl.searchParams.get("radiusKm")).toBe("5");
+    expect(requestedUrl.searchParams.get("page")).toBe("0");
+    expect(requestedUrl.searchParams.get("size")).toBe("12");
+  });
+
+  it("encodes a custom radiusKm", async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ content: [], page: 0, size: 12, totalElements: 0, totalPages: 0 }),
+    });
+
+    await getNearbyResources({ latitude: 44.6488, longitude: -63.5752, radiusKm: 25 });
+
+    const requestedUrl = new URL((global.fetch as jest.Mock).mock.calls[0][0] as string);
+    expect(requestedUrl.searchParams.get("radiusKm")).toBe("25");
+  });
+
+  it("combines q/categoryId/costType/verificationStatus/openNow exactly like getResources", async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ content: [], page: 0, size: 12, totalElements: 0, totalPages: 0 }),
+    });
+
+    await getNearbyResources({
+      latitude: 44.6488,
+      longitude: -63.5752,
+      q: "library",
+      categoryId: 3,
+      costType: "FREE",
+      verificationStatus: "VERIFIED",
+      openNow: true,
+    });
+
+    const requestedUrl = new URL((global.fetch as jest.Mock).mock.calls[0][0] as string);
+    expect(requestedUrl.searchParams.get("q")).toBe("library");
+    expect(requestedUrl.searchParams.get("categoryId")).toBe("3");
+    expect(requestedUrl.searchParams.get("costType")).toBe("FREE");
+    expect(requestedUrl.searchParams.get("verificationStatus")).toBe("VERIFIED");
+    expect(requestedUrl.searchParams.get("openNow")).toBe("true");
+  });
+
+  it("omits blank q and false/absent openNow, matching getResources' semantics", async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ content: [], page: 0, size: 12, totalElements: 0, totalPages: 0 }),
+    });
+
+    await getNearbyResources({ latitude: 44.6488, longitude: -63.5752, q: "", openNow: false });
+
+    const requestedUrl = new URL((global.fetch as jest.Mock).mock.calls[0][0] as string);
+    expect(requestedUrl.searchParams.has("q")).toBe(false);
+    expect(requestedUrl.searchParams.has("openNow")).toBe(false);
+  });
+
+  it("passes the AbortSignal through to fetch", async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ content: [], page: 0, size: 12, totalElements: 0, totalPages: 0 }),
+    });
+    const controller = new AbortController();
+
+    await getNearbyResources({ latitude: 44.6488, longitude: -63.5752, signal: controller.signal });
+
+    expect((global.fetch as jest.Mock).mock.calls[0][1]).toMatchObject({ signal: controller.signal });
+  });
+
+  it.each([
+    ["latitude", { latitude: 91, longitude: -63.5752 }],
+    ["latitude", { latitude: Number.NaN, longitude: -63.5752 }],
+    ["longitude", { latitude: 44.6488, longitude: 181 }],
+    ["longitude", { latitude: 44.6488, longitude: Number.POSITIVE_INFINITY }],
+  ])("rejects an invalid %s before making a network request", (_field, coords) => {
+    expect(() => getNearbyResources(coords)).toThrow(RangeError);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it("rejects a zero or negative radiusKm before making a network request", () => {
+    expect(() => getNearbyResources({ latitude: 44.6488, longitude: -63.5752, radiusKm: 0 })).toThrow(RangeError);
+    expect(() => getNearbyResources({ latitude: 44.6488, longitude: -63.5752, radiusKm: -5 })).toThrow(RangeError);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it("parses distanceMeters and coordinates on each nearby result", async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ content: [nearbyResourceSummary], page: 0, size: 12, totalElements: 1, totalPages: 1 }),
+    });
+
+    const result = await getNearbyResources({ latitude: 44.6488, longitude: -63.5752 });
+
+    expect(result.content[0]!.distanceMeters).toBe(1204.7);
+    expect(result.content[0]!.latitude).toBe(44.6488);
+    expect(result.content[0]!.longitude).toBe(-63.5752);
+  });
+
+  it("rejects a response with a negative distance safely (a generic recoverable error, not a crash)", async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        content: [{ ...nearbyResourceSummary, distanceMeters: -5 }],
+        page: 0,
+        size: 12,
+        totalElements: 1,
+        totalPages: 1,
+      }),
+    });
+
+    await expect(getNearbyResources({ latitude: 44.6488, longitude: -63.5752 })).rejects.toBeInstanceOf(
+      ApiResponseShapeError,
+    );
+  });
+
+  it("rejects a response with an out-of-range coordinate safely", async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        content: [{ ...nearbyResourceSummary, latitude: 200 }],
+        page: 0,
+        size: 12,
+        totalElements: 1,
+        totalPages: 1,
+      }),
+    });
+
+    await expect(getNearbyResources({ latitude: 44.6488, longitude: -63.5752 })).rejects.toBeInstanceOf(
+      ApiResponseShapeError,
+    );
+  });
+
+  it("propagates a 400 as ApiRequestError (e.g. a radius above the backend's own maximum, which this client only lower-bounds)", async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: false,
+      status: 400,
+      json: async () => ({ status: 400, code: "INVALID_RADIUS", message: "radiusKm must be at most 50." }),
+    });
+
+    const error = await getNearbyResources({ latitude: 44.6488, longitude: -63.5752, radiusKm: 999 }).catch(
+      (e: unknown) => e,
+    );
+
+    expect(error).toBeInstanceOf(ApiRequestError);
+    expect((error as ApiRequestError).status).toBe(400);
   });
 });
