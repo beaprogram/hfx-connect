@@ -25,4 +25,34 @@ export const resourceKeys = {
     openNow?: boolean;
   }) => [...resourceKeys.all, "list", params] as const,
   detail: (slug: string) => [...resourceKeys.all, "detail", slug] as const,
+  /**
+   * Nearby-search key (Milestone 7B). Coordinates are rounded to 5 decimal
+   * places (~1.1m of precision — see ADR-013) purely so a marker's own
+   * onClick "recentre" or floating-point noise doesn't mint a spurious new
+   * cache entry/refetch for an unchanged search origin; this rounding is
+   * never applied to the actual request sent to the backend. Deliberately
+   * excludes `selectedResourceId` — selection is UI state, not part of what
+   * identifies this server-state query (see NearbyMapView).
+   */
+  nearby: (params: {
+    latitude: number;
+    longitude: number;
+    radiusKm: number;
+    page: number;
+    size: number;
+    categoryId?: number;
+    q?: string;
+    costType?: string;
+    verificationStatus?: string;
+    openNow?: boolean;
+  }) =>
+    [
+      ...resourceKeys.all,
+      "nearby",
+      {
+        ...params,
+        latitude: Math.round(params.latitude * 100_000) / 100_000,
+        longitude: Math.round(params.longitude * 100_000) / 100_000,
+      },
+    ] as const,
 };

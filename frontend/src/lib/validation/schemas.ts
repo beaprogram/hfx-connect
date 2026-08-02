@@ -141,6 +141,44 @@ export const resourcePageResponseSchema = z.object({
 });
 export type ResourcePageResponse = z.infer<typeof resourcePageResponseSchema>;
 
+/**
+ * A resource-summary card plus its geographic distance from the search
+ * origin (Milestone 7B, consuming Milestone 7A's `GET /resources/nearby` —
+ * see ADR-012/ADR-013). `latitude`/`longitude` are the resource's own saved
+ * coordinate, never the caller's; `distanceMeters` is straight-line
+ * ("as the crow flies") distance, never route distance or travel time.
+ * Latitude/longitude/distance are constrained to finite, physically valid
+ * ranges — a response with an out-of-range coordinate or a negative
+ * distance fails validation and is never rendered as a marker.
+ */
+export const nearbyResourceSummaryResponseSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  slug: z.string(),
+  city: z.string().nullish(),
+  province: z.string().nullish(),
+  costType: costTypeSchema,
+  verificationStatus: verificationStatusSchema,
+  active: z.boolean(),
+  category: categorySummarySchema,
+  createdAt: z.string(),
+  hoursStatus: hoursStatusSchema,
+  openNow: z.boolean().nullish(),
+  latitude: z.number().finite().gte(-90).lte(90),
+  longitude: z.number().finite().gte(-180).lte(180),
+  distanceMeters: z.number().finite().nonnegative(),
+});
+export type NearbyResourceSummaryResponse = z.infer<typeof nearbyResourceSummaryResponseSchema>;
+
+export const nearbyResourcePageResponseSchema = z.object({
+  content: z.array(nearbyResourceSummaryResponseSchema),
+  page: z.number(),
+  size: z.number(),
+  totalElements: z.number(),
+  totalPages: z.number(),
+});
+export type NearbyResourcePageResponse = z.infer<typeof nearbyResourcePageResponseSchema>;
+
 export const roleSchema = z.enum(["USER", "ORGANIZATION", "MODERATOR", "ADMIN"]);
 export type Role = z.infer<typeof roleSchema>;
 

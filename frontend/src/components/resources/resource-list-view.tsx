@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { getCategories } from "@/lib/api/categories";
@@ -18,7 +19,14 @@ import { Pagination } from "@/components/resources/pagination";
 import { EmptyState } from "@/components/feedback/empty-state";
 import { InlineError } from "@/components/feedback/inline-error";
 
-export function ResourceListView({ params }: { params: ResourceListParams }) {
+export function ResourceListView({
+  params,
+  headerActions,
+}: {
+  params: ResourceListParams;
+  /** Optional content rendered beside the heading (Milestone 7B's List/Map `ViewToggle`) — absent by default so existing callers/tests are unaffected. */
+  headerActions?: ReactNode;
+}) {
   const categoryQuery = useQuery({
     queryKey: categoryKeys.list({ active: true }),
     queryFn: ({ signal }) => getCategories({ active: true, size: 50, signal }),
@@ -58,11 +66,16 @@ export function ResourceListView({ params }: { params: ResourceListParams }) {
 
   return (
     <div className="mx-auto w-full max-w-5xl px-4 py-12 sm:px-6">
-      <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Browse resources</h1>
-      <p className="mt-2 max-w-2xl text-base text-slate-600">
-        Active community resources, browsable by category or by keyword search. Verification status
-        is shown on each listing — most listings have not been independently verified yet.
-      </p>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Browse resources</h1>
+          <p className="mt-2 max-w-2xl text-base text-slate-600">
+            Active community resources, browsable by category or by keyword search. Verification status
+            is shown on each listing — most listings have not been independently verified yet.
+          </p>
+        </div>
+        {headerActions}
+      </div>
 
       <div className="mt-6">
         <ResourceFilterForm

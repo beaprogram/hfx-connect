@@ -6,7 +6,7 @@ import { getCategories } from "@/lib/api/categories";
 import { getResources } from "@/lib/api/resources";
 import { parseResourceListParams, type RawSearchParams } from "@/lib/query/resource-list-params";
 import { RESOURCE_LIST_PAGE_SIZE } from "@/lib/constants/resources";
-import { ResourceListView } from "@/components/resources/resource-list-view";
+import { ResourceExplorer } from "@/components/resources/resource-explorer";
 
 export const metadata: Metadata = {
   title: "Browse resources | HFX Connect",
@@ -52,7 +52,7 @@ export default async function ResourcesPage({ searchParams }: { searchParams: Pr
 
   return (
     <HydrationBoundary state={dehydrate(queryClient)}>
-      <ResourceListView params={params} />
+      <ResourceExplorer params={params} />
     </HydrationBoundary>
   );
 }
