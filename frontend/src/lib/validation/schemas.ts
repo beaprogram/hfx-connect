@@ -179,6 +179,35 @@ export const nearbyResourcePageResponseSchema = z.object({
 });
 export type NearbyResourcePageResponse = z.infer<typeof nearbyResourcePageResponseSchema>;
 
+/**
+ * One saved resource (Milestone 8A) — `savedAt` plus the same
+ * `resourceSummaryResponseSchema` the plain public list already uses.
+ * Deliberately has no `userId` field at all: the backend response never
+ * includes one (every saved-resource endpoint is scoped to the current
+ * authenticated principal), so there is nothing to accidentally trust from
+ * a caller-supplied value here either.
+ */
+export const savedResourceSummaryResponseSchema = z.object({
+  savedAt: z.string(),
+  resource: resourceSummaryResponseSchema,
+});
+export type SavedResourceSummaryResponse = z.infer<typeof savedResourceSummaryResponseSchema>;
+
+export const savedResourcePageResponseSchema = z.object({
+  content: z.array(savedResourceSummaryResponseSchema),
+  page: z.number(),
+  size: z.number(),
+  totalElements: z.number(),
+  totalPages: z.number(),
+});
+export type SavedResourcePageResponse = z.infer<typeof savedResourcePageResponseSchema>;
+
+/** The batch saved-status lookup's response (Milestone 8A) — only the current user's own saved subset of the requested ids, never another user's data. */
+export const savedResourceStatusResponseSchema = z.object({
+  savedResourceIds: z.array(z.string()),
+});
+export type SavedResourceStatusResponse = z.infer<typeof savedResourceStatusResponseSchema>;
+
 export const roleSchema = z.enum(["USER", "ORGANIZATION", "MODERATOR", "ADMIN"]);
 export type Role = z.infer<typeof roleSchema>;
 

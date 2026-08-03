@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { CostBadge, HoursStatusBadge, VerificationBadge } from "@/components/resources/status-badges";
+import { SaveResourceButton } from "@/components/resources/save-resource-button";
 import { formatCityProvince } from "@/lib/formatting/location";
 import { formatDistanceAway } from "@/lib/formatting/distance";
 import type { NearbyResourceSummaryResponse } from "@/lib/validation/schemas";
@@ -11,16 +12,20 @@ import type { NearbyResourceSummaryResponse } from "@/lib/validation/schemas";
  * distance-from-search-origin and a selectable state shared with the map's
  * markers (see ADR-013's "List and Map Synchronization"). Selection is
  * always communicated through a visible text label and a thicker border,
- * never colour alone.
+ * never colour alone. `isSaved` comes from one batched saved-status lookup
+ * for the whole nearby result page (Milestone 8A — see
+ * `useSavedResourceStatusMap`), never fetched per card.
  */
 export function NearbyResourceCard({
   resource,
   selected,
   onSelect,
+  isSaved,
 }: {
   resource: NearbyResourceSummaryResponse;
   selected: boolean;
   onSelect: (id: string) => void;
+  isSaved?: boolean;
 }) {
   const location = formatCityProvince(resource.city, resource.province);
 
@@ -56,12 +61,15 @@ export function NearbyResourceCard({
         <VerificationBadge status={resource.verificationStatus} />
         <HoursStatusBadge status={resource.hoursStatus} />
       </div>
-      <Link
-        href={`/resources/${resource.slug}`}
-        className="relative z-10 mt-1 w-fit rounded-sm text-sm font-medium text-blue-700 underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
-      >
-        View details
-      </Link>
+      <div className="relative z-10 mt-1 flex flex-wrap items-center gap-3">
+        <Link
+          href={`/resources/${resource.slug}`}
+          className="w-fit rounded-sm text-sm font-medium text-blue-700 underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+        >
+          View details
+        </Link>
+        <SaveResourceButton resourceId={resource.id} resourceName={resource.name} isSaved={isSaved} />
+      </div>
     </article>
   );
 }

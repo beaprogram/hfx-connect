@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useId, useState, type FormEvent } from "react";
 import { useAuth } from "@/lib/auth/auth-provider";
+import { resolveReturnPath } from "@/lib/auth/return-to";
 
 const inputClassName =
   "rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600";
@@ -13,6 +14,7 @@ const linkClassName =
 export function LoginForm() {
   const { login } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const emailId = useId();
   const passwordId = useId();
   const errorId = useId();
@@ -28,7 +30,10 @@ export function LoginForm() {
     setError(null);
     try {
       await login(email, password);
-      router.push("/dashboard");
+      // A "Sign in to save" link (Milestone 8A) carries `?returnTo=` back to
+      // the page the caller started on; only a validated same-origin
+      // relative path is ever honored — see lib/auth/return-to.ts.
+      router.push(resolveReturnPath(searchParams.get("returnTo"), "/dashboard"));
     } catch {
       // The backend never reveals whether an email is registered (ADR-008) —
       // the frontend preserves that by showing one generic message for every

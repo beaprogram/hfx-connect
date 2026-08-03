@@ -1,10 +1,20 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactElement } from "react";
 import { AuthProvider, useAuth } from "./auth-provider";
 import { login, logout, refreshSession } from "@/lib/api/auth";
 import { ApiRequestError } from "@/lib/api/errors";
 
 jest.mock("@/lib/api/auth");
+
+// AuthProvider reads useQueryClient() (Milestone 8A — to clear the private
+// saved-resource cache on logout/account switch), so every render needs a
+// real QueryClientProvider ancestor, the same as any other TanStack-Query-
+// consuming component in this codebase.
+function renderWithQueryClient(ui: ReactElement, queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
+  return { ...render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>), queryClient };
+}
 
 const mockRefreshSession = refreshSession as jest.MockedFunction<typeof refreshSession>;
 const mockLogin = login as jest.MockedFunction<typeof login>;
@@ -40,7 +50,7 @@ describe("AuthProvider", () => {
   it("starts in the loading state before restoration resolves", () => {
     mockRefreshSession.mockReturnValue(new Promise(() => {})); // never resolves within this test
 
-    render(
+    renderWithQueryClient(
       <AuthProvider>
         <Probe />
       </AuthProvider>,
@@ -52,7 +62,7 @@ describe("AuthProvider", () => {
   it("becomes authenticated when session restoration succeeds", async () => {
     mockRefreshSession.mockResolvedValueOnce(sessionResult);
 
-    render(
+    renderWithQueryClient(
       <AuthProvider>
         <Probe />
       </AuthProvider>,
@@ -65,7 +75,7 @@ describe("AuthProvider", () => {
   it("becomes unauthenticated (not an error) when there is no valid refresh cookie", async () => {
     mockRefreshSession.mockRejectedValueOnce(new ApiRequestError("Authentication is required.", 401, "AUTHENTICATION_REQUIRED"));
 
-    render(
+    renderWithQueryClient(
       <AuthProvider>
         <Probe />
       </AuthProvider>,
@@ -78,7 +88,7 @@ describe("AuthProvider", () => {
     const localSetItem = jest.spyOn(Storage.prototype, "setItem");
     mockRefreshSession.mockResolvedValueOnce(sessionResult);
 
-    render(
+    renderWithQueryClient(
       <AuthProvider>
         <Probe />
       </AuthProvider>,
@@ -105,7 +115,7 @@ describe("AuthProvider", () => {
     }
 
     const testUser = userEvent.setup();
-    render(
+    renderWithQueryClient(
       <AuthProvider>
         <LoginProbe />
       </AuthProvider>,
@@ -133,7 +143,7 @@ describe("AuthProvider", () => {
     }
 
     const testUser = userEvent.setup();
-    render(
+    renderWithQueryClient(
       <AuthProvider>
         <LogoutProbe />
       </AuthProvider>,
@@ -146,6 +156,78 @@ describe("AuthProvider", () => {
     expect(mockLogout).toHaveBeenCalledTimes(1);
   });
 
+  it("logout() removes private saved-resource queries from the TanStack Query cache", async () => {
+    mockRefreshSession.mockResolvedValueOnce(sessionResult);
+    mockLogout.mockResolvedValueOnce(undefined);
+
+    function LogoutProbe() {
+      const { state, logout: doLogout } = useAuth();
+      return (
+        <div>
+          <span data-testid="status">{state.status}</span>
+          <button onClick={() => void doLogout()}>logout</button>
+        </div>
+      );
+    }
+
+    const testUser = userEvent.setup();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    renderWithQueryClient(
+      <AuthProvider>
+        <LogoutProbe />
+      </AuthProvider>,
+      queryClient,
+    );
+    await waitFor(() => expect(screen.getByTestId("status")).toHaveTextContent("authenticated"));
+
+    // Simulates a saved-resource query already cached for this account.
+    queryClient.setQueryData(["saved-resources", user.id, "list", { page: 0 }], { content: ["fake"] });
+    expect(queryClient.getQueryData(["saved-resources", user.id, "list", { page: 0 }])).toBeDefined();
+
+    await testUser.click(screen.getByRole("button", { name: "logout" }));
+
+    await waitFor(() => expect(screen.getByTestId("status")).toHaveTextContent("unauthenticated"));
+    expect(queryClient.getQueryData(["saved-resources", user.id, "list", { page: 0 }])).toBeUndefined();
+  });
+
+  it("logging in as a different account clears the previous account's saved-resource cache", async () => {
+    const otherUser = { ...user, id: "22222222-2222-2222-2222-222222222222", email: "other@example.org" };
+    mockRefreshSession.mockResolvedValueOnce(sessionResult);
+    mockLogout.mockResolvedValueOnce(undefined);
+    mockLogin.mockResolvedValueOnce({ ...sessionResult, user: otherUser });
+
+    function SwitchProbe() {
+      const { state, logout: doLogout, login: doLogin } = useAuth();
+      return (
+        <div>
+          <span data-testid="status">{state.status}</span>
+          {state.status === "authenticated" && <span data-testid="email">{state.user.email}</span>}
+          <button onClick={() => void doLogout()}>logout</button>
+          <button onClick={() => void doLogin("other@example.org", "correcthorsebattery")}>login-other</button>
+        </div>
+      );
+    }
+
+    const testUser = userEvent.setup();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    renderWithQueryClient(
+      <AuthProvider>
+        <SwitchProbe />
+      </AuthProvider>,
+      queryClient,
+    );
+    await waitFor(() => expect(screen.getByTestId("status")).toHaveTextContent("authenticated"));
+
+    queryClient.setQueryData(["saved-resources", user.id, "list", { page: 0 }], { content: ["fake"] });
+
+    await testUser.click(screen.getByRole("button", { name: "logout" }));
+    await waitFor(() => expect(screen.getByTestId("status")).toHaveTextContent("unauthenticated"));
+    await testUser.click(screen.getByRole("button", { name: "login-other" }));
+
+    await waitFor(() => expect(screen.getByTestId("email")).toHaveTextContent("other@example.org"));
+    expect(queryClient.getQueryData(["saved-resources", user.id, "list", { page: 0 }])).toBeUndefined();
+  });
+
   it("coalesces concurrent refresh attempts into a single request (single-flight)", async () => {
     let resolveRefresh: (value: typeof sessionResult) => void = () => {};
     mockRefreshSession.mockImplementationOnce(
@@ -156,7 +238,7 @@ describe("AuthProvider", () => {
     );
 
     const testUser = userEvent.setup();
-    render(
+    renderWithQueryClient(
       <AuthProvider>
         <Probe />
       </AuthProvider>,
@@ -179,7 +261,7 @@ describe("AuthProvider", () => {
   it("does not retry indefinitely after a failed restoration", async () => {
     mockRefreshSession.mockRejectedValueOnce(new ApiRequestError("none", 401, "AUTHENTICATION_REQUIRED"));
 
-    render(
+    renderWithQueryClient(
       <AuthProvider>
         <Probe />
       </AuthProvider>,

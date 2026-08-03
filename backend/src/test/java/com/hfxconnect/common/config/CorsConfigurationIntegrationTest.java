@@ -67,6 +67,31 @@ class CorsConfigurationIntegrationTest extends AbstractPostgresIntegrationTest {
 	}
 
 	@Test
+	void preflightAllowsPutAndDeleteForTheSavedResourcesRoutes() {
+		HttpHeaders putHeaders = new HttpHeaders();
+		putHeaders.setOrigin("http://localhost:3000");
+		putHeaders.set("Access-Control-Request-Method", "PUT");
+		putHeaders.set("Access-Control-Request-Headers", "Authorization");
+
+		ResponseEntity<Void> putResponse = restTemplate.exchange(
+				"/api/v1/users/me/saved-resources/11111111-1111-1111-1111-111111111111", HttpMethod.OPTIONS,
+				new HttpEntity<>(putHeaders), Void.class);
+
+		assertThat(putResponse.getHeaders().getAccessControlAllowMethods()).contains(HttpMethod.PUT);
+
+		HttpHeaders deleteHeaders = new HttpHeaders();
+		deleteHeaders.setOrigin("http://localhost:3000");
+		deleteHeaders.set("Access-Control-Request-Method", "DELETE");
+		deleteHeaders.set("Access-Control-Request-Headers", "Authorization");
+
+		ResponseEntity<Void> deleteResponse = restTemplate.exchange(
+				"/api/v1/users/me/saved-resources/11111111-1111-1111-1111-111111111111", HttpMethod.OPTIONS,
+				new HttpEntity<>(deleteHeaders), Void.class);
+
+		assertThat(deleteResponse.getHeaders().getAccessControlAllowMethods()).contains(HttpMethod.DELETE);
+	}
+
+	@Test
 	void preflightFromAnUnconfiguredOriginIsRejected() {
 		HttpHeaders headers = new HttpHeaders();
 		headers.setOrigin("https://not-the-real-frontend.example.com");

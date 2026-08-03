@@ -56,3 +56,22 @@ export const resourceKeys = {
       },
     ] as const,
 };
+
+/**
+ * Saved-resource keys (Milestone 8A) — private, per-account data. Every key
+ * is rooted in `userId` (the current authenticated account's id), never the
+ * access-token string itself: a token rotates on every refresh (ADR-008)
+ * while the account it represents does not, so keying on the token would
+ * mint a pointless new cache entry on every silent refresh. Rooting on
+ * `userId` instead of a token also means account A's cache can never be
+ * addressed by account B's queries, even before any explicit logout/
+ * account-switch cache clearing runs (see `lib/auth/auth-provider.tsx`).
+ */
+export const savedResourceKeys = {
+  all: (userId: string) => ["saved-resources", userId] as const,
+  list: (userId: string, params: { page: number; size: number; sort?: string }) =>
+    [...savedResourceKeys.all(userId), "list", params] as const,
+  /** `resourceIds` sorted so two requests for the same set of ids (in a different order) share one cache entry. */
+  status: (userId: string, resourceIds: string[]) =>
+    [...savedResourceKeys.all(userId), "status", [...resourceIds].sort()] as const,
+};

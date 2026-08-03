@@ -2,7 +2,7 @@
 
 ## Current Schema
 
-As of Milestone 7A, the schema contains seven Flyway migrations:
+As of Milestone 8A, the schema contains eight Flyway migrations:
 
 | Version | File | Purpose |
 |---|---|---|
@@ -13,6 +13,7 @@ As of Milestone 7A, the schema contains seven Flyway migrations:
 | 5 | `backend/src/main/resources/db/migration/V5__create_refresh_sessions_table.sql` | Creates the `refresh_sessions` table |
 | 6 | `backend/src/main/resources/db/migration/V6__create_resource_operating_hours.sql` | Creates the `resource_operating_hours` table |
 | 7 | `backend/src/main/resources/db/migration/V7__add_resource_location.sql` | Adds `resources.location` (geography) and its GiST index |
+| 8 | `backend/src/main/resources/db/migration/V8__create_saved_resources_table.sql` | Creates the `saved_resources` table |
 
 ### `categories`
 
@@ -174,6 +175,51 @@ Read/written by `ResourceService` (`getActiveById`/`getActiveBySlug`/
 `PUT /api/v1/resources/{id}/operating-hours` endpoint — see
 `docs/api/README.md`). Never exposed as its own standalone resource.
 
+### `saved_resources`
+
+One row per (user, resource) a user has saved for later — see
+[ADR-014](../decisions/ADR-014-saved-resources-design.md) for the full
+design. `id` is `BIGINT GENERATED ALWAYS AS IDENTITY`, matching
+`resource_operating_hours`' reasoning (V6): never independently
+addressable in a URL or public API — always read/written as "this
+user's saved-resource relation for this resource," identified by
+`(user_id, resource_id)`.
+
+| Column | Type | Constraints |
+|---|---|---|
+| `id` | `BIGINT` | Primary key, `GENERATED ALWAYS AS IDENTITY` |
+| `user_id` | `UUID` | `NOT NULL`, `REFERENCES users(id) ON DELETE CASCADE` — a saved-resource relation has no meaning independent of the account that saved it (same reasoning as `refresh_sessions.user_id`, V5) |
+| `resource_id` | `UUID` | `NOT NULL`, `REFERENCES resources(id) ON DELETE CASCADE` — a saved-resource relation has no meaning independent of the resource being saved (same reasoning as `resource_operating_hours.resource_id`, V6) |
+| `created_at` | `TIMESTAMPTZ` | `NOT NULL`, defaults to `now()` |
+
+`UNIQUE (user_id, resource_id)` — the authoritative duplicate-save
+guard: `SavedResourceService`'s idempotent save checks existence first,
+but a genuine concurrent-request race is resolved by this constraint,
+not the application-level check alone (the losing insert's
+`DataIntegrityViolationException` is caught and treated as success).
+
+**Deactivating a resource (`resources.active = false`) is not a
+delete** — a saved relation survives a resource being deactivated and
+is simply excluded from the visible saved list
+(`SavedResourceService.list`) until/unless the resource becomes active
+again. Only a genuine row deletion (which no endpoint currently
+performs) triggers the `ON DELETE CASCADE`.
+
+Indexes: `saved_resources_user_id_created_at_idx` on
+`(user_id, created_at DESC)` — supports the primary read path, "list
+this user's saved resources, newest first" (matches the default
+`savedAt`-descending ordering); `saved_resources_resource_id_idx` on
+`(resource_id)` — Postgres does not automatically index a foreign
+key's referencing column, and without this, deleting a resource
+(cascading to its `saved_resources` rows) would require a sequential
+scan of this table.
+
+Read/written by `SavedResourceService` for the authenticated-only
+`PUT`/`DELETE`/`GET`/`POST status` endpoints under
+`/api/v1/users/me/saved-resources` — see `docs/api/README.md`. Never
+exposed as its own standalone resource, and never readable for any
+account other than the authenticated caller.
+
 ## Database Engine
 
 PostgreSQL 17 with the PostGIS 3.5 extension, via the `postgis/postgis:17-3.5` Docker
@@ -188,9 +234,9 @@ auto-configuration, migrations are triggered by an explicit configuration class 
 see [ADR-004](../decisions/ADR-004-manual-flyway-configuration.md) for why, and
 `backend/README.md` for how to run and inspect migrations locally.
 
-Hibernate/JPA is used for reading and writing rows (`categories`, `resources`, and
-`resource_operating_hours` all have JPA entities), but never for schema creation
-or changes —
+Hibernate/JPA is used for reading and writing rows (`categories`, `resources`,
+`resource_operating_hours`, and `saved_resources` all have JPA entities), but
+never for schema creation or changes —
 `spring.jpa.hibernate.ddl-auto=validate` makes Hibernate check that entity mappings
 match what Flyway already created, and fail startup if they don't, rather than ever
 creating or altering a table itself.
@@ -199,7 +245,8 @@ creating or altering a table itself.
 
 The remaining entities anticipated by the product requirements are listed in
 [docs/architecture/system-overview.md](../architecture/system-overview.md#data-model-direction):
-`organizations`, `saved_resources`, `resource_reports`,
-`resource_submissions`, `events`, and `resource_history` (`operating_hours`
-is now implemented, as `resource_operating_hours` above — Milestone 6B).
-These will be introduced as real Flyway migrations in later milestones.
+`organizations`, `resource_reports`, `resource_submissions`, `events`, and
+`resource_history` (`operating_hours` is now implemented, as
+`resource_operating_hours` above — Milestone 6B; `saved_resources` is now
+implemented, as above — Milestone 8A). These will be introduced as real
+Flyway migrations in later milestones.

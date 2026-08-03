@@ -39,6 +39,13 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
  * remains legal only because {@code allowedOrigins} stays an explicit,
  * environment-configured allowlist with no {@code "*"} wildcard — Spring
  * throws at startup if the two are combined with a wildcard origin.
+ *
+ * <p>{@code allowedMethods} includes {@code PUT} and {@code DELETE} as of
+ * Milestone 8A — the saved-resources save/remove endpoints are the first
+ * browser-called routes to use these methods (the existing admin
+ * {@code PUT} routes on {@code ResourceController} were previously only
+ * exercised by backend integration tests, never from the browser, so this
+ * gap went unnoticed until a real cross-origin preflight hit it).
  */
 @Configuration
 public class WebCorsConfig {
@@ -53,7 +60,7 @@ public class WebCorsConfig {
 	public CorsConfigurationSource corsConfigurationSource() {
 		CorsConfiguration configuration = new CorsConfiguration();
 		configuration.setAllowedOrigins(List.of(allowedOrigins));
-		configuration.setAllowedMethods(List.of("GET", "POST"));
+		configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE"));
 		configuration.setAllowedHeaders(List.of("Content-Type", "Authorization"));
 		configuration.setAllowCredentials(true);
 		configuration.setMaxAge(3600L);

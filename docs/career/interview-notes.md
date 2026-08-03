@@ -699,10 +699,72 @@ confirmed a single deduped Leaflet instance across the whole tree, which
 rules out a common failure mode where a clustering plugin quietly pulls
 in its own separate copy.
 
+## Answerable Now (Milestone 8A)
+
+**How does saving a resource stay correct if two requests race each
+other — say, a double-click?** The application checks first ("does this
+already exist?"), but the thing that actually guarantees correctness
+under a real race is the database's own `UNIQUE (user_id, resource_id)`
+constraint. If two near-simultaneous requests both pass that initial
+check before either commits, one insert wins and the other fails with a
+constraint violation — which I catch and treat as success, because the
+caller's desired end state ("this resource is saved") is already true
+either way. I didn't just reason about this: I wrote an integration test
+that fires two genuinely concurrent save requests for the same user and
+resource, and asserts exactly one row exists afterward.
+
+**Saved resources are private per-account data. How do you make sure one
+user's browser session never shows another user's saved state?** The
+backend side is straightforward — every query is scoped by the
+authenticated user's id, so there's no cross-account read path at all.
+The harder problem was the frontend's TanStack Query cache, which is
+shared, in-memory browser state that persists across a logout or a
+same-tab account switch unless something explicitly clears it. I put
+that responsibility in the one place that already knows exactly when
+those two events happen — the existing `AuthProvider` — rather than
+trusting every future component that touches saved-resource data to
+remember to invalidate its own cache. I verified this live, not just
+with mocked tests: logged in as one real account, saved a resource,
+logged out, logged in as a second real account in the same browser tab,
+and confirmed the second account's dashboard showed its own (empty)
+saved state, not the first account's.
+
+**Walk me through a bug you found after your automated tests were
+already green, again.** During this milestone's manual verification, the
+very first real save click in the browser failed — not with a visible
+error message, but with a raw CORS preflight failure in the console:
+"No 'Access-Control-Allow-Origin' header." The `GET` requests on the
+same page had worked fine moments earlier. That asymmetry was the clue:
+I checked `WebCorsConfig` and found `allowedMethods` only ever listed
+`GET`/`POST` — it had been that way since the bean was first written,
+several milestones earlier. Nothing had caught it before because the
+only other `PUT` routes in the app (an admin operating-hours/location
+endpoint) had only ever been exercised by backend integration tests,
+which call the API directly and never go through a real browser's CORS
+layer at all. My own new frontend unit tests couldn't have caught it
+either, since they mock the API client rather than making a real
+cross-origin browser request. I fixed the allowlist and added a
+dedicated preflight regression test before considering the milestone
+verified. The lesson I took from it: a mocked test suite proves your
+application logic is correct; it doesn't prove a real browser can
+actually reach that logic in the first place. Only a genuinely
+browser-driven check can prove that.
+
+**Why didn't you just clear the whole TanStack Query cache on logout
+instead of writing something more targeted?** I considered it, but a
+full `queryClient.clear()` would also throw away harmless public data —
+the category list, already-fetched public resource pages — for no
+security benefit, since none of that is private. I scoped the clearing
+to exactly the `saved-resources`-prefixed query keys instead, so a
+logout stays cheap for everything that doesn't need to be private.
+
 ## To Be Added in Later Milestones
 
 - How moderation approval and audit-history writes are made transactional (Milestone
   9).
 - How geographic search is kept fast as content grows at production scale (deferred —
   Milestone 7A/7B's own datasets were too small to benchmark meaningfully).
+- How saved-resource query/status-lookup performance holds up at realistic
+  per-account saved-item counts (deferred — Milestone 8A's own manual-verification
+  dataset was two resources and three accounts).
 - Trade-offs made and limitations knowingly deferred, updated at each milestone.

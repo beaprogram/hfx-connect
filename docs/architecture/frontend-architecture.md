@@ -11,7 +11,9 @@
 > which added keyword search to `/resources` — see "URL State (`/resources`)"
 > below. Updated again in Milestone 7B, which added the interactive map,
 > browser geolocation, and List/Map presentation switch — see "Interactive
-> Map Architecture" below.
+> Map Architecture" below. Updated again in Milestone 8A, which added
+> saved resources — the first private, per-account data this frontend
+> caches — see "Saved Resources and Private-Data Cache Isolation" below.
 
 ## Route Structure
 
@@ -115,7 +117,18 @@ resourceKeys.list({ page, size, categoryId, sort, q, costType, verificationStatu
 categoryKeys.list({ active })
 resourceKeys.detail(slug)
 resourceKeys.nearby({ latitude, longitude, radiusKm, page, size, categoryId, q, costType, verificationStatus, openNow })
+savedResourceKeys.list(userId, { page, size, sort })
+savedResourceKeys.status(userId, resourceIds)
 ```
+
+`savedResourceKeys` (Milestone 8A) is the first key factory rooted in a
+value that identifies *who is asking*, not just *what is being asked
+for* — every key starts with the authenticated user's stable `id`,
+never the access token (which rotates on refresh and would otherwise
+fragment one live session's own cache). `status(userId, resourceIds)`
+sorts `resourceIds` before building the key, so the same set of ids
+requested in a different render order still hits one shared cache entry
+— see "Saved Resources and Private-Data Cache Isolation" below.
 
 `resourceKeys.nearby` (Milestone 7B) rounds latitude/longitude to 5 decimal
 places purely to keep the cache key stable against floating-point noise —
@@ -367,6 +380,49 @@ Summary of what actually exists in the code:
   enforcement (`SecurityConfig`) remains authoritative regardless of
   anything the frontend renders or hides.
 
+## Saved Resources and Private-Data Cache Isolation
+
+Full design rationale:
+[ADR-014](../decisions/ADR-014-saved-resources-design.md). Summary:
+
+- **`lib/query/use-saved-resources.ts`'s `useSavedResourceStatusMap(resourceIds)`**
+  is called exactly once per listing container (the resource grid's
+  parent, the nearby/map view, or a batch-of-one on the detail page) —
+  never inside an individual card component — so a page of resource
+  cards issues one `POST .../status` request regardless of how many
+  cards it renders, not one per card. `enabled: userId !== null &&
+  sortedIds.length > 0` guards it from ever firing while signed out or
+  with an empty id list.
+- **Every saved-resource query key is rooted in `userId`** (see "Query
+  Keys" above) — never the access token, which rotates.
+- **`AuthProvider` clears the private saved-resource cache on two
+  events**: unconditionally on `logout()`, and the moment
+  `applySession()` detects the newly-authenticated user's id differs
+  from the previously-authenticated one (an account switch within the
+  same browser tab). Both use `queryClient.removeQueries` scoped to the
+  `saved-resources` key prefix — not a full `queryClient.clear()`,
+  which would also discard unrelated, harmless public caches (the
+  category list, public resource pages) for no benefit. This is why
+  `AuthProvider` now depends on `useQueryClient()`, which in turn means
+  every render of `AuthProvider` (including in tests) needs a
+  `QueryClientProvider` ancestor — a dependency that cascaded into
+  several pre-existing test files across this codebase that had
+  previously rendered `AuthProvider` (or a component consuming saved-
+  resource data) without one.
+- **Save/remove mutations optimistically patch other cached status
+  queries** on success (`patchStatusCaches`, via
+  `queryClient.setQueriesData` with a predicate matching every
+  `status`-suffixed key for the current user) so every currently-
+  mounted save control across the page updates immediately, not just
+  the one that was clicked; the saved-list query is invalidated
+  separately rather than patched in place, since patching a paginated,
+  sorted list's exact membership/ordering client-side is more failure-
+  prone than letting it refetch next time it's actually viewed.
+- **Never written to `localStorage`/`sessionStorage`** — saved-resource
+  state exists only in the in-memory `QueryClient` cache, exactly like
+  every other piece of server state this frontend caches, and is
+  discarded on a full page reload the same way the access token is.
+
 ## Backend Connectivity
 
 The browser calls the backend directly — see
@@ -381,10 +437,13 @@ for the resulting `WebCorsConfig`.
 - Keyword search (Milestone 6A) has no autocomplete, typo tolerance, or
   relevance ranking — a submit-based, exact-substring, case-insensitive
   match only. No debounced/per-keystroke search either — see ADR-010.
-- No role-specific dashboards, category/resource creation forms, saved
-  resources, submissions, or moderation UI — `/dashboard` shows only the
-  current authenticated account's safe fields and a logout control (Milestone
-  5C's explicit scope; see ADR-009).
+- No role-specific dashboards, category/resource creation forms,
+  submissions, or moderation UI — `/dashboard` shows the current
+  authenticated account's safe fields, a logout control, and (as of
+  Milestone 8A) a Saved Resources section; no other account feature
+  exists yet.
+- No notes, folders, or collections on saved resources (Milestone 8A) —
+  a flat, unorganized list only; no saved-resource sharing or export.
 - The protected-route guard is UX-layer only; a direct request to
   `/dashboard`'s HTML bypasses nothing real, because the backend never
   trusted the frontend's routing in the first place — see "Authentication

@@ -18,6 +18,7 @@ import { ResourceListSkeleton } from "@/components/resources/resource-list-skele
 import { Pagination } from "@/components/resources/pagination";
 import { EmptyState } from "@/components/feedback/empty-state";
 import { InlineError } from "@/components/feedback/inline-error";
+import { useSavedResourceStatusMap } from "@/lib/query/use-saved-resources";
 
 export function ResourceListView({
   params,
@@ -56,6 +57,10 @@ export function ResourceListView({
         signal,
       }),
   });
+
+  // One batched saved-status lookup for the whole visible page of cards —
+  // never one request per card (Milestone 8A).
+  const { savedIds } = useSavedResourceStatusMap(resourceQuery.data?.content.map((r) => r.id) ?? []);
 
   const categories = categoryQuery.data?.content ?? [];
   const selectedCategory = params.categoryId !== undefined ? categories.find((c) => c.id === params.categoryId) : undefined;
@@ -149,7 +154,7 @@ export function ResourceListView({
             <p className="mb-4 text-sm text-slate-600">
               {resultSummary(resourceQuery.data.totalElements, hasSearch, params.q, selectedCategory?.name)}
             </p>
-            <ResourceGrid resources={resourceQuery.data.content} />
+            <ResourceGrid resources={resourceQuery.data.content} savedIds={savedIds} />
             <Pagination
               page={resourceQuery.data.page}
               totalPages={resourceQuery.data.totalPages}

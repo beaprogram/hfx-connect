@@ -3,16 +3,19 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ResourceListView } from "./resource-list-view";
 import { getCategories } from "@/lib/api/categories";
 import { getResources } from "@/lib/api/resources";
+import { useAuth } from "@/lib/auth/auth-provider";
 import type { CategoryPageResponse } from "@/lib/validation/schemas";
 
 jest.mock("@/lib/api/categories");
 jest.mock("@/lib/api/resources");
+jest.mock("@/lib/auth/auth-provider");
 jest.mock("next/navigation", () => ({
   useRouter: () => ({ push: jest.fn() }),
 }));
 
 const mockGetCategories = getCategories as jest.MockedFunction<typeof getCategories>;
 const mockGetResources = getResources as jest.MockedFunction<typeof getResources>;
+const mockUseAuth = useAuth as jest.MockedFunction<typeof useAuth>;
 
 const categoryPage: CategoryPageResponse = {
   content: [{ id: 1, name: "Study Spaces", slug: "study-spaces", description: null, active: true, createdAt: "2026-07-15T00:00:00Z", updatedAt: "2026-07-15T00:00:00Z" }],
@@ -45,6 +48,12 @@ function renderWithQueryClient(ui: React.ReactElement) {
 describe("ResourceListView", () => {
   beforeEach(() => {
     mockGetCategories.mockResolvedValue(categoryPage);
+    mockUseAuth.mockReturnValue({
+      state: { status: "unauthenticated" },
+      login: jest.fn(),
+      logout: jest.fn(),
+      getValidAccessToken: jest.fn(),
+    });
   });
 
   it("shows a result count and cards once resources load", async () => {

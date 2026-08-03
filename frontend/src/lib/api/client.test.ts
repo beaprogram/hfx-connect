@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { getJson, postJson, postNoContent } from "./client";
+import { getJson, postJson, postNoContent, putNoContent, deleteNoContent } from "./client";
 import { ApiRequestError, ApiResponseShapeError } from "./errors";
 
 const testSchema = z.object({ id: z.number(), name: z.string() });
@@ -185,5 +185,59 @@ describe("postNoContent", () => {
     mockFetchOnce({ ok: false, status: 500, json: async () => ({ status: 500, code: "INTERNAL_ERROR", message: "Oops." }) });
 
     await expect(postNoContent("/api/v1/auth/logout")).rejects.toBeInstanceOf(ApiRequestError);
+  });
+});
+
+describe("putNoContent", () => {
+  beforeEach(() => {
+    global.fetch = jest.fn();
+  });
+
+  it("sends a PUT request and resolves without attempting to parse a body on success", async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, status: 204 } as Response);
+
+    await expect(
+      putNoContent("/api/v1/users/me/saved-resources/11111111-1111-1111-1111-111111111111", {
+        accessToken: "token-1",
+      }),
+    ).resolves.toBeUndefined();
+
+    const [, init] = (global.fetch as jest.Mock).mock.calls[0];
+    expect(init.method).toBe("PUT");
+    expect(init.headers.Authorization).toBe("Bearer token-1");
+  });
+
+  it("throws ApiRequestError on a non-2xx response", async () => {
+    mockFetchOnce({ ok: false, status: 404, json: async () => ({ status: 404, code: "RESOURCE_NOT_FOUND", message: "Not found." }) });
+
+    await expect(putNoContent("/api/v1/users/me/saved-resources/x", { accessToken: "token-1" })).rejects.toBeInstanceOf(
+      ApiRequestError,
+    );
+  });
+});
+
+describe("deleteNoContent", () => {
+  beforeEach(() => {
+    global.fetch = jest.fn();
+  });
+
+  it("sends a DELETE request and resolves without attempting to parse a body on success", async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, status: 204 } as Response);
+
+    await expect(
+      deleteNoContent("/api/v1/users/me/saved-resources/11111111-1111-1111-1111-111111111111", {
+        accessToken: "token-1",
+      }),
+    ).resolves.toBeUndefined();
+
+    const [, init] = (global.fetch as jest.Mock).mock.calls[0];
+    expect(init.method).toBe("DELETE");
+    expect(init.headers.Authorization).toBe("Bearer token-1");
+  });
+
+  it("throws ApiRequestError on a non-2xx response", async () => {
+    mockFetchOnce({ ok: false, status: 401, json: async () => ({ status: 401, code: "AUTHENTICATION_REQUIRED", message: "Auth required." }) });
+
+    await expect(deleteNoContent("/api/v1/users/me/saved-resources/x")).rejects.toBeInstanceOf(ApiRequestError);
   });
 });

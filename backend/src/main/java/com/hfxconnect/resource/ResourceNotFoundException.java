@@ -9,7 +9,13 @@ public class ResourceNotFoundException extends NotFoundException {
 		super("RESOURCE_NOT_FOUND", message);
 	}
 
-	static ResourceNotFoundException byId(UUID id) {
+	/**
+	 * {@code public}: also thrown by {@code com.hfxconnect.savedresource}
+	 * (Milestone 8A) when saving a resource id that doesn't correspond to any
+	 * active resource — the same "not found" semantics this method already
+	 * gives every in-package caller.
+	 */
+	public static ResourceNotFoundException byId(UUID id) {
 		return new ResourceNotFoundException("No resource exists with id " + id + ".");
 	}
 

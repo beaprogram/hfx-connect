@@ -9,8 +9,8 @@ newcomer services, recreation, and events — that are currently scattered acros
 municipal websites, organization pages, and social media, and adds transparent
 verification so users can trust what they find.
 
-**Project status: Milestone 7B (Interactive Map, Browser Geolocation,
-Marker Clustering, and List/Map Synchronization) complete.** The backend
+**Project status: Milestone 8A (Saved Resources and Authenticated
+Dashboard Integration) complete.** The backend
 has three working REST APIs: categories
 (Milestone 3A —
 [backend/README.md](backend/README.md#category-api-apiv1categories)), resources
@@ -43,13 +43,19 @@ geolocation, a search-radius control, "Search this area," and full
 list/map selection synchronization, combining with every existing filter
 — the List view remains the complete, unmodified accessible fallback (see
 [ADR-013](docs/decisions/ADR-013-interactive-map-and-geolocation-design.md)).
-See
+An authenticated account (any role) can now also save resources for later
+(Milestone 8A): save/remove a resource from its card or detail page,
+with a batched saved-status lookup (never one request per card) and a
+paginated Saved Resources section on the protected dashboard — fully
+isolated per account, with the private saved-resource cache cleared on
+logout and on switching accounts (see
+[ADR-014](docs/decisions/ADR-014-saved-resources-design.md)). See
 [docs/milestones/](docs/milestones/) for exactly what each milestone delivered, and
 [docs/development-workflow.md](docs/development-workflow.md) for the full
-12-milestone roadmap (Milestones 3, 5, and 6 are each split into lettered
-sub-milestones — 3A/3B/3C, 5A/5B/5C, 6A/6B, 7A/7B). A baseline GitHub Actions workflow
-verifies the backend and frontend on pull requests; deployment automation
-remains part of the later release milestone.
+12-milestone roadmap (Milestones 3, 5, 6, and 8 are each split into lettered
+sub-milestones — 3A/3B/3C, 5A/5B/5C, 6A/6B, 7A/7B, 8A/8B). A baseline GitHub
+Actions workflow verifies the backend and frontend on pull requests;
+deployment automation remains part of the later release milestone.
 
 ## The Problem
 
@@ -82,7 +88,8 @@ protected dashboard (`/login`, `/register`, `/dashboard` on the frontend;
 `POST /api/v1/auth/register`, `/login`, `/refresh`, `/logout`,
 `GET /api/v1/users/me` on the backend) are real too, with backend-enforced
 role-based authorization on category/resource creation and operating-hours
-replacement. Maps, saved resources, submissions, organization/moderator
+replacement. The interactive map (Milestone 7B) and saved resources
+(Milestone 8A) are both real now too. Submissions, organization/moderator
 tooling, and role-specific dashboards are not implemented yet. There is no
 update/delete endpoint on any backend API yet either, and keyword search
 still has no relevance ranking or typo tolerance. Everything else in this
@@ -230,6 +237,7 @@ Runs on [http://localhost:3000](http://localhost:3000) and expects the backend a
 - [Milestone 6B: Structured Operating Hours, Open-Now Logic, and Cost/Verification Filters](docs/milestones/milestone-06b-operating-hours-filters.md)
 - [Milestone 7A: PostGIS Resource Locations and Nearby Search](docs/milestones/milestone-07a-postgis-nearby-search.md)
 - [Milestone 7B: Interactive Map, Browser Geolocation, and List/Map Synchronization](docs/milestones/milestone-07b-interactive-map.md)
+- [Milestone 8A: Saved Resources and Authenticated Dashboard Integration](docs/milestones/milestone-08a-saved-resources.md)
 - [Wireframes](docs/wireframes/)
 - [API Documentation](docs/api/README.md)
 - [Database Documentation](docs/database/)
@@ -244,11 +252,12 @@ Runs on [http://localhost:3000](http://localhost:3000) and expects the backend a
 - [ADR-011: Operating Hours and Open-Now Design](docs/decisions/ADR-011-operating-hours-and-open-now.md)
 - [ADR-012: PostGIS Nearby-Search Design](docs/decisions/ADR-012-postgis-nearby-search-design.md)
 - [ADR-013: Interactive Map and Geolocation Design](docs/decisions/ADR-013-interactive-map-and-geolocation-design.md)
+- [ADR-014: Saved Resources Design](docs/decisions/ADR-014-saved-resources-design.md)
 - [Development Log](docs/development-log/)
 - [Resume Evidence](docs/career/resume-evidence.md)
 - [Interview Notes](docs/career/interview-notes.md)
 
-## Known Limitations (as of Milestone 7B)
+## Known Limitations (as of Milestone 8A)
 
 - **No rate limiting exists** — login accepts unlimited attempts. **No
   access-token revocation exists** — a compromised access token remains valid
@@ -265,10 +274,10 @@ Runs on [http://localhost:3000](http://localhost:3000) and expects the backend a
   not a security boundary — the backend's `SecurityConfig` is authoritative
   regardless of what the frontend renders or hides. See
   [ADR-009](docs/decisions/ADR-009-request-authentication-and-role-authorization.md).
-- No role-specific dashboards, category/resource creation UI, saved
-  resources, submissions, moderation, or organization tooling exist yet
-  (Milestone 5C's frontend scope is deliberately `/login`, `/register`, and
-  a minimal `/dashboard` only).
+- No role-specific dashboards, category/resource creation UI,
+  submissions, moderation, or organization tooling exist yet. Saved
+  resources (Milestone 8A) are real — see below — but no notes, folders,
+  collections, sharing, or export exist on top of them.
 - Newly-registered accounts are always `emailVerified: false` — no email-delivery
   mechanism exists to verify them, a deliberate, documented limitation (see
   [ADR-007](docs/decisions/ADR-007-user-identity-and-password-hashing.md)), not a bug.
@@ -310,8 +319,14 @@ Runs on [http://localhost:3000](http://localhost:3000) and expects the backend a
   [ADR-012](docs/decisions/ADR-012-postgis-nearby-search-design.md) and
   [ADR-013](docs/decisions/ADR-013-interactive-map-and-geolocation-design.md)).
   The map uses the public OpenStreetMap tile server directly — no
-  production tile-provider contract exists yet. No saved resources,
-  submissions, moderation, or organizations exist yet (Milestone 8-10).
+  production tile-provider contract exists yet.
+- Saved resources (Milestone 8A) work end to end for any authenticated
+  role — save/remove from a resource card or its detail page, a
+  batched saved-status lookup, and a paginated dashboard section — but
+  with no notes/folders/collections/sharing/export on top, and no rate
+  limiting on any endpoint (consistent with the rest of the API today).
+  No submissions, moderation, or organizations exist yet (Milestone
+  8B-10).
 - No deployment workflow or hosted environment exists yet; CI currently verifies the
   backend and frontend only.
 - No automated dependency-vulnerability scanning is configured in this project.
@@ -319,10 +334,11 @@ Runs on [http://localhost:3000](http://localhost:3000) and expects the backend a
   build/test toolchain (postcss, sharp, jest chains bundled by Next.js/tooling
   dependencies) that require a breaking Next.js downgrade to resolve — not
   introduced by, or specific to, this milestone.
-- Frontend responsive/visual verification continues to be code-review- and
-  `curl`-based, not a live graphical browser session — no browser-automation
-  tool was available in the development environment used for this or the
-  Milestone 4 session. See
+- Manual verification as of Milestone 7B/8A uses a genuine headless
+  Chromium session (Playwright) for reproducible, scripted browser
+  checks — a real automation script driving real DOM events, not a
+  human clicking through the UI. Milestone 4-6's manual verification
+  predates this and was code-review- and `curl`-based instead. See
   [docs/architecture/frontend-architecture.md](docs/architecture/frontend-architecture.md)'s
   Known Limitations.
 - No live demo, screenshots, or demo video exist yet — these will be added once there

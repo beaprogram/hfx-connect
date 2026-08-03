@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { CostBadge, HoursStatusBadge, VerificationBadge } from "@/components/resources/status-badges";
+import { SaveResourceButton } from "@/components/resources/save-resource-button";
 import { formatCityProvince } from "@/lib/formatting/location";
 import type { ResourceSummaryResponse } from "@/lib/validation/schemas";
 
-export function ResourceCard({ resource }: { resource: ResourceSummaryResponse }) {
+/** `isSaved` is `undefined` while the batched saved-status lookup (one request for the whole grid, not per card — see `useSavedResourceStatusMap`) is still loading. */
+export function ResourceCard({ resource, isSaved }: { resource: ResourceSummaryResponse; isSaved?: boolean }) {
   const location = formatCityProvince(resource.city, resource.province);
 
   return (
@@ -24,6 +26,9 @@ export function ResourceCard({ resource }: { resource: ResourceSummaryResponse }
         <CostBadge costType={resource.costType} />
         <VerificationBadge status={resource.verificationStatus} />
         <HoursStatusBadge status={resource.hoursStatus} />
+      </div>
+      <div className="relative z-10 mt-1 w-fit">
+        <SaveResourceButton resourceId={resource.id} resourceName={resource.name} isSaved={isSaved} />
       </div>
     </article>
   );

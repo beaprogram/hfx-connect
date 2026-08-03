@@ -5,8 +5,10 @@ import { useAuth } from "@/lib/auth/auth-provider";
 
 jest.mock("@/lib/auth/auth-provider");
 const mockPush = jest.fn();
+let mockSearchParams = new URLSearchParams();
 jest.mock("next/navigation", () => ({
   useRouter: () => ({ push: mockPush, replace: jest.fn() }),
+  useSearchParams: () => mockSearchParams,
 }));
 
 const mockUseAuth = useAuth as jest.MockedFunction<typeof useAuth>;
@@ -23,6 +25,7 @@ function mockAuth(login: jest.Mock) {
 describe("LoginForm", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockSearchParams = new URLSearchParams();
   });
 
   it("has accessible, correctly-autocompleted email and password fields", () => {
@@ -78,6 +81,39 @@ describe("LoginForm", () => {
 
     expect(screen.getByRole("button", { name: "Logging in…" })).toBeDisabled();
     resolveLogin();
+  });
+
+  it("redirects to a valid returnTo path after a successful login", async () => {
+    mockSearchParams = new URLSearchParams({ returnTo: "/resources/halifax-central-library" });
+    const login = jest.fn().mockResolvedValue(undefined);
+    mockAuth(login);
+    const user = userEvent.setup();
+
+    render(<LoginForm />);
+    await user.type(screen.getByLabelText("Email"), "student@example.org");
+    await user.type(screen.getByLabelText("Password"), "correcthorsebattery");
+    await user.click(screen.getByRole("button", { name: "Log in" }));
+
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith("/resources/halifax-central-library"));
+  });
+
+  it.each([
+    ["an absolute URL", "https://evil.example.org"],
+    ["a protocol-relative URL", "//evil.example.org"],
+    ["a backslash trick", "/\\evil.example.org"],
+    ["a scheme with no leading slash", "javascript:alert(1)"],
+  ])("falls back to /dashboard when returnTo is %s (rejected as unsafe)", async (_label, unsafeReturnTo) => {
+    mockSearchParams = new URLSearchParams({ returnTo: unsafeReturnTo });
+    const login = jest.fn().mockResolvedValue(undefined);
+    mockAuth(login);
+    const user = userEvent.setup();
+
+    render(<LoginForm />);
+    await user.type(screen.getByLabelText("Email"), "student@example.org");
+    await user.type(screen.getByLabelText("Password"), "correcthorsebattery");
+    await user.click(screen.getByRole("button", { name: "Log in" }));
+
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith("/dashboard"));
   });
 
   it("links to the registration page", () => {

@@ -1031,3 +1031,95 @@ caught, then added regression coverage for it.
 at a realistic production result-page size and marker density, and real
 OpenStreetMap tile-load latency from a production-region client, to
 validate whether a managed tile provider is needed sooner than assumed.
+
+## Saved Resources and Authenticated Dashboard Integration
+
+### Product Purpose
+The first feature that gives an authenticated account a reason to exist
+beyond authentication itself: come back to a resource found earlier
+without re-searching for it, from any of the three places a resource
+appears (list card, map card, detail page) and from a dedicated
+dashboard section.
+
+### Technologies Used
+Spring Data JPA (idempotent write semantics backed by a database unique
+constraint), Spring Security (`@AuthenticationPrincipal`-only identity),
+TanStack Query (batched status lookups, targeted cache patching and
+invalidation, cross-cutting cache-lifecycle management via
+`useQueryClient()` inside an existing auth provider), and Playwright for
+real two-account, cross-session manual verification.
+
+### Engineering Complexity
+Designed a race-safe idempotent save/remove pair where the database's
+own unique constraint — not the application-level existence check alone
+— is the actual authority: a genuine concurrent double-save resolves to
+one row and two successful responses by catching the losing insert's
+constraint-violation exception, verified with a real concurrent-request
+integration test rather than trusted by inspection. Solved a private-
+data cache-isolation problem with no precedent in this codebase: saved-
+resource data needed to be fully isolated per account in a client-side
+cache that, unlike the backend, is shared browser state that could
+otherwise leak a first account's saved status into a second account's
+session after a logout or an in-tab account switch — resolved by having
+the existing authentication provider itself clear every relevant cached
+query at the exact two moments that risk exists, rather than trusting
+every future consumer of that data to remember to do so independently.
+Designed a batched-status architecture (one HTTP request per page of
+resource cards, never one per card) enforced by convention and verified
+directly with a test asserting the request-count invariant holds
+regardless of how many cards a page renders. Found and fixed a real,
+previously invisible production bug during this milestone's own manual
+browser verification — a CORS configuration that had never actually
+allowed `PUT`/`DELETE` methods cross-origin, undiscovered for three
+milestones because nothing had ever driven a browser-originated write
+of that kind against it before — diagnosed from a raw CORS preflight
+failure, fixed, and covered by a new regression test.
+
+### Implementation
+`backend/src/main/java/com/hfxconnect/savedresource/` (entity,
+repository, service, controller, DTOs, migration);
+`frontend/src/lib/query/use-saved-resources.ts`,
+`frontend/src/lib/auth/return-to.ts`,
+`frontend/src/components/resources/save-resource-button.tsx`,
+`frontend/src/components/auth/saved-resources-section.tsx`; the
+`AuthProvider` cache-clearing addition in
+`frontend/src/lib/auth/auth-provider.tsx`.
+
+### Tests
+71 new backend tests (17 repository — including a genuine concurrent-
+insert race resolving to one row; 25 service; 29 API integration
+covering the full `USER`/`ORGANIZATION`/`MODERATOR`/`ADMIN` role matrix
+and per-account isolation) plus 1 new CORS regression test, alongside
+the existing 482 (554 total, 0 failures). 65 new frontend tests across
+6 new files, alongside the existing 262 (327 total, 0 failures) — plus
+updates to 11 pre-existing test files whose rendered components gained
+a new authentication/query-client dependency, diagnosed by running the
+full suite and fixing each resulting failure systematically. 27/27
+scripted real-browser manual verification checks passed, including
+genuine two-independent-account isolation and account-switch cache
+clearing.
+
+### Evidence
+Commits on branch `milestone/08a-saved-resources`; see
+`docs/development-log/2026-08-03.md` for the full session record and
+`docs/milestones/milestone-08a-saved-resources.md` for acceptance
+criteria.
+
+### Potential Resume Wording
+Designed and implemented a race-safe, idempotent saved-resources feature
+for a Spring Boot/Next.js application, using a database unique
+constraint (not an application-level check alone) as the authoritative
+guard against concurrent-write duplication, verified with a real
+concurrent-request integration test; architected a private-data cache-
+isolation strategy in TanStack Query so a second authenticated account
+in the same browser session could never see a first account's cached
+saved-resource state; and used real two-account browser automation to
+discover and fix a previously invisible CORS configuration gap that had
+silently blocked every cross-origin `PUT`/`DELETE` request in the
+application until this milestone's own manual verification caught it.
+
+### Measurements Still Needed
+[MEASURE AFTER DEPLOYMENT]: saved-resource list/status query latency at
+realistic per-account saved-item counts, and real-world save/remove
+request volume, to validate whether the current page-size cap and
+batch-status id limit (100) remain generous enough in practice.

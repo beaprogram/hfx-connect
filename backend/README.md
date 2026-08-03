@@ -222,6 +222,19 @@ curl -X PUT "http://localhost:8080/api/v1/resources/{id}/location" \
   -d '{"latitude":44.6488,"longitude":-63.5752}'
 ```
 
+```bash
+# Saved resources (Milestone 8A) — any authenticated, ACTIVE account
+curl -X PUT "http://localhost:8080/api/v1/users/me/saved-resources/{resourceId}" \
+  -H "Authorization: Bearer $TOKEN"
+curl -X DELETE "http://localhost:8080/api/v1/users/me/saved-resources/{resourceId}" \
+  -H "Authorization: Bearer $TOKEN"
+curl "http://localhost:8080/api/v1/users/me/saved-resources?sort=savedAt" \
+  -H "Authorization: Bearer $TOKEN"
+curl -X POST "http://localhost:8080/api/v1/users/me/saved-resources/status" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"resourceIds":["{resourceId}"]}'
+```
+
 **Keyword search (`q`, Milestone 6A):** case-insensitive substring match
 across `name`/`description`/`addressLine1`/`city`; at most 100 characters
 after normalization (trim, whitespace collapse); blank is treated as no
@@ -249,6 +262,20 @@ Bearer token. `location` is a PostGIS `geography(Point, 4326)` column,
 deliberately never mapped as a Hibernate entity field — every geospatial
 read/write goes through native SQL. Full design:
 [ADR-012](../docs/decisions/ADR-012-postgis-nearby-search-design.md).
+
+**Saved resources (Milestone 8A):** any authenticated, `ACTIVE`-status
+account (`USER`/`ORGANIZATION`/`MODERATOR`/`ADMIN`, no role restriction)
+can idempotently `PUT`/`DELETE
+/api/v1/users/me/saved-resources/{resourceId}`, `GET
+/api/v1/users/me/saved-resources` (paginated, `sort=savedAt`|`name`),
+and `POST .../status` (batch lookup, up to 100 ids). Identity always
+comes from the authenticated principal — no endpoint accepts a
+client-supplied user id. A concurrent double-save resolves to one row
+via the database's own unique constraint, never a `500`/`409`. The
+saved list excludes resources that have since gone inactive but
+preserves the underlying relation (it reappears if the resource is
+reactivated). Full design:
+[ADR-014](../docs/decisions/ADR-014-saved-resources-design.md).
 
 A resource is created under an existing, active category (`categories.id`, a
 `BIGINT` — not the `UUID` a resource's own `id` is; see
@@ -431,6 +458,13 @@ backend/
                                                              ApiAccessDeniedHandler — see ADR-009 and
                                                              backend-architecture.md's "Request Authentication
                                                              and Authorization" section
+    savedresource/                                    Saved-resources domain (Milestone 8A):
+                                                             SavedResource(+repository), SavedResourceService,
+                                                             SavedResourceValidation, SavedResourceController,
+                                                             DTOs — no bidirectional collection on User/
+                                                             CommunityResource — see ADR-014 and
+                                                             backend-architecture.md's "Focused Entities Over
+                                                             Generic Frameworks" section
   src/main/resources/
     application.properties                        Base configuration (env-based DB connection,
                                                              JPA, Actuator, JWT/cookie config)
@@ -446,6 +480,8 @@ backend/
                                                              see ADR-011)
       V7__add_resource_location.sql            Seventh Flyway migration (Milestone 7A —
                                                              see ADR-012)
+      V8__create_saved_resources_table.sql   Eighth Flyway migration (Milestone 8A —
+                                                             see ADR-014)
   src/test/java/com/hfxconnect/
     AbstractPostgresIntegrationTest.java   Shared Testcontainers setup (public — extended
                                                              from sub-packages like category/, resource/)
@@ -457,7 +493,8 @@ backend/
       error/GlobalExceptionHandlerIntegrationTest.java  Unmapped-route 404 (authenticated)/
                                                              401 (unauthenticated) regression test
       config/CorsConfigurationIntegrationTest.java  CORS allowlist + credentials + Authorization
-                                                             header regression test
+                                                             header regression test (PUT/DELETE preflight
+                                                             test added in Milestone 8A)
     category/                                           Category domain tests (unit, repository,
                                                              API integration — see
                                                              docs/milestones/milestone-03a-category-domain.md)
@@ -481,6 +518,11 @@ backend/
                                                              stale-role-claim and disabled-account-after-
                                                              issuance proofs — see
                                                              docs/milestones/milestone-05c-role-authorization.md)
+    savedresource/                                    Saved-resources domain tests (repository — schema/
+                                                             FK/uniqueness/cascade including a real concurrent-
+                                                             insert race; service; full role-matrix API
+                                                             integration — see
+                                                             docs/milestones/milestone-08a-saved-resources.md)
 ```
 
 Domain packages not yet needed (`search/`, `moderation/`, `event/`, etc., as

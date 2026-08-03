@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { NearbyMapView } from "./nearby-map-view";
 import { MapSearchProvider, useMapSearch } from "@/lib/map/map-search-context";
 import { getNearbyResources } from "@/lib/api/resources";
+import { useAuth } from "@/lib/auth/auth-provider";
 import type { NearbyResourcePageResponse } from "@/lib/validation/schemas";
 
 jest.mock("next/navigation", () => ({
@@ -13,7 +14,9 @@ jest.mock("next/navigation", () => ({
 }));
 
 jest.mock("@/lib/api/resources");
+jest.mock("@/lib/auth/auth-provider");
 const mockGetNearbyResources = getNearbyResources as jest.MockedFunction<typeof getNearbyResources>;
+const mockUseAuth = useAuth as jest.MockedFunction<typeof useAuth>;
 
 // The Leaflet-backed map is exercised separately in nearby-map.test.tsx —
 // here it's replaced with a stub that exposes the same coordination props
@@ -87,6 +90,12 @@ describe("NearbyMapView", () => {
     // jsdom's `window.location` persists across tests in a file; the
     // provider reads it on mount, so each test needs a clean starting URL.
     window.history.replaceState(null, "", "/resources");
+    mockUseAuth.mockReturnValue({
+      state: { status: "unauthenticated" },
+      login: jest.fn(),
+      logout: jest.fn(),
+      getValidAccessToken: jest.fn(),
+    });
   });
 
   it("defaults to central Halifax and says so", async () => {
