@@ -20,6 +20,10 @@
 > 6A, which added public keyword search and, with it, this project's first
 > query consolidating two independent optional filters into one — see
 > "Consolidating Independent Optional Filters Into One Query" below.
+> Updated again in Milestone 8A, which added a sixth domain
+> (`savedresource`) and this project's first genuinely private,
+> per-account data — see "Focused Entities Over Generic Frameworks"
+> below.
 
 ## Layering
 
@@ -187,6 +191,27 @@ lowercase) started inline inside `user.RegistrationValidation`. It moved to
 identically, or `User@Example.org` could register successfully but fail to log
 back in as `user@example.org`.
 
+## Focused Entities Over Generic Frameworks
+
+`SavedResource` (Milestone 8A) has exactly the fields the saved-resources
+feature needs (`userId`, `resource`, `createdAt`) and nothing more — no
+generic `Bookmarkable`/`SavedItem` base entity, no polymorphic
+target-type column anticipating a second kind of "saved thing" that
+doesn't exist yet. It also has no bidirectional collection on `User` or
+`CommunityResource`: the relationship is queried exclusively from the
+`SavedResource` side (`findByUserId`-style methods), so a `@OneToMany`
+back-reference on either owning entity would only add a lazy-loading
+footgun (every `User`/`CommunityResource` load would need to remember
+never to touch it) for a navigation direction nothing in the codebase
+actually uses — the same reasoning already applied to
+`ResourceOperatingHours.resourceId` (Milestone 6B) and
+`RefreshSession.userId` (Milestone 5B). See
+[ADR-014](../decisions/ADR-014-saved-resources-design.md) for the full
+rationale. The general pattern: build the narrowest entity the current
+feature needs; let a second, genuinely similar feature (if one ever
+arrives) justify a shared abstraction, rather than designing one in
+advance for a single known use case.
+
 ## Cross-Domain Dependencies Are Direct, Not Hidden Behind an Abstraction
 
 `ResourceService` depends directly on `CategoryRepository` (not a `CategoryService`
@@ -212,6 +237,17 @@ which would happen *after* a plain `save()` call's try/catch has already exited.
 specifically where it needs to catch the constraint violation synchronously. Any
 future `UUID`-keyed entity needing the same synchronous-conflict-catch pattern should
 use `saveAndFlush` for the same reason, not `save`.
+
+`SavedResourceService.save()` (Milestone 8A) also uses `saveAndFlush` even
+though `SavedResource.id` is `GenerationType.IDENTITY` (like `Category`,
+not `CommunityResource`) — for `IDENTITY` entities, plain `save()` already
+forces a synchronous `INSERT` to learn the assigned id, so `saveAndFlush`
+is not strictly required here the way it is for `ResourceService`. It was
+kept anyway for this specific call site: the whole point of the
+surrounding try/catch is to guarantee the constraint violation surfaces
+*before* the method returns, and stating that guarantee explicitly at the
+call site (rather than relying on a reader already knowing `IDENTITY`'s
+flush timing) was judged clearer than the small redundancy costs.
 
 ## A Write That Must Survive an Exception Needs `PROPAGATION_REQUIRES_NEW`, Not `noRollbackFor`
 

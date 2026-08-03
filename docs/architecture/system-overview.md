@@ -91,16 +91,22 @@ the public API contract can evolve independently.
 Core entities anticipated by the product requirements: `users`, `organizations`,
 `categories`, `resources` (now with a geographic `location` column, Milestone
 7A — see [ADR-012](../decisions/ADR-012-postgis-nearby-search-design.md)),
-`resource_operating_hours` (Milestone 6B), `saved_resources`,
-`resource_reports`, `resource_submissions`, `events`, and `resource_history`. The
-authoritative, versioned schema lives in Flyway migration files (see
-`docs/database/README.md` for the current, real schema — not a plan).
+`resource_operating_hours` (Milestone 6B), `saved_resources` (Milestone
+8A), `resource_reports`, `resource_submissions`, `events`, and
+`resource_history`. The authoritative, versioned schema lives in Flyway
+migration files (see `docs/database/README.md` for the current, real
+schema — not a plan).
 
 Milestone 7B built the first visual consumer of that geographic column: an
 interactive Leaflet/OpenStreetMap frontend map over the existing
 `GET /resources/nearby` endpoint, with browser geolocation and marker
 clustering — no new database schema (see
 [ADR-013](../decisions/ADR-013-interactive-map-and-geolocation-design.md)).
+
+Milestone 8A implemented `saved_resources` — a focused, per-account
+relation to resources, and this project's first genuinely private,
+authenticated-only data beyond the authentication session itself (see
+[ADR-014](../decisions/ADR-014-saved-resources-design.md)).
 
 ## Deployment Path
 

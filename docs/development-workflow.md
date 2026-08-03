@@ -28,7 +28,8 @@ one begins.
 | 6B | `milestone/06b-operating-hours-filters` | Structured operating hours, open-now logic, cost/verification filters |
 | 7A | `milestone/07a-postgis-nearby-search` | PostGIS resource locations, nearby search, distance ordering (backend only) |
 | 7B | `milestone/07b-interactive-map` | Visual map, browser geolocation, marker clustering, list/map sync |
-| 8 | `milestone/08-user-features` | Saved resources, submissions, correction reports |
+| 8A | `milestone/08a-saved-resources` | Saved resources and authenticated dashboard integration |
+| 8B | `milestone/08b-submissions-and-reports` | Resource submissions, correction reports |
 | 9 | `milestone/09-moderation` | Moderation queue, approvals, verification status, audit trail |
 | 10 | `milestone/10-organizations-events` | Organization ownership, events, expiry handling |
 | 11 | `milestone/11-quality` | Full test pass, security review, accessibility audit |

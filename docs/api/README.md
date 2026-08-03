@@ -48,7 +48,9 @@ allowlist that makes that possible.
   `REFRESH_TOKEN_EXPIRED`, `REFRESH_TOKEN_REUSED`, `ACCOUNT_UNAVAILABLE`
   (valid credentials/refresh token, non-`ACTIVE` account), `INVALID_PAGINATION`,
   `INVALID_SORT`, `INVALID_SEARCH_QUERY` (an over-length `q` — Milestone 6A),
-  `INTERNAL_ERROR`.
+  `INTERNAL_ERROR`. `VALIDATION_ERROR` also covers an invalid saved-resources
+  batch status request (a null entry or more than 100 distinct ids —
+  Milestone 8A), same as any other field-level validation failure.
 
 ## Authentication and Authorization (Milestone 5C)
 
@@ -65,6 +67,7 @@ and [docs/architecture/security-architecture.md](../architecture/security-archit
 | `GET /api/v1/resources`, `/api/v1/resources/**` | Public |
 | `GET /actuator/health` | Public |
 | `GET /api/v1/users/me` | Any authenticated, `ACTIVE` account |
+| `PUT`/`DELETE /api/v1/users/me/saved-resources/{resourceId}`, `GET /api/v1/users/me/saved-resources`, `POST /api/v1/users/me/saved-resources/status` | Any authenticated, `ACTIVE` account (`USER`/`ORGANIZATION`/`MODERATOR`/`ADMIN` — no role restriction beyond "authenticated") |
 | `POST /api/v1/categories` | `ADMIN` only |
 | `POST /api/v1/resources` | `ADMIN` or `MODERATOR` (not `ORGANIZATION` yet — see ADR-009) |
 | Everything else | Authenticated (fail closed) |
@@ -375,3 +378,86 @@ be a role-management/admin-lookup capability this project doesn't have.
 |---|---|
 | `200` | Current account returned |
 | `401` | Missing or invalid access token, or the account is no longer `ACTIVE` (`AUTHENTICATION_REQUIRED`) |
+
+## Saved Resources — `/api/v1/users/me/saved-resources` (Milestone 8A)
+
+Full design: [ADR-014](../decisions/ADR-014-saved-resources-design.md).
+The current authenticated account's own private, saved-resource list —
+every endpoint requires a Bearer access token for any authenticated,
+`ACTIVE`-status role and is scoped to the caller's own account only.
+The user id is always taken from the authenticated principal, never
+from a path/query/body parameter.
+
+| Method | Path | Purpose |
+|---|---|---|
+| `PUT` | `/api/v1/users/me/saved-resources/{resourceId}` | Idempotently save an active resource for the current user. |
+| `DELETE` | `/api/v1/users/me/saved-resources/{resourceId}` | Idempotently remove a saved resource for the current user. |
+| `GET` | `/api/v1/users/me/saved-resources` | Paginated list of the current user's saved, currently-active resources. |
+| `POST` | `/api/v1/users/me/saved-resources/status` | Batch lookup: given a list of resource ids, returns which are saved for the current user — intended for one request per page of resource cards, not one per card. |
+
+**`PUT /{resourceId}`** — `204` whether this call created the saved
+relation or it already existed (true idempotency, not "succeeds once,
+then conflicts"). `404` if no **active** resource exists with the given
+id — the same "missing and inactive look identical" posture used
+elsewhere in this API. A genuine concurrent double-save (two
+near-simultaneous requests for the same user/resource pair) is resolved
+by the database's own uniqueness constraint to a single saved relation
+and two `204` responses — never a `500` or `409`.
+
+**`DELETE /{resourceId}`** — `204` whether this call removed a row or
+none existed. Works regardless of the resource's current active state —
+a resource that was saved and has since been deactivated can always
+still be removed by its id.
+
+**`GET`** — accepts `page` (0-based, default `0`), `size` (default `20`,
+maximum `100`), and `sort` (`savedAt`, default, newest first; or `name`,
+resource name ascending). Returns the standard page shape (see
+"Pagination" above). **Excludes saved resources that have since gone
+inactive** — the underlying relation is preserved (not deleted), and the
+resource reappears in this list automatically if it becomes active
+again; see ADR-014's "Deactivation vs. Deletion."
+
+```json
+{
+  "content": [
+    {
+      "savedAt": "2026-08-01T00:00:00Z",
+      "resource": {
+        "id": "...", "name": "...", "slug": "...", "city": "...", "province": "NS",
+        "costType": "FREE", "verificationStatus": "VERIFIED", "active": true,
+        "category": { "id": 1, "name": "...", "slug": "..." },
+        "createdAt": "...", "hoursStatus": "OPEN", "openNow": true
+      }
+    }
+  ],
+  "page": 0, "size": 20, "totalElements": 1, "totalPages": 1
+}
+```
+
+**`POST /status`** — body `{"resourceIds": ["...", "..."]}`, at most 100
+distinct ids (duplicates normalized, order-independent); a null entry
+or more than 100 distinct ids returns `400 VALIDATION_ERROR`. Response:
+`{"savedResourceIds": ["..."]}` — the subset of the requested ids the
+current user has saved.
+
+```bash
+curl -X PUT "http://localhost:8080/api/v1/users/me/saved-resources/$RESOURCE_ID" \
+  -H "Authorization: Bearer $TOKEN"
+
+curl "http://localhost:8080/api/v1/users/me/saved-resources?sort=name" \
+  -H "Authorization: Bearer $TOKEN"
+
+curl -X POST "http://localhost:8080/api/v1/users/me/saved-resources/status" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"resourceIds":["'"$RESOURCE_ID"'"]}'
+```
+
+### Status codes
+
+| Status | Meaning |
+|---|---|
+| `200` | `GET`/`POST status` succeeded |
+| `204` | `PUT`/`DELETE` succeeded (always — idempotent) |
+| `400` | Invalid page/size (`INVALID_PAGINATION`), invalid `sort` (`INVALID_SORT`), or an invalid batch status request (`VALIDATION_ERROR`) |
+| `401` | Missing or invalid access token, or the account is no longer `ACTIVE` |
+| `404` | `PUT` only — no active resource exists with the given id |

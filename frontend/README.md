@@ -14,14 +14,18 @@ nearby-search API), all backed by the real Category and Resource APIs
 (Milestones 3A/3C/6A/6B/7A) —
 plus real authentication (Milestone 5C): `/login`, `/register`, and a protected
 `/dashboard`, with an in-memory access token and refresh-cookie-based session
-restoration. See
+restoration, and, as of Milestone 8A, a private **Saved Resources** feature:
+save/remove a resource from its card or detail page, and browse a paginated
+Saved Resources section on the dashboard. See
 [docs/architecture/frontend-architecture.md](../docs/architecture/frontend-architecture.md#authentication-architecture)
 for the authentication design, its
 ["URL State" section](../docs/architecture/frontend-architecture.md#url-state-resources)
-for the search design, and its
+for the search design, its
 ["Interactive Map Architecture" section](../docs/architecture/frontend-architecture.md#interactive-map-architecture)
-for the map. Saved resources, submissions, and role-specific dashboards are
-not implemented yet.
+for the map, and its
+["Saved Resources and Private-Data Cache Isolation" section](../docs/architecture/frontend-architecture.md#saved-resources-and-private-data-cache-isolation)
+for saved resources. Submissions and role-specific dashboards are not
+implemented yet.
 
 ## Stack
 
@@ -108,22 +112,29 @@ frontend/
                                             (6B)), pagination, detail (incl. weekly
                                             schedule, Milestone 6B), status-badges,
                                             ResourceExplorer/MapExplorerView/
-                                            NearbyMapView/ViewToggle (Milestone 7B)
+                                            NearbyMapView/ViewToggle (Milestone 7B),
+                                            SaveResourceButton/
+                                            ResourceDetailSaveControl (Milestone 8A)
       map/                          The Leaflet map, marker clustering, "Use my
                                             location", radius selector, "Search this
                                             area", nearby pagination (Milestone 7B —
                                             client-only, loaded via next/dynamic)
       navigation/                Mobile disclosure nav (auth-aware as of Milestone 5C)
       auth/                          Login/register forms, dashboard content, the
-                                            protected-route guard, and the auth-aware
-                                            nav link (Milestone 5C)
+                                            protected-route guard, the auth-aware
+                                            nav link (Milestone 5C), and
+                                            SavedResourcesSection (Milestone 8A)
       feedback/                    Shared badge/empty-state/error components
       site-header.tsx, site-footer.tsx
     lib/
       api/                          Typed API client (client.ts) + one module per
-                                            resource (categories.ts, resources.ts, auth.ts)
+                                            resource (categories.ts, resources.ts, auth.ts,
+                                            saved-resources.ts — Milestone 8A)
       auth/                         AuthProvider/useAuth — the in-memory session
-                                            (Milestone 5C)
+                                            (Milestone 5C; clears the private
+                                            saved-resource cache on logout/account
+                                            switch, Milestone 8A) — and return-to.ts's
+                                            open-redirect-safe returnTo validation
       map/                          MapSearchProvider/useMapSearch (session-scoped
                                             centre/radius/geolocation/selection state,
                                             mounted at the /resources layout) and
@@ -154,11 +165,16 @@ optional `costType`/`verificationStatus`/`openNow` (Milestone 6B), each
 omitted from the request entirely when unset. The same file's
 `getNearbyResources` (Milestone 7B) calls Milestone 7A's
 `GET /resources/nearby`, validating latitude/longitude/radius synchronously
-before any request is sent. See
+before any request is sent. `lib/api/saved-resources.ts` (Milestone 8A) adds
+`saveResource`/`removeSavedResource` (via `client.ts`'s new
+`putNoContent`/`deleteNoContent`), `getSavedResources`, and
+`getSavedResourceStatus` — every call requires an access token, since saved
+resources are always per-account. See
 `docs/architecture/frontend-architecture.md` for the full data-fetching
 strategy, its "Authentication Architecture" section for how the access
-token/session are handled, and its "URL State (`/resources`)" section for
-the search design.
+token/session are handled, its "URL State (`/resources`)" section for
+the search design, and its "Saved Resources and Private-Data Cache
+Isolation" section for saved resources.
 
 ## Notes
 
@@ -179,3 +195,6 @@ the search design.
   `sharp`/`brace-expansion` — none introduced by Milestone 7B's new dependencies
   (`leaflet`, `react-leaflet`, `react-leaflet-cluster`, `leaflet.markercluster`, all
   clean); fixing them requires downgrading Next.js itself, out of scope here.
+- Milestone 8A introduced no new dependencies — the saved-resources feature
+  reuses the existing API client, TanStack Query, and auth infrastructure
+  end to end; `npm audit` is unchanged from Milestone 7B.

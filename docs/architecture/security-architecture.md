@@ -158,6 +158,15 @@ explicit, environment-configured origin allowlist (`CORS_ALLOWED_ORIGINS`)
 (Milestone 5C), required for the browser to send the Bearer access token
 cross-origin at all. `allowCredentials` remains `true` (Milestone 5B), which
 stays legal only because the origin allowlist has no wildcard.
+`allowedMethods` now includes `PUT` and `DELETE` (Milestone 8A) — a gap
+that had existed since this bean was first introduced (only `GET`/`POST`
+were ever listed), invisible until Milestone 8A's saved-resources
+save/remove endpoints became the first browser-driven routes to actually
+need them; found during that milestone's own manual browser verification
+(a real CORS preflight failure, not caught by any backend integration
+test, since those call the API directly rather than through a browser's
+CORS layer) and fixed with a regression test
+(`CorsConfigurationIntegrationTest`).
 
 ## CSRF
 
@@ -272,6 +281,39 @@ authentication model above:
   The backend's existing role checks remain the sole authority for every
   protected operation.
 
+## Saved Resources and Private-Account-Data Isolation (Milestone 8A)
+
+Saved resources are this project's first genuinely private, per-account
+data beyond authentication itself, and were reviewed accordingly:
+
+- Every saved-resource endpoint requires a Bearer access token for an
+  `ACTIVE`-status account; the user id is always taken from
+  `CurrentUserPrincipal` (the validated token), never from a path,
+  query, or body parameter — there is no way for one account to read or
+  modify another account's saved resources through any parameter
+  manipulation.
+- Saved-resource data is never written to `localStorage` or
+  `sessionStorage`, and never appears in any public/unauthenticated API
+  response — confirmed by dedicated tests and by direct browser-storage
+  inspection during manual verification.
+- The frontend's `QueryClient` cache — which, unlike the backend, is
+  shared browser-side state that could in principle outlive one
+  account's session — is explicitly cleared of every saved-resource
+  query on logout and on detecting an account switch within the same
+  browser tab, preventing a second user's session from momentarily
+  showing the first user's cached saved state. See
+  [ADR-014](../decisions/ADR-014-saved-resources-design.md) and
+  "Saved Resources and Private-Data Cache Isolation" in the frontend
+  architecture doc.
+- The signed-out "Sign in to save" link's `returnTo` parameter is
+  validated against absolute-URL, protocol-relative-URL, and
+  non-relative-path input before ever being used in a redirect
+  (`isSafeReturnPath`) — an unvalidated return path here would otherwise
+  be a straightforward open-redirect vector attached to the login flow.
+- A genuine, pre-existing CORS gap (missing `PUT`/`DELETE` in
+  `allowedMethods`) was found and fixed during this milestone — see
+  "CORS" above.
+
 ## See Also
 
 - [ADR-007: User Identity and Password Hashing](../decisions/ADR-007-user-identity-and-password-hashing.md)
@@ -280,6 +322,7 @@ authentication model above:
 - [ADR-006: Frontend-Backend Connectivity (CORS)](../decisions/ADR-006-frontend-backend-connectivity.md)
 - [ADR-012: PostGIS Resource Locations and Nearby-Search Design](../decisions/ADR-012-postgis-nearby-search-design.md)
 - [ADR-013: Interactive Map and Geolocation Design](../decisions/ADR-013-interactive-map-and-geolocation-design.md)
+- [ADR-014: Saved Resources Design](../decisions/ADR-014-saved-resources-design.md)
 - [Backend Architecture](backend-architecture.md)
 - [Frontend Architecture](frontend-architecture.md)
 - [API Documentation](../api/README.md)
