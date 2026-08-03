@@ -6,10 +6,12 @@ import { MapSearchProvider } from "@/lib/map/map-search-context";
 import { getCategories } from "@/lib/api/categories";
 import { getResources } from "@/lib/api/resources";
 import { getNearbyResources } from "@/lib/api/resources";
+import { useAuth } from "@/lib/auth/auth-provider";
 import type { CategoryPageResponse } from "@/lib/validation/schemas";
 
 jest.mock("@/lib/api/categories");
 jest.mock("@/lib/api/resources");
+jest.mock("@/lib/auth/auth-provider");
 jest.mock("next/navigation", () => ({
   useRouter: () => ({ push: jest.fn() }),
   usePathname: () => "/resources",
@@ -23,6 +25,7 @@ jest.mock("@/components/map/nearby-map", () => ({
 const mockGetCategories = getCategories as jest.MockedFunction<typeof getCategories>;
 const mockGetResources = getResources as jest.MockedFunction<typeof getResources>;
 const mockGetNearbyResources = getNearbyResources as jest.MockedFunction<typeof getNearbyResources>;
+const mockUseAuth = useAuth as jest.MockedFunction<typeof useAuth>;
 
 const categoryPage: CategoryPageResponse = {
   content: [
@@ -50,6 +53,12 @@ describe("ResourceExplorer", () => {
     mockGetCategories.mockResolvedValue(categoryPage);
     mockGetResources.mockResolvedValue({ content: [], page: 0, size: 12, totalElements: 0, totalPages: 0 });
     mockGetNearbyResources.mockResolvedValue({ content: [], page: 0, size: 12, totalElements: 0, totalPages: 0 });
+    mockUseAuth.mockReturnValue({
+      state: { status: "unauthenticated" },
+      login: jest.fn(),
+      logout: jest.fn(),
+      getValidAccessToken: jest.fn(),
+    });
     // jsdom's `window.location` persists across tests in a file; the
     // provider reads it on mount, so each test needs a clean starting URL.
     window.history.replaceState(null, "", "/resources");

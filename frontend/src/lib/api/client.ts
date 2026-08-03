@@ -70,7 +70,7 @@ interface JsonRequestOptions {
  */
 export async function postJson<T>(path: string, schema: ZodType<T>, options: JsonRequestOptions = {}): Promise<T> {
   const url = buildUrl(path);
-  const response = await sendJsonRequest(url, options);
+  const response = await sendJsonRequest(url, "POST", options);
   return parseJsonResponse(response, path, schema);
 }
 
@@ -80,13 +80,44 @@ export async function postJson<T>(path: string, schema: ZodType<T>, options: Jso
  */
 export async function postNoContent(path: string, options: JsonRequestOptions = {}): Promise<void> {
   const url = buildUrl(path);
-  const response = await sendJsonRequest(url, options);
+  const response = await sendJsonRequest(url, "POST", options);
   if (!response.ok) {
     throw await toApiRequestError(response);
   }
 }
 
-function sendJsonRequest(url: string, options: JsonRequestOptions): Promise<Response> {
+/**
+ * `PUT` with no meaningful response body — the current-user saved-resource
+ * "ensure saved" endpoint (Milestone 8A) returns `204 No Content` either way
+ * (whether this call created the relation or it already existed), so there
+ * is nothing to parse as JSON on success.
+ */
+export async function putNoContent(path: string, options: JsonRequestOptions = {}): Promise<void> {
+  const url = buildUrl(path);
+  const response = await sendJsonRequest(url, "PUT", options);
+  if (!response.ok) {
+    throw await toApiRequestError(response);
+  }
+}
+
+/**
+ * `DELETE` with no meaningful response body — the current-user
+ * "ensure not saved" endpoint (Milestone 8A) returns `204 No Content`
+ * whether it removed a relation or the relation was already absent.
+ */
+export async function deleteNoContent(path: string, options: JsonRequestOptions = {}): Promise<void> {
+  const url = buildUrl(path);
+  const response = await sendJsonRequest(url, "DELETE", options);
+  if (!response.ok) {
+    throw await toApiRequestError(response);
+  }
+}
+
+function sendJsonRequest(
+  url: string,
+  method: "POST" | "PUT" | "DELETE",
+  options: JsonRequestOptions,
+): Promise<Response> {
   const headers = authorizedHeaders({ Accept: "application/json" }, options.accessToken);
   let requestBody: string | undefined;
   if (options.body !== undefined) {
@@ -94,7 +125,7 @@ function sendJsonRequest(url: string, options: JsonRequestOptions): Promise<Resp
     requestBody = JSON.stringify(options.body);
   }
   return sendRequest(url, {
-    method: "POST",
+    method,
     headers,
     body: requestBody,
     credentials: options.credentials,

@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider } from "@/lib/auth/auth-provider";
 import { MobileNav } from "./mobile-nav";
 
@@ -8,10 +9,15 @@ jest.mock("next/navigation", () => ({
 }));
 
 function renderMobileNav() {
+  // AuthProvider reads useQueryClient() (Milestone 8A), so it needs a real
+  // QueryClientProvider ancestor, same as any other TanStack-Query consumer.
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
-    <AuthProvider>
-      <MobileNav />
-    </AuthProvider>,
+    <QueryClientProvider client={queryClient}>
+      <AuthProvider>
+        <MobileNav />
+      </AuthProvider>
+    </QueryClientProvider>,
   );
 }
 

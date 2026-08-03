@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { login as apiLogin, logout as apiLogout, refreshSession } from "@/lib/api/auth";
 import type { UserResponse } from "@/lib/validation/schemas";
 
@@ -51,21 +52,42 @@ export function useAuth(): AuthContextValue {
  */
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>({ status: "loading" });
+  const queryClient = useQueryClient();
 
   // Refresh tokens rotate on every use (ADR-008) — two concurrent refresh
   // attempts from this tab could each present the same soon-to-be-rotated
   // cookie and trigger a false-positive family-wide revocation. Every caller
   // awaits this single in-flight promise instead of issuing its own request.
   const refreshPromiseRef = useRef<Promise<string | null> | null>(null);
+  // The previously-authenticated account's id, if any — lets applySession
+  // detect a genuine account switch (not just a routine token refresh for
+  // the same account) without adding an extra state field.
+  const previousUserIdRef = useRef<string | null>(null);
 
-  const applySession = useCallback((accessToken: string, expiresInSeconds: number, user: UserResponse) => {
-    setState({
-      status: "authenticated",
-      user,
-      accessToken,
-      expiresAt: Date.now() + expiresInSeconds * 1000,
-    });
-  }, []);
+  const applySession = useCallback(
+    (accessToken: string, expiresInSeconds: number, user: UserResponse) => {
+      // Saved-resource query keys are rooted in userId (see
+      // lib/query/keys.ts), so a same-account refresh never collides with
+      // this. This clear is specifically for a genuine account switch
+      // (sign out, then sign in as someone else in the same tab/session) —
+      // without it, a stale cache entry for the previous account would
+      // simply sit unused (harmless on its own), but clearing it
+      // immediately is the more defensible, explicit guarantee: this
+      // browser's TanStack Query cache never holds another account's
+      // private saved-resource data one render longer than necessary.
+      if (previousUserIdRef.current !== null && previousUserIdRef.current !== user.id) {
+        queryClient.removeQueries({ queryKey: ["saved-resources"] });
+      }
+      previousUserIdRef.current = user.id;
+      setState({
+        status: "authenticated",
+        user,
+        accessToken,
+        expiresAt: Date.now() + expiresInSeconds * 1000,
+      });
+    },
+    [queryClient],
+  );
 
   const performRefresh = useCallback(async (): Promise<string | null> => {
     try {
@@ -108,9 +130,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Logout is unconditional from the frontend's perspective: even if the
       // network call fails, the in-memory session is forgotten regardless.
     } finally {
+      // Saved resources are private account data (Milestone 8A) — removed
+      // from the TanStack Query cache unconditionally on logout, not just
+      // left to go stale, regardless of whether the network call above
+      // succeeded.
+      queryClient.removeQueries({ queryKey: ["saved-resources"] });
+      previousUserIdRef.current = null;
       setState({ status: "unauthenticated" });
     }
-  }, []);
+  }, [queryClient]);
 
   const getValidAccessToken = useCallback((): Promise<string | null> => {
     if (state.status === "authenticated" && Date.now() < state.expiresAt - EXPIRY_BUFFER_MS) {

@@ -3,9 +3,11 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { DashboardContent } from "./dashboard-content";
 import { getCurrentUser } from "@/lib/api/auth";
+import { getSavedResources } from "@/lib/api/saved-resources";
 import { useAuth } from "@/lib/auth/auth-provider";
 
 jest.mock("@/lib/api/auth");
+jest.mock("@/lib/api/saved-resources");
 jest.mock("@/lib/auth/auth-provider");
 const mockPush = jest.fn();
 jest.mock("next/navigation", () => ({
@@ -13,6 +15,7 @@ jest.mock("next/navigation", () => ({
 }));
 
 const mockGetCurrentUser = getCurrentUser as jest.MockedFunction<typeof getCurrentUser>;
+const mockGetSavedResources = getSavedResources as jest.MockedFunction<typeof getSavedResources>;
 const mockUseAuth = useAuth as jest.MockedFunction<typeof useAuth>;
 
 const user = {
@@ -24,23 +27,30 @@ const user = {
   createdAt: "2026-07-27T00:00:00Z",
 };
 
+const emptySavedPage = { content: [], page: 0, size: 10, totalElements: 0, totalPages: 0 };
+
 function renderWithQueryClient(ui: React.ReactElement) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
 }
 
+function authenticate() {
+  mockUseAuth.mockReturnValue({
+    state: { status: "authenticated", user, accessToken: "token", expiresAt: Date.now() + 900_000 },
+    login: jest.fn(),
+    logout: jest.fn(),
+    getValidAccessToken: jest.fn().mockResolvedValue("token"),
+  });
+}
+
 describe("DashboardContent", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockGetSavedResources.mockResolvedValue(emptySavedPage);
   });
 
   it("shows a loading state, then the account's safe fields once loaded", async () => {
-    mockUseAuth.mockReturnValue({
-      state: { status: "authenticated", user, accessToken: "token", expiresAt: Date.now() + 900_000 },
-      login: jest.fn(),
-      logout: jest.fn(),
-      getValidAccessToken: jest.fn().mockResolvedValue("token"),
-    });
+    authenticate();
     mockGetCurrentUser.mockResolvedValue(user);
 
     renderWithQueryClient(<DashboardContent />);
@@ -51,20 +61,17 @@ describe("DashboardContent", () => {
     expect(screen.getByText("ACTIVE")).toBeInTheDocument();
   });
 
-  it("contains no fabricated features beyond the safe account fields and logout", async () => {
-    mockUseAuth.mockReturnValue({
-      state: { status: "authenticated", user, accessToken: "token", expiresAt: Date.now() + 900_000 },
-      login: jest.fn(),
-      logout: jest.fn(),
-      getValidAccessToken: jest.fn().mockResolvedValue("token"),
-    });
+  it("shows the real Saved Resources section, but no other fabricated features", async () => {
+    authenticate();
     mockGetCurrentUser.mockResolvedValue(user);
 
     renderWithQueryClient(<DashboardContent />);
 
     await waitFor(() => expect(screen.getByText("student@example.org")).toBeInTheDocument());
-    expect(screen.queryByText(/saved resource/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Saved Resources" })).toBeInTheDocument();
     expect(screen.queryByText(/moderation/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/recommend/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/recent activity/i)).not.toBeInTheDocument();
   });
 
   it("logs out and redirects to /login", async () => {
@@ -88,12 +95,7 @@ describe("DashboardContent", () => {
   });
 
   it("shows an error state when the account can't be loaded", async () => {
-    mockUseAuth.mockReturnValue({
-      state: { status: "authenticated", user, accessToken: "token", expiresAt: Date.now() + 900_000 },
-      login: jest.fn(),
-      logout: jest.fn(),
-      getValidAccessToken: jest.fn().mockResolvedValue("token"),
-    });
+    authenticate();
     mockGetCurrentUser.mockRejectedValue(new Error("boom"));
 
     renderWithQueryClient(<DashboardContent />);

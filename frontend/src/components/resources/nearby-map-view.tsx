@@ -8,6 +8,7 @@ import { resourceKeys } from "@/lib/query/keys";
 import { NEARBY_PAGE_SIZE } from "@/lib/constants/map";
 import { useMapSearch } from "@/lib/map/map-search-context";
 import { NearbyResourceCard } from "@/components/resources/nearby-resource-card";
+import { useSavedResourceStatusMap } from "@/lib/query/use-saved-resources";
 import { UseMyLocationControl } from "@/components/map/use-my-location-control";
 import { RadiusSelector } from "@/components/map/radius-selector";
 import { SearchThisAreaButton } from "@/components/map/search-this-area-button";
@@ -75,6 +76,10 @@ export function NearbyMapView({ filters }: { filters: NearbyMapViewFilters }) {
   });
 
   const results = query.data?.content ?? [];
+  // One batched saved-status lookup for the whole current result page —
+  // never one request per card (see ADR/milestone doc's "Saved-Status
+  // Lookup" section).
+  const { savedIds } = useSavedResourceStatusMap(results.map((r) => r.id));
 
   // A selection that no longer appears in the current result page (a new
   // search, a filter change, or pagination) is cleared rather than left
@@ -145,6 +150,7 @@ export function NearbyMapView({ filters }: { filters: NearbyMapViewFilters }) {
                       resource={resource}
                       selected={resource.id === selectedResourceId}
                       onSelect={setSelectedResourceId}
+                      isSaved={savedIds.has(resource.id)}
                     />
                   </li>
                 ))}

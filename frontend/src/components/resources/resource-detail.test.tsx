@@ -1,6 +1,19 @@
 import { render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactElement } from "react";
 import { ResourceDetail } from "./resource-detail";
+import { useAuth } from "@/lib/auth/auth-provider";
 import type { ResourceResponse } from "@/lib/validation/schemas";
+
+jest.mock("@/lib/auth/auth-provider");
+const mockUseAuth = useAuth as jest.MockedFunction<typeof useAuth>;
+
+// The detail page's save control (Milestone 8A) needs a mocked AuthProvider
+// and a real QueryClientProvider ancestor.
+function renderWithQueryClient(ui: ReactElement) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
+}
 
 const fullResource: ResourceResponse = {
   id: "11111111-1111-1111-1111-111111111111",
@@ -36,8 +49,17 @@ const fullResource: ResourceResponse = {
 };
 
 describe("ResourceDetail", () => {
+  beforeEach(() => {
+    mockUseAuth.mockReturnValue({
+      state: { status: "unauthenticated" },
+      login: jest.fn(),
+      logout: jest.fn(),
+      getValidAccessToken: jest.fn(),
+    });
+  });
+
   it("renders the resource name as the only h1", () => {
-    render(<ResourceDetail resource={fullResource} />);
+    renderWithQueryClient(<ResourceDetail resource={fullResource} />);
 
     const headings = screen.getAllByRole("heading", { level: 1 });
     expect(headings).toHaveLength(1);
@@ -45,13 +67,13 @@ describe("ResourceDetail", () => {
   });
 
   it("links the category to the filtered resource list", () => {
-    render(<ResourceDetail resource={fullResource} />);
+    renderWithQueryClient(<ResourceDetail resource={fullResource} />);
 
     expect(screen.getByRole("link", { name: "Study Spaces" })).toHaveAttribute("href", "/resources?categoryId=1");
   });
 
   it("uses tel:, mailto:, and a safe external link for contact fields", () => {
-    render(<ResourceDetail resource={fullResource} />);
+    renderWithQueryClient(<ResourceDetail resource={fullResource} />);
 
     expect(screen.getByRole("link", { name: "9025550100" })).toHaveAttribute("href", "tel:9025550100");
     expect(screen.getByRole("link", { name: "info@example.org" })).toHaveAttribute("href", "mailto:info@example.org");
@@ -63,14 +85,14 @@ describe("ResourceDetail", () => {
   });
 
   it("renders the address on separate lines", () => {
-    render(<ResourceDetail resource={fullResource} />);
+    renderWithQueryClient(<ResourceDetail resource={fullResource} />);
 
     expect(screen.getByText("5381 Spring Garden Rd")).toBeInTheDocument();
     expect(screen.getByText("Halifax, NS B3J 2K9")).toBeInTheDocument();
   });
 
   it("shows verified status and eligibility when present", () => {
-    render(<ResourceDetail resource={fullResource} />);
+    renderWithQueryClient(<ResourceDetail resource={fullResource} />);
 
     expect(screen.getByText(/Verified/)).toBeInTheDocument();
     expect(screen.getByText("Open to the public.")).toBeInTheDocument();
@@ -90,7 +112,7 @@ describe("ResourceDetail", () => {
       eligibility: null,
     };
 
-    render(<ResourceDetail resource={minimalResource} />);
+    renderWithQueryClient(<ResourceDetail resource={minimalResource} />);
 
     expect(screen.queryByRole("heading", { name: "Contact" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Eligibility" })).not.toBeInTheDocument();
@@ -98,19 +120,19 @@ describe("ResourceDetail", () => {
   });
 
   it("never renders an 'Accessibility' section, since the backend has no such field", () => {
-    render(<ResourceDetail resource={fullResource} />);
+    renderWithQueryClient(<ResourceDetail resource={fullResource} />);
 
     expect(screen.queryByText(/Accessibility/i)).not.toBeInTheDocument();
   });
 
   it("shows the current open status badge", () => {
-    render(<ResourceDetail resource={fullResource} />);
+    renderWithQueryClient(<ResourceDetail resource={fullResource} />);
 
     expect(screen.getByText("Open now")).toBeInTheDocument();
   });
 
   it("lists the weekly schedule Monday through Sunday, in order", () => {
-    render(<ResourceDetail resource={fullResource} />);
+    renderWithQueryClient(<ResourceDetail resource={fullResource} />);
 
     const dayLabels = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
     let previous: Element | null = null;
@@ -124,21 +146,21 @@ describe("ResourceDetail", () => {
   });
 
   it("shows 'Closed' for an explicitly closed day", () => {
-    render(<ResourceDetail resource={fullResource} />);
+    renderWithQueryClient(<ResourceDetail resource={fullResource} />);
 
     const tuesdayRow = screen.getByText("Tuesday").closest("div");
     expect(tuesdayRow).toHaveTextContent("Closed");
   });
 
   it("shows 'Hours unavailable' for a day with no schedule entry, distinct from Closed", () => {
-    render(<ResourceDetail resource={fullResource} />);
+    renderWithQueryClient(<ResourceDetail resource={fullResource} />);
 
     const wednesdayRow = screen.getByText("Wednesday").closest("div");
     expect(wednesdayRow).toHaveTextContent("Hours unavailable");
   });
 
   it("formats an ordinary interval as readable 12-hour times", () => {
-    render(<ResourceDetail resource={fullResource} />);
+    renderWithQueryClient(<ResourceDetail resource={fullResource} />);
 
     const mondayRow = screen.getByText("Monday").closest("div");
     expect(mondayRow).toHaveTextContent("9:00 AM");
@@ -146,7 +168,7 @@ describe("ResourceDetail", () => {
   });
 
   it("clearly marks an overnight interval that crosses midnight", () => {
-    render(<ResourceDetail resource={fullResource} />);
+    renderWithQueryClient(<ResourceDetail resource={fullResource} />);
 
     const fridayRow = screen.getByText("Friday").closest("div");
     expect(fridayRow).toHaveTextContent("10:00 PM");
@@ -160,7 +182,7 @@ describe("ResourceDetail", () => {
       hours: { timezone: "America/Halifax", weeklyHours: [], hoursStatus: "UNKNOWN", openNow: null },
     };
 
-    render(<ResourceDetail resource={noScheduleResource} />);
+    renderWithQueryClient(<ResourceDetail resource={noScheduleResource} />);
 
     expect(screen.getByText(/Hours have not been added/i)).toBeInTheDocument();
     expect(screen.queryByText("Monday")).not.toBeInTheDocument();

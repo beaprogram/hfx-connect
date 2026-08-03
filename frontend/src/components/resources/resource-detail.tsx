@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { CostBadge, HoursStatusBadge, VerificationBadge } from "@/components/resources/status-badges";
 import { ExternalWebsiteLink } from "@/components/resources/external-website-link";
+import { ResourceDetailSaveControl } from "@/components/resources/resource-detail-save-control";
 import { addressLines } from "@/lib/formatting/address";
 import { formatDate } from "@/lib/formatting/dates";
 import { costTypeLabel, dayOfWeekLabel, formatLocalTime } from "@/lib/formatting/labels";
@@ -33,10 +34,13 @@ export function ResourceDetail({ resource }: { resource: ResourceResponse }) {
       </p>
 
       <h1 className="mt-3 text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">{resource.name}</h1>
-      <div className="mt-3 flex flex-wrap gap-2">
+      <div className="mt-3 flex flex-wrap items-center gap-2">
         <VerificationBadge status={resource.verificationStatus} />
         <CostBadge costType={resource.costType} />
         <HoursStatusBadge status={resource.hours.hoursStatus} />
+      </div>
+      <div className="mt-4">
+        <ResourceDetailSaveControl resourceId={resource.id} resourceName={resource.name} />
       </div>
 
       {resource.description && (
