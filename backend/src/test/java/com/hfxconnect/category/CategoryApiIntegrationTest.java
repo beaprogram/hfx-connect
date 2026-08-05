@@ -49,6 +49,9 @@ class CategoryApiIntegrationTest extends AbstractPostgresIntegrationTest {
 	private UserRepository userRepository;
 
 	@Autowired
+	private CategoryRepository categoryRepository;
+
+	@Autowired
 	private AccessTokenService accessTokenService;
 
 	private HttpHeaders adminAuthHeaders;
@@ -183,13 +186,33 @@ class CategoryApiIntegrationTest extends AbstractPostgresIntegrationTest {
 	}
 
 	@Test
-	void listWithAnActiveFalseFilterIsEmptyBecauseNoInactiveCategoryCanBeCreatedYet() {
+	void activeFalseFilterReturnsOnlyInactiveCategories() {
+		// The category domain itself has no deactivation endpoint (Milestone
+		// 3A), but several other domains' own tests (resource creation,
+		// resource submissions) legitimately deactivate a category directly
+		// via the repository as their own test fixture, in this same shared,
+		// never-rolled-back database — so this test cannot assume no
+		// inactive category exists globally. It creates and deactivates its
+		// own uniquely-named category instead, and asserts the filter's
+		// actual behavior (only inactive categories, and a known active one
+		// excluded), independent of whatever else the shared database holds.
+		String marker = UUID.randomUUID().toString();
+		String activeName = "Active Filter Check " + marker;
+		String inactiveName = "Inactive Filter Check " + marker;
+		restTemplate.postForEntity("/api/v1/categories", createRequest(activeName, null), CategoryResponse.class);
+		CategoryResponse createdInactive = restTemplate.postForEntity(
+				"/api/v1/categories", createRequest(inactiveName, null), CategoryResponse.class).getBody();
+		Category inactive = categoryRepository.findById(createdInactive.id()).orElseThrow();
+		inactive.deactivate();
+		categoryRepository.saveAndFlush(inactive);
+
 		ResponseEntity<CategoryPageResponse> response = restTemplate.getForEntity(
-				"/api/v1/categories?active=false", CategoryPageResponse.class);
+				"/api/v1/categories?active=false&size=100", CategoryPageResponse.class);
 
 		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-		assertThat(response.getBody().content()).isEmpty();
-		assertThat(response.getBody().totalElements()).isEqualTo(0);
+		assertThat(response.getBody().content()).extracting(CategoryResponse::name)
+				.contains(inactiveName)
+				.doesNotContain(activeName);
 	}
 
 	@Test

@@ -302,11 +302,19 @@ class ResourceApiIntegrationTest extends AbstractPostgresIntegrationTest {
 	@Test
 	void listReturnsAPageContainingACreatedResource() {
 		Category category = activeCategory("List Check");
-		String name = "List Check Resource " + UUID.randomUUID();
+		String marker = UUID.randomUUID().toString();
+		String name = "List Check Resource " + marker;
 		restTemplate.postForEntity("/api/v1/resources", createRequest(category.getId(), name), ResourceResponse.class);
 
+		// Scoped with the same marker every other resource-creating test in
+		// this file uses (q=/categoryId=) — a plain, unscoped page-0 query
+		// implicitly assumed "fewer than size resources exist across the
+		// whole shared test database," which stopped holding once enough
+		// other test classes (Milestone 8B's resourcesubmission/
+		// correctionreport suites among them) started creating their own
+		// resources in the same shared Testcontainers database.
 		ResponseEntity<ResourcePageResponse> response = restTemplate.getForEntity(
-				"/api/v1/resources?page=0&size=50", ResourcePageResponse.class);
+				"/api/v1/resources?q=" + marker + "&page=0&size=50", ResourcePageResponse.class);
 
 		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
 		assertThat(response.getBody().content()).extracting(ResourceSummaryResponse::name).contains(name);
