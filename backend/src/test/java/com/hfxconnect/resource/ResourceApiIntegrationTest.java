@@ -13,7 +13,6 @@ import com.hfxconnect.user.UserRepository;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.DayOfWeek;
-import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.Locale;
@@ -988,14 +987,22 @@ class ResourceApiIntegrationTest extends AbstractPostgresIntegrationTest {
 		return new HttpEntity<>(request, headers);
 	}
 
-	/** Sets a schedule guaranteed to be OPEN right now (today, now-1h to now+1h, America/Halifax). */
+	/**
+	 * Sets a schedule guaranteed to be OPEN right now (now-1h to now+1h,
+	 * America/Halifax). The entry's day-of-week is derived from the window's
+	 * own start instant, not "today" — necessary so this stays correct even
+	 * when "now" falls within the first hour after midnight, where
+	 * {@code now.minusHours(1)} rolls back into the previous calendar day
+	 * (see the equivalent helper in ResourceServiceIntegrationTest for the
+	 * full explanation).
+	 */
 	private void putOpenNowSchedule(UUID resourceId) {
-		ZonedDateTime nowHalifax = ZonedDateTime.now(ZoneId.of("America/Halifax"));
-		DayOfWeek today = nowHalifax.getDayOfWeek();
-		LocalTime now = nowHalifax.toLocalTime();
+		ZonedDateTime start = ZonedDateTime.now(ZoneId.of("America/Halifax")).minusHours(1);
+		ZonedDateTime end = ZonedDateTime.now(ZoneId.of("America/Halifax")).plusHours(1);
+		DayOfWeek entryDay = start.getDayOfWeek();
 		HttpEntity<String> request = jsonEntity(String.format(Locale.ROOT,
 				"{\"hours\":[{\"dayOfWeek\":\"%s\",\"closed\":false,\"opensAt\":\"%s\",\"closesAt\":\"%s\"}]}",
-				today, now.minusHours(1), now.plusHours(1)));
+				entryDay, start.toLocalTime(), end.toLocalTime()));
 		restTemplate.exchange("/api/v1/resources/" + resourceId + "/operating-hours", HttpMethod.PUT, request, String.class);
 	}
 

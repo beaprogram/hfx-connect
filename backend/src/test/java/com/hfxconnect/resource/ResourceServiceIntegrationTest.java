@@ -631,9 +631,9 @@ class ResourceServiceIntegrationTest extends AbstractPostgresIntegrationTest {
 				withName(validCommand(category.getId(), "placeholder"), "Currently Closed " + marker));
 
 		DayOfWeek today = ZonedDateTime.now(HALIFAX_ZONE).getDayOfWeek();
-		LocalTime now = ZonedDateTime.now(HALIFAX_ZONE).toLocalTime();
+		OpenWindow window = openWindowCoveringNow();
 		resourceService.replaceOperatingHours(openResource.id(), new ReplaceOperatingHoursRequest(
-				List.of(new OperatingHoursEntryRequest(today, false, now.minusHours(1), now.plusHours(1)))));
+				List.of(new OperatingHoursEntryRequest(window.day(), false, window.opensAt(), window.closesAt()))));
 		resourceService.replaceOperatingHours(closedResource.id(), new ReplaceOperatingHoursRequest(
 				List.of(new OperatingHoursEntryRequest(today, true, null, null))));
 
@@ -649,10 +649,9 @@ class ResourceServiceIntegrationTest extends AbstractPostgresIntegrationTest {
 		ResourceDetails openResource = resourceService.create(
 				withName(validCommand(category.getId(), "placeholder"), "Combo Open " + marker));
 
-		DayOfWeek today = ZonedDateTime.now(HALIFAX_ZONE).getDayOfWeek();
-		LocalTime now = ZonedDateTime.now(HALIFAX_ZONE).toLocalTime();
+		OpenWindow window = openWindowCoveringNow();
 		resourceService.replaceOperatingHours(openResource.id(), new ReplaceOperatingHoursRequest(
-				List.of(new OperatingHoursEntryRequest(today, false, now.minusHours(1), now.plusHours(1)))));
+				List.of(new OperatingHoursEntryRequest(window.day(), false, window.opensAt(), window.closesAt()))));
 
 		ResourcePage page = resourceService.search(marker, category.getId(), null, null, "true", 0, 20, null);
 
@@ -683,10 +682,9 @@ class ResourceServiceIntegrationTest extends AbstractPostgresIntegrationTest {
 		resourceService.create(withCostType(
 				withName(validCommand(category.getId(), "placeholder"), "Wrong Cost Type " + marker), CostType.PAID));
 
-		DayOfWeek today = ZonedDateTime.now(HALIFAX_ZONE).getDayOfWeek();
-		LocalTime now = ZonedDateTime.now(HALIFAX_ZONE).toLocalTime();
+		OpenWindow window = openWindowCoveringNow();
 		resourceService.replaceOperatingHours(match.id(), new ReplaceOperatingHoursRequest(
-				List.of(new OperatingHoursEntryRequest(today, false, now.minusHours(1), now.plusHours(1)))));
+				List.of(new OperatingHoursEntryRequest(window.day(), false, window.opensAt(), window.closesAt()))));
 
 		ResourcePage page = resourceService.search(
 				marker, category.getId(), "FREE", "UNVERIFIED", "true", 0, 20, "name");
@@ -1003,10 +1001,9 @@ class ResourceServiceIntegrationTest extends AbstractPostgresIntegrationTest {
 		resourceService.replaceLocation(open.id(), new ResourceLocationRequest(LIBRARY_LAT, LIBRARY_LON));
 		resourceService.replaceLocation(unknown.id(), new ResourceLocationRequest(LIBRARY_LAT, LIBRARY_LON));
 
-		DayOfWeek today = ZonedDateTime.now(HALIFAX_ZONE).getDayOfWeek();
-		LocalTime now = ZonedDateTime.now(HALIFAX_ZONE).toLocalTime();
+		OpenWindow window = openWindowCoveringNow();
 		resourceService.replaceOperatingHours(open.id(), new ReplaceOperatingHoursRequest(
-				List.of(new OperatingHoursEntryRequest(today, false, now.minusHours(1), now.plusHours(1)))));
+				List.of(new OperatingHoursEntryRequest(window.day(), false, window.opensAt(), window.closesAt()))));
 
 		NearbyResourcePageResponse response = resourceService.nearby(
 				LIBRARY_LAT, LIBRARY_LON, 5.0, marker, null, null, null, "true", 0, 20);
@@ -1050,6 +1047,27 @@ class ResourceServiceIntegrationTest extends AbstractPostgresIntegrationTest {
 		assertThat(result.longitude()).isEqualTo(LIBRARY_LON);
 		assertThat(result.distanceMeters()).isEqualTo(0.0, org.assertj.core.data.Offset.offset(1.0));
 		assertThat(result.hoursStatus()).isEqualTo(HoursStatus.UNKNOWN);
+	}
+
+	/**
+	 * A one-hour-either-side-of-now operating-hours window guaranteed to
+	 * actually cover the current moment, including when "now" falls within
+	 * the first hour after midnight. Using {@code ZonedDateTime.now(...).getDayOfWeek()}
+	 * for the entry's day (as an earlier version of these tests did) breaks
+	 * specifically in that ~60-minute window each day: {@code now.minusHours(1)}
+	 * rolls back into the previous calendar day while the entry stays tagged
+	 * with today's day-of-week, producing an overnight interval that does not
+	 * actually contain "now". Deriving the entry's day from the window's own
+	 * start instant instead is correct in every case, including the already-
+	 * working case where the window instead rolls forward past midnight.
+	 */
+	private record OpenWindow(DayOfWeek day, LocalTime opensAt, LocalTime closesAt) {
+	}
+
+	private OpenWindow openWindowCoveringNow() {
+		ZonedDateTime start = ZonedDateTime.now(HALIFAX_ZONE).minusHours(1);
+		ZonedDateTime end = ZonedDateTime.now(HALIFAX_ZONE).plusHours(1);
+		return new OpenWindow(start.getDayOfWeek(), start.toLocalTime(), end.toLocalTime());
 	}
 
 	private Category activeCategory(String namePrefix) {
