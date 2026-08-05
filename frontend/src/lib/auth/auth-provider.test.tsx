@@ -156,7 +156,7 @@ describe("AuthProvider", () => {
     expect(mockLogout).toHaveBeenCalledTimes(1);
   });
 
-  it("logout() removes private saved-resource queries from the TanStack Query cache", async () => {
+  it("logout() removes every private-data query (saved resources, resource submissions, correction reports) from the TanStack Query cache", async () => {
     mockRefreshSession.mockResolvedValueOnce(sessionResult);
     mockLogout.mockResolvedValueOnce(undefined);
 
@@ -180,17 +180,26 @@ describe("AuthProvider", () => {
     );
     await waitFor(() => expect(screen.getByTestId("status")).toHaveTextContent("authenticated"));
 
-    // Simulates a saved-resource query already cached for this account.
-    queryClient.setQueryData(["saved-resources", user.id, "list", { page: 0 }], { content: ["fake"] });
-    expect(queryClient.getQueryData(["saved-resources", user.id, "list", { page: 0 }])).toBeDefined();
+    // Simulates each kind of private-data query already cached for this account.
+    const privateKeys = [
+      ["saved-resources", user.id, "list", { page: 0 }],
+      ["resource-submissions", user.id, "list", { page: 0 }],
+      ["correction-reports", user.id, "list", { page: 0 }],
+    ];
+    for (const key of privateKeys) {
+      queryClient.setQueryData(key, { content: ["fake"] });
+      expect(queryClient.getQueryData(key)).toBeDefined();
+    }
 
     await testUser.click(screen.getByRole("button", { name: "logout" }));
 
     await waitFor(() => expect(screen.getByTestId("status")).toHaveTextContent("unauthenticated"));
-    expect(queryClient.getQueryData(["saved-resources", user.id, "list", { page: 0 }])).toBeUndefined();
+    for (const key of privateKeys) {
+      expect(queryClient.getQueryData(key)).toBeUndefined();
+    }
   });
 
-  it("logging in as a different account clears the previous account's saved-resource cache", async () => {
+  it("logging in as a different account clears the previous account's private-data caches", async () => {
     const otherUser = { ...user, id: "22222222-2222-2222-2222-222222222222", email: "other@example.org" };
     mockRefreshSession.mockResolvedValueOnce(sessionResult);
     mockLogout.mockResolvedValueOnce(undefined);
@@ -218,14 +227,23 @@ describe("AuthProvider", () => {
     );
     await waitFor(() => expect(screen.getByTestId("status")).toHaveTextContent("authenticated"));
 
-    queryClient.setQueryData(["saved-resources", user.id, "list", { page: 0 }], { content: ["fake"] });
+    const privateKeys = [
+      ["saved-resources", user.id, "list", { page: 0 }],
+      ["resource-submissions", user.id, "list", { page: 0 }],
+      ["correction-reports", user.id, "list", { page: 0 }],
+    ];
+    for (const key of privateKeys) {
+      queryClient.setQueryData(key, { content: ["fake"] });
+    }
 
     await testUser.click(screen.getByRole("button", { name: "logout" }));
     await waitFor(() => expect(screen.getByTestId("status")).toHaveTextContent("unauthenticated"));
     await testUser.click(screen.getByRole("button", { name: "login-other" }));
 
     await waitFor(() => expect(screen.getByTestId("email")).toHaveTextContent("other@example.org"));
-    expect(queryClient.getQueryData(["saved-resources", user.id, "list", { page: 0 }])).toBeUndefined();
+    for (const key of privateKeys) {
+      expect(queryClient.getQueryData(key)).toBeUndefined();
+    }
   });
 
   it("coalesces concurrent refresh attempts into a single request (single-flight)", async () => {

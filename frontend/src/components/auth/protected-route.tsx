@@ -1,8 +1,9 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, type ReactNode } from "react";
 import { useAuth } from "@/lib/auth/auth-provider";
+import { buildLoginHref } from "@/lib/auth/return-to";
 
 /**
  * A client-side UX guard, not a security boundary — see ADR-009's "Frontend
@@ -18,16 +19,23 @@ import { useAuth } from "@/lib/auth/auth-provider";
  * Renders a loading state for both `"loading"` and the brief instant
  * `"unauthenticated"` is true before the redirect effect fires, so protected
  * content is never painted even momentarily.
+ *
+ * <p>Redirects carry a validated `returnTo` (Milestone 8B) built from the
+ * current pathname via {@link buildLoginHref}, so a signed-out visit to a
+ * protected route like `/submit-resource` returns there after login,
+ * exactly like the "Sign in to save" flow (Milestone 8A) — never an
+ * unvalidated redirect target.
  */
 export function ProtectedRoute({ children }: { children: ReactNode }) {
   const { state } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
 
   useEffect(() => {
     if (state.status === "unauthenticated") {
-      router.replace("/login");
+      router.replace(buildLoginHref(pathname));
     }
-  }, [state.status, router]);
+  }, [state.status, router, pathname]);
 
   if (state.status === "authenticated") {
     return <>{children}</>;

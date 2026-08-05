@@ -5,11 +5,15 @@ import { useRouter } from "next/navigation";
 import { getCurrentUser } from "@/lib/api/auth";
 import { useAuth } from "@/lib/auth/auth-provider";
 import { SavedResourcesSection } from "@/components/auth/saved-resources-section";
+import { ResourceSubmissionsSection } from "@/components/contributions/resource-submissions-section";
+import { CorrectionReportsSection } from "@/components/contributions/correction-reports-section";
 
 /**
  * The safe `/users/me` fields plus, as of Milestone 8A, the current user's
- * Saved Resources. Still no moderation tools or other fabricated features —
- * see the milestone's explicit "no fake features" requirement.
+ * Saved Resources, and, as of Milestone 8B, their resource submissions and
+ * correction reports. Still no moderation tools, review-time estimates, or
+ * other fabricated features — see the milestone's explicit "no fake
+ * features" requirement.
  */
 export function DashboardContent() {
   const { getValidAccessToken, logout } = useAuth();
@@ -70,6 +74,8 @@ export function DashboardContent() {
       </div>
 
       <SavedResourcesSection />
+      <ResourceSubmissionsSection />
+      <CorrectionReportsSection />
     </div>
   );
 }

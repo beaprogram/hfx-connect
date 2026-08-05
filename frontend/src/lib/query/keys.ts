@@ -75,3 +75,27 @@ export const savedResourceKeys = {
   status: (userId: string, resourceIds: string[]) =>
     [...savedResourceKeys.all(userId), "status", [...resourceIds].sort()] as const,
 };
+
+/**
+ * Resource-submission keys (Milestone 8B) — private, per-account data,
+ * rooted in `userId` for the same reason `savedResourceKeys` already is.
+ */
+export const resourceSubmissionKeys = {
+  all: (userId: string) => ["resource-submissions", userId] as const,
+  list: (userId: string, params: { page: number; size: number; sort?: string }) =>
+    [...resourceSubmissionKeys.all(userId), "list", params] as const,
+  detail: (userId: string, submissionId: string) =>
+    [...resourceSubmissionKeys.all(userId), "detail", submissionId] as const,
+};
+
+/**
+ * Correction-report keys (Milestone 8B) — private, per-account data, rooted
+ * in `userId` for the same reason `savedResourceKeys` already is.
+ */
+export const correctionReportKeys = {
+  all: (userId: string) => ["correction-reports", userId] as const,
+  list: (userId: string, params: { page: number; size: number; sort?: string }) =>
+    [...correctionReportKeys.all(userId), "list", params] as const,
+  detail: (userId: string, reportId: string) =>
+    [...correctionReportKeys.all(userId), "detail", reportId] as const,
+};
