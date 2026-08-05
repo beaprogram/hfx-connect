@@ -14,9 +14,13 @@ nearby-search API), all backed by the real Category and Resource APIs
 (Milestones 3A/3C/6A/6B/7A) —
 plus real authentication (Milestone 5C): `/login`, `/register`, and a protected
 `/dashboard`, with an in-memory access token and refresh-cookie-based session
-restoration, and, as of Milestone 8A, a private **Saved Resources** feature:
+restoration, a private **Saved Resources** feature (Milestone 8A):
 save/remove a resource from its card or detail page, and browse a paginated
-Saved Resources section on the dashboard. See
+Saved Resources section on the dashboard, and, as of Milestone 8B, two
+community-contribution workflows: propose a new resource
+(`/submit-resource`) and report an issue on an existing one
+(`/resources/[slug]/report`), each tracked in its own paginated
+dashboard section with a withdraw action on still-pending items. See
 [docs/architecture/frontend-architecture.md](../docs/architecture/frontend-architecture.md#authentication-architecture)
 for the authentication design, its
 ["URL State" section](../docs/architecture/frontend-architecture.md#url-state-resources)
@@ -24,7 +28,8 @@ for the search design, its
 ["Interactive Map Architecture" section](../docs/architecture/frontend-architecture.md#interactive-map-architecture)
 for the map, and its
 ["Saved Resources and Private-Data Cache Isolation" section](../docs/architecture/frontend-architecture.md#saved-resources-and-private-data-cache-isolation)
-for saved resources. Submissions and role-specific dashboards are not
+for the private-data cache pattern shared by saved resources,
+submissions, and correction reports. Role-specific dashboards are not
 implemented yet.
 
 ## Stack
@@ -102,39 +107,55 @@ frontend/
         [slug]/
           page.tsx                     Resource detail
           loading.tsx, not-found.tsx, error.tsx
+          report/page.tsx           Correction-report form (protected, Milestone 8B)
       login/page.tsx           Login (Milestone 5C)
       register/page.tsx       Registration — does not log the caller in (Milestone 5C)
-      dashboard/page.tsx     Protected: the current authenticated account (Milestone 5C)
+      submit-resource/page.tsx  Resource-submission form (protected, Milestone 8B)
+      dashboard/
+        page.tsx                     Protected: the current authenticated account (Milestone 5C)
+        submissions/[id]/page.tsx        Owned submission detail (Milestone 8B)
+        correction-reports/[id]/page.tsx  Owned report detail (Milestone 8B)
     components/
       categories/               Category card/grid
       resources/                Resource card/grid, filter form (incl. keyword search
                                             (6A) and cost/verification/open-now filters
                                             (6B)), pagination, detail (incl. weekly
-                                            schedule, Milestone 6B), status-badges,
-                                            ResourceExplorer/MapExplorerView/
-                                            NearbyMapView/ViewToggle (Milestone 7B),
-                                            SaveResourceButton/
+                                            schedule, Milestone 6B, and a "Report
+                                            incorrect information" link, Milestone 8B),
+                                            status-badges, ResourceExplorer/
+                                            MapExplorerView/NearbyMapView/ViewToggle
+                                            (Milestone 7B), SaveResourceButton/
                                             ResourceDetailSaveControl (Milestone 8A)
       map/                          The Leaflet map, marker clustering, "Use my
                                             location", radius selector, "Search this
                                             area", nearby pagination (Milestone 7B —
                                             client-only, loaded via next/dynamic)
+      contributions/             SubmitResourceForm, CorrectionReportForm,
+                                            ResourceSubmissionsSection/
+                                            CorrectionReportsSection (dashboard),
+                                            ResourceSubmissionDetail/
+                                            CorrectionReportDetail, ContributionStatusBadge
+                                            (Milestone 8B)
       navigation/                Mobile disclosure nav (auth-aware as of Milestone 5C)
       auth/                          Login/register forms, dashboard content, the
-                                            protected-route guard, the auth-aware
-                                            nav link (Milestone 5C), and
-                                            SavedResourcesSection (Milestone 8A)
+                                            protected-route guard (returnTo-aware,
+                                            Milestone 8B), the auth-aware nav link
+                                            (Milestone 5C), and SavedResourcesSection
+                                            (Milestone 8A)
       feedback/                    Shared badge/empty-state/error components
       site-header.tsx, site-footer.tsx
     lib/
       api/                          Typed API client (client.ts) + one module per
                                             resource (categories.ts, resources.ts, auth.ts,
-                                            saved-resources.ts — Milestone 8A)
+                                            saved-resources.ts — Milestone 8A;
+                                            resource-submissions.ts,
+                                            correction-reports.ts — Milestone 8B)
       auth/                         AuthProvider/useAuth — the in-memory session
-                                            (Milestone 5C; clears the private
-                                            saved-resource cache on logout/account
-                                            switch, Milestone 8A) — and return-to.ts's
-                                            open-redirect-safe returnTo validation
+                                            (Milestone 5C; clears every private-data
+                                            cache prefix on logout/account switch,
+                                            Milestone 8A/8B) — and return-to.ts's
+                                            open-redirect-safe returnTo validation, now
+                                            also used by ProtectedRoute (Milestone 8B)
       map/                          MapSearchProvider/useMapSearch (session-scoped
                                             centre/radius/geolocation/selection state,
                                             mounted at the /resources layout) and
@@ -169,12 +190,18 @@ before any request is sent. `lib/api/saved-resources.ts` (Milestone 8A) adds
 `saveResource`/`removeSavedResource` (via `client.ts`'s new
 `putNoContent`/`deleteNoContent`), `getSavedResources`, and
 `getSavedResourceStatus` — every call requires an access token, since saved
-resources are always per-account. See
+resources are always per-account. `lib/api/resource-submissions.ts`/
+`lib/api/correction-reports.ts` (Milestone 8B) add the equivalent
+`create`/`get`/`list`/`withdraw` operations for both new contribution
+domains, reusing `client.ts`'s existing `postJson` for both creation
+(`201`) and withdrawal (`200`, since both return the updated item, not
+an empty body). See
 `docs/architecture/frontend-architecture.md` for the full data-fetching
 strategy, its "Authentication Architecture" section for how the access
 token/session are handled, its "URL State (`/resources`)" section for
 the search design, and its "Saved Resources and Private-Data Cache
-Isolation" section for saved resources.
+Isolation" section for the private-data cache pattern shared by all
+three account-linked domains.
 
 ## Notes
 
@@ -198,3 +225,8 @@ Isolation" section for saved resources.
 - Milestone 8A introduced no new dependencies — the saved-resources feature
   reuses the existing API client, TanStack Query, and auth infrastructure
   end to end; `npm audit` is unchanged from Milestone 7B.
+- Milestone 8B introduced no new dependencies either — both contribution
+  forms and dashboard sections reuse the same API client, TanStack Query,
+  and form/validation conventions `register-form.tsx`/
+  `resource-filter-form.tsx` already established; `npm audit` is
+  unchanged from Milestone 8A.

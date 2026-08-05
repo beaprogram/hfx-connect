@@ -48,9 +48,13 @@ allowlist that makes that possible.
   `REFRESH_TOKEN_EXPIRED`, `REFRESH_TOKEN_REUSED`, `ACCOUNT_UNAVAILABLE`
   (valid credentials/refresh token, non-`ACTIVE` account), `INVALID_PAGINATION`,
   `INVALID_SORT`, `INVALID_SEARCH_QUERY` (an over-length `q` — Milestone 6A),
-  `INTERNAL_ERROR`. `VALIDATION_ERROR` also covers an invalid saved-resources
-  batch status request (a null entry or more than 100 distinct ids —
-  Milestone 8A), same as any other field-level validation failure.
+  `RESOURCE_SUBMISSION_NOT_FOUND`, `RESOURCE_SUBMISSION_CONFLICT`,
+  `CORRECTION_REPORT_NOT_FOUND`, `CORRECTION_REPORT_CONFLICT`,
+  `INVALID_CONTRIBUTION_STATUS` (withdrawing an already-resolved
+  submission or report — Milestone 8B), `INTERNAL_ERROR`.
+  `VALIDATION_ERROR` also covers an invalid saved-resources batch status
+  request (a null entry or more than 100 distinct ids — Milestone 8A),
+  same as any other field-level validation failure.
 
 ## Authentication and Authorization (Milestone 5C)
 
@@ -68,6 +72,7 @@ and [docs/architecture/security-architecture.md](../architecture/security-archit
 | `GET /actuator/health` | Public |
 | `GET /api/v1/users/me` | Any authenticated, `ACTIVE` account |
 | `PUT`/`DELETE /api/v1/users/me/saved-resources/{resourceId}`, `GET /api/v1/users/me/saved-resources`, `POST /api/v1/users/me/saved-resources/status` | Any authenticated, `ACTIVE` account (`USER`/`ORGANIZATION`/`MODERATOR`/`ADMIN` — no role restriction beyond "authenticated") |
+| `POST`/`GET /api/v1/users/me/resource-submissions`, `GET`/`POST .../{id}/withdraw`, `POST /api/v1/resources/{resourceId}/correction-reports`, `GET /api/v1/users/me/correction-reports`, `GET`/`POST .../{id}/withdraw` | Any authenticated, `ACTIVE` account — no role restriction (Milestone 8B) |
 | `POST /api/v1/categories` | `ADMIN` only |
 | `POST /api/v1/resources` | `ADMIN` or `MODERATOR` (not `ORGANIZATION` yet — see ADR-009) |
 | Everything else | Authenticated (fail closed) |
@@ -461,3 +466,158 @@ curl -X POST "http://localhost:8080/api/v1/users/me/saved-resources/status" \
 | `400` | Invalid page/size (`INVALID_PAGINATION`), invalid `sort` (`INVALID_SORT`), or an invalid batch status request (`VALIDATION_ERROR`) |
 | `401` | Missing or invalid access token, or the account is no longer `ACTIVE` |
 | `404` | `PUT` only — no active resource exists with the given id |
+
+## Resource Submissions — `/api/v1/users/me/resource-submissions` (Milestone 8B)
+
+Full design: [ADR-015](../decisions/ADR-015-community-contribution-workflows-design.md).
+Proposes a new community resource that isn't listed yet. Every endpoint
+requires a Bearer access token for any authenticated, `ACTIVE`-status
+role and is scoped to the caller's own account only. **Creating a
+submission never creates a public resource** — it always starts
+`PENDING_REVIEW`, visible only to its owner, until Milestone 9's
+moderation workflow reviews it.
+
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/api/v1/users/me/resource-submissions` | Create a `PENDING_REVIEW` submission. |
+| `GET` | `/api/v1/users/me/resource-submissions` | Paginated list of the current user's own submissions. |
+| `GET` | `/api/v1/users/me/resource-submissions/{submissionId}` | One owned submission. |
+| `POST` | `/api/v1/users/me/resource-submissions/{submissionId}/withdraw` | Withdraws a still-`PENDING_REVIEW` submission. |
+
+**`POST`** body:
+
+```json
+{
+  "categoryId": 1,
+  "name": "Halifax Food Bank",
+  "shortDescription": "Free groceries for anyone in need.",
+  "fullDescription": null,
+  "addressLine1": "123 Main St",
+  "addressLine2": null,
+  "city": "Halifax",
+  "province": "NS",
+  "postalCode": "B3H 4R2",
+  "phone": null,
+  "email": null,
+  "websiteUrl": null,
+  "costType": "FREE",
+  "eligibilityInformation": null,
+  "accessibilityInformation": null
+}
+```
+
+There is no `submittedByUserId` or `status` field to supply — both are
+server-assigned. `categoryId` must reference an existing, active
+category (`404 CATEGORY_NOT_FOUND` / `400 INACTIVE_CATEGORY`
+otherwise). Field validation reuses the same province/postal-code/
+phone/email/website-scheme rules real resource creation uses
+(`docs/architecture/backend-architecture.md`'s "Focused Entities Over
+Generic Frameworks" section).
+
+**Duplicate-pending policy**: at most one `PENDING_REVIEW` submission
+per (account, category, normalized name) at a time — a repeat while one
+is already pending returns `409 RESOURCE_SUBMISSION_CONFLICT`. A
+withdrawn, approved, or rejected submission never blocks a later
+resubmission of the same name/category.
+
+**`GET`** accepts `page`/`size`/`sort` (`submittedAt`, default, newest
+first; `updatedAt`; or `status`), same pagination conventions as every
+other list in this API. **`GET .../{submissionId}`** and **`POST
+.../{submissionId}/withdraw`** both return `404
+RESOURCE_SUBMISSION_NOT_FOUND` for an id that doesn't exist *or*
+belongs to a different account — the two cases are indistinguishable to
+the caller.
+
+```bash
+curl -X POST "http://localhost:8080/api/v1/users/me/resource-submissions" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"categoryId":1,"name":"Halifax Food Bank","shortDescription":"Free groceries.","addressLine1":"123 Main St","city":"Halifax","province":"NS","postalCode":"B3H 4R2","costType":"FREE"}'
+```
+
+### Status codes
+
+| Status | Meaning |
+|---|---|
+| `200` | `GET`/`POST .../withdraw` succeeded |
+| `201` | Submission created |
+| `400` | Validation failure, an inactive category (`INACTIVE_CATEGORY`), invalid pagination/sort, or withdrawing a non-pending submission (`INVALID_CONTRIBUTION_STATUS`) |
+| `401` | Missing or invalid access token |
+| `404` | No category exists with the given id, or no submission with the given id is owned by the current user |
+| `409` | The current user already has a pending submission for this category and name |
+
+## Correction Reports — `/api/v1/resources/{resourceId}/correction-reports`, `/api/v1/users/me/correction-reports` (Milestone 8B)
+
+Full design: [ADR-015](../decisions/ADR-015-community-contribution-workflows-design.md).
+Reports an issue on an existing, active resource. Creation is nested
+under the target resource's id (a path segment, not request-body data);
+listing and detail are scoped to the caller's own account under
+`/api/v1/users/me/correction-reports`. **Creating a report never
+modifies the target resource** — it always starts `PENDING_REVIEW`,
+visible only to its owner.
+
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/api/v1/resources/{resourceId}/correction-reports` | Create a `PENDING_REVIEW` report against an active resource. |
+| `GET` | `/api/v1/users/me/correction-reports` | Paginated list of the current user's own reports. |
+| `GET` | `/api/v1/users/me/correction-reports/{reportId}` | One owned report. |
+| `POST` | `/api/v1/users/me/correction-reports/{reportId}/withdraw` | Withdraws a still-`PENDING_REVIEW` report. |
+
+**`POST`** body — every `proposed*` field is optional; an
+explanation-only report (e.g. `issueType: "RESOURCE_CLOSED"` or
+`"OTHER"`) is fully valid:
+
+```json
+{
+  "issueType": "ADDRESS",
+  "explanation": "The address listed is out of date.",
+  "proposedName": null,
+  "proposedDescription": null,
+  "proposedAddressLine1": "456 New St",
+  "proposedAddressLine2": null,
+  "proposedCity": null,
+  "proposedProvince": null,
+  "proposedPostalCode": null,
+  "proposedPhone": null,
+  "proposedEmail": null,
+  "proposedWebsiteUrl": null,
+  "proposedCostType": null,
+  "proposedCostDetails": null,
+  "proposedEligibility": null
+}
+```
+
+`issueType` is one of `GENERAL_INFORMATION`, `ADDRESS`,
+`CONTACT_INFORMATION`, `OPERATING_HOURS`, `ELIGIBILITY`,
+`ACCESSIBILITY`, `COST`, `RESOURCE_CLOSED`, `DUPLICATE_RESOURCE`,
+`OTHER`. The target resource must currently be active — a missing or
+inactive resource both return the identical `404 RESOURCE_NOT_FOUND`,
+the same visibility rule used throughout this API.
+
+**Duplicate-pending policy**: at most one `PENDING_REVIEW` report per
+(account, resource, issue type) at a time — `409
+CORRECTION_REPORT_CONFLICT` on a repeat. A different issue type on the
+same resource, or a re-report after the first is resolved, is never
+blocked.
+
+**Resource-deletion behavior**: if the target resource is later
+deleted, an existing report is preserved (not cascaded away) —
+`resource.resourceId` becomes `null` in the response, but
+`resource.name`/`resource.slug` remain populated from a snapshot
+captured when the report was created.
+
+```bash
+curl -X POST "http://localhost:8080/api/v1/resources/$RESOURCE_ID/correction-reports" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"issueType":"ADDRESS","explanation":"The address listed is out of date."}'
+```
+
+### Status codes
+
+| Status | Meaning |
+|---|---|
+| `200` | `GET`/`POST .../withdraw` succeeded |
+| `201` | Report created |
+| `400` | Validation failure, invalid pagination/sort, or withdrawing a non-pending report (`INVALID_CONTRIBUTION_STATUS`) |
+| `401` | Missing or invalid access token |
+| `404` | No active resource exists with the given id, or no report with the given id is owned by the current user |
+| `409` | The current user already has a pending report for this resource and issue type |

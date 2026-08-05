@@ -9,8 +9,8 @@ newcomer services, recreation, and events — that are currently scattered acros
 municipal websites, organization pages, and social media, and adds transparent
 verification so users can trust what they find.
 
-**Project status: Milestone 8A (Saved Resources and Authenticated
-Dashboard Integration) complete.** The backend
+**Project status: Milestone 8B (Resource Submissions and Correction
+Reports) complete.** The backend
 has three working REST APIs: categories
 (Milestone 3A —
 [backend/README.md](backend/README.md#category-api-apiv1categories)), resources
@@ -49,7 +49,15 @@ with a batched saved-status lookup (never one request per card) and a
 paginated Saved Resources section on the protected dashboard — fully
 isolated per account, with the private saved-resource cache cleared on
 logout and on switching accounts (see
-[ADR-014](docs/decisions/ADR-014-saved-resources-design.md)). See
+[ADR-014](docs/decisions/ADR-014-saved-resources-design.md)). Any
+authenticated account can now also propose a new resource
+(`/submit-resource`) or report an issue on an existing one
+(`/resources/[slug]/report`, Milestone 8B) — both create a private
+`PENDING_REVIEW` item tracked in its own dashboard section with a
+withdraw action; neither publishes a resource nor modifies one
+automatically (see
+[ADR-015](docs/decisions/ADR-015-community-contribution-workflows-design.md)).
+See
 [docs/milestones/](docs/milestones/) for exactly what each milestone delivered, and
 [docs/development-workflow.md](docs/development-workflow.md) for the full
 12-milestone roadmap (Milestones 3, 5, 6, and 8 are each split into lettered
@@ -88,12 +96,15 @@ protected dashboard (`/login`, `/register`, `/dashboard` on the frontend;
 `POST /api/v1/auth/register`, `/login`, `/refresh`, `/logout`,
 `GET /api/v1/users/me` on the backend) are real too, with backend-enforced
 role-based authorization on category/resource creation and operating-hours
-replacement. The interactive map (Milestone 7B) and saved resources
-(Milestone 8A) are both real now too. Submissions, organization/moderator
-tooling, and role-specific dashboards are not implemented yet. There is no
-update/delete endpoint on any backend API yet either, and keyword search
-still has no relevance ranking or typo tolerance. Everything else in this
-section describes the plan, not the current state.
+replacement. The interactive map (Milestone 7B), saved resources
+(Milestone 8A), and resource submissions/correction reports (Milestone
+8B) are all real now too — though moderation of either contribution
+type (approving, rejecting, and actually applying it) is not yet
+implemented. Organization/moderator tooling and role-specific
+dashboards are not implemented yet either. There is no update/delete
+endpoint on any backend API yet, and keyword search still has no
+relevance ranking or typo tolerance. Everything else in this section
+describes the plan, not the current state.
 
 ## Technology Stack
 
@@ -238,6 +249,7 @@ Runs on [http://localhost:3000](http://localhost:3000) and expects the backend a
 - [Milestone 7A: PostGIS Resource Locations and Nearby Search](docs/milestones/milestone-07a-postgis-nearby-search.md)
 - [Milestone 7B: Interactive Map, Browser Geolocation, and List/Map Synchronization](docs/milestones/milestone-07b-interactive-map.md)
 - [Milestone 8A: Saved Resources and Authenticated Dashboard Integration](docs/milestones/milestone-08a-saved-resources.md)
+- [Milestone 8B: Resource Submissions and Correction Reports](docs/milestones/milestone-08b-submissions-corrections.md)
 - [Wireframes](docs/wireframes/)
 - [API Documentation](docs/api/README.md)
 - [Database Documentation](docs/database/)
@@ -253,11 +265,12 @@ Runs on [http://localhost:3000](http://localhost:3000) and expects the backend a
 - [ADR-012: PostGIS Nearby-Search Design](docs/decisions/ADR-012-postgis-nearby-search-design.md)
 - [ADR-013: Interactive Map and Geolocation Design](docs/decisions/ADR-013-interactive-map-and-geolocation-design.md)
 - [ADR-014: Saved Resources Design](docs/decisions/ADR-014-saved-resources-design.md)
+- [ADR-015: Community Contribution Workflows Design](docs/decisions/ADR-015-community-contribution-workflows-design.md)
 - [Development Log](docs/development-log/)
 - [Resume Evidence](docs/career/resume-evidence.md)
 - [Interview Notes](docs/career/interview-notes.md)
 
-## Known Limitations (as of Milestone 8A)
+## Known Limitations (as of Milestone 8B)
 
 - **No rate limiting exists** — login accepts unlimited attempts. **No
   access-token revocation exists** — a compromised access token remains valid
@@ -275,9 +288,10 @@ Runs on [http://localhost:3000](http://localhost:3000) and expects the backend a
   regardless of what the frontend renders or hides. See
   [ADR-009](docs/decisions/ADR-009-request-authentication-and-role-authorization.md).
 - No role-specific dashboards, category/resource creation UI,
-  submissions, moderation, or organization tooling exist yet. Saved
-  resources (Milestone 8A) are real — see below — but no notes, folders,
-  collections, sharing, or export exist on top of them.
+  moderation, or organization tooling exist yet. Saved resources
+  (Milestone 8A) and resource submissions/correction reports (Milestone
+  8B) are real — see below — but no notes, folders, collections,
+  sharing, or export exist on top of any of them.
 - Newly-registered accounts are always `emailVerified: false` — no email-delivery
   mechanism exists to verify them, a deliberate, documented limitation (see
   [ADR-007](docs/decisions/ADR-007-user-identity-and-password-hashing.md)), not a bug.
@@ -325,8 +339,16 @@ Runs on [http://localhost:3000](http://localhost:3000) and expects the backend a
   batched saved-status lookup, and a paginated dashboard section — but
   with no notes/folders/collections/sharing/export on top, and no rate
   limiting on any endpoint (consistent with the rest of the API today).
-  No submissions, moderation, or organizations exist yet (Milestone
-  8B-10).
+- Resource submissions and correction reports (Milestone 8B) work end
+  to end for any authenticated role — propose a new resource, report an
+  issue on an existing one, track status and withdraw a still-pending
+  item from the dashboard — but neither creates or modifies a public
+  resource on its own. There is no moderation queue, approval/rejection
+  endpoint, reviewer notes, email notification, attachment support,
+  draft saving, editing after submission, or rate limiting — approving,
+  rejecting, and actually applying either kind of contribution to the
+  public dataset are entirely Milestone 9. No organizations exist yet
+  either (Milestone 10).
 - No deployment workflow or hosted environment exists yet; CI currently verifies the
   backend and frontend only.
 - No automated dependency-vulnerability scanning is configured in this project.

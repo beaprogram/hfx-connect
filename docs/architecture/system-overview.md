@@ -92,10 +92,11 @@ Core entities anticipated by the product requirements: `users`, `organizations`,
 `categories`, `resources` (now with a geographic `location` column, Milestone
 7A — see [ADR-012](../decisions/ADR-012-postgis-nearby-search-design.md)),
 `resource_operating_hours` (Milestone 6B), `saved_resources` (Milestone
-8A), `resource_reports`, `resource_submissions`, `events`, and
-`resource_history`. The authoritative, versioned schema lives in Flyway
-migration files (see `docs/database/README.md` for the current, real
-schema — not a plan).
+8A), `resource_submissions`/`correction_reports` (Milestone 8B, in
+place of the originally-anticipated single `resource_reports` name —
+see ADR-015), `events`, and `resource_history`. The authoritative,
+versioned schema lives in Flyway migration files (see
+`docs/database/README.md` for the current, real schema — not a plan).
 
 Milestone 7B built the first visual consumer of that geographic column: an
 interactive Leaflet/OpenStreetMap frontend map over the existing
@@ -107,6 +108,14 @@ Milestone 8A implemented `saved_resources` — a focused, per-account
 relation to resources, and this project's first genuinely private,
 authenticated-only data beyond the authentication session itself (see
 [ADR-014](../decisions/ADR-014-saved-resources-design.md)).
+
+Milestone 8B implemented `resource_submissions` and `correction_reports`
+— the first two-sided community-contribution workflows, letting any
+authenticated account propose a new resource or report an issue with
+an existing one. Both create pending review items only; approving,
+rejecting, and actually applying either kind of contribution to the
+public dataset remain entirely Milestone 9 (see
+[ADR-015](../decisions/ADR-015-community-contribution-workflows-design.md)).
 
 ## Deployment Path
 
