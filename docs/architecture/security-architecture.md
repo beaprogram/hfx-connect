@@ -314,6 +314,35 @@ data beyond authentication itself, and were reviewed accordingly:
   `allowedMethods`) was found and fixed during this milestone — see
   "CORS" above.
 
+## Community Contributions and Ownership Isolation (Milestone 8B)
+
+Resource submissions and correction reports extend the exact isolation
+model above to a second and third private-data domain, with no new
+security mechanism invented:
+
+- Every endpoint requires a Bearer access token for an `ACTIVE`-status
+  account; the owner id is always `CurrentUserPrincipal`, never a
+  client-supplied value — confirmed directly (`git grep userId` across
+  both new packages shows every call site is `principal.userId()`).
+- A request for another account's submission or report — list, detail,
+  or withdraw — returns the identical `404` a genuinely nonexistent id
+  would; no response anywhere distinguishes "doesn't exist" from
+  "exists but isn't yours."
+- No moderator, approval, or rejection endpoint exists in this
+  milestone at all — confirmed by direct inspection of every mapped
+  route in `ResourceSubmissionController`/`CorrectionReportController`.
+  `APPROVED`/`REJECTED` exist only as schema/enum values with no code
+  path that assigns them.
+- `ProtectedRoute`'s redirect (now covering `/submit-resource` and
+  `/resources/[slug]/report`) reuses Milestone 8A's already-tested
+  `isSafeReturnPath`/`buildLoginHref` unchanged — no new redirect-
+  validation logic was written, so no new open-redirect surface was
+  introduced by extending the guard to more routes.
+- Both duplicate-pending database constraints were verified to resolve
+  a genuine concurrent-request race to `409`, never a `500` or a
+  duplicate row — the same "database constraint is the authority, not
+  the application check alone" posture ADR-014 already established.
+
 ## See Also
 
 - [ADR-007: User Identity and Password Hashing](../decisions/ADR-007-user-identity-and-password-hashing.md)
@@ -323,6 +352,7 @@ data beyond authentication itself, and were reviewed accordingly:
 - [ADR-012: PostGIS Resource Locations and Nearby-Search Design](../decisions/ADR-012-postgis-nearby-search-design.md)
 - [ADR-013: Interactive Map and Geolocation Design](../decisions/ADR-013-interactive-map-and-geolocation-design.md)
 - [ADR-014: Saved Resources Design](../decisions/ADR-014-saved-resources-design.md)
+- [ADR-015: Community Contribution Workflows Design](../decisions/ADR-015-community-contribution-workflows-design.md)
 - [Backend Architecture](backend-architecture.md)
 - [Frontend Architecture](frontend-architecture.md)
 - [API Documentation](../api/README.md)

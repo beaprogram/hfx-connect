@@ -208,6 +208,115 @@ export const savedResourceStatusResponseSchema = z.object({
 });
 export type SavedResourceStatusResponse = z.infer<typeof savedResourceStatusResponseSchema>;
 
+/**
+ * Contribution review states (Milestone 8B) — shared shape for both
+ * resource submissions and correction reports. `APPROVED`/`REJECTED` exist
+ * in the schema for Milestone 9 compatibility; a user-created item is
+ * always `PENDING_REVIEW` until it is withdrawn.
+ */
+export const contributionStatusSchema = z.enum(["PENDING_REVIEW", "APPROVED", "REJECTED", "WITHDRAWN"]);
+export type ContributionStatus = z.infer<typeof contributionStatusSchema>;
+
+/**
+ * A proposed new resource (Milestone 8B), owned by the current user.
+ * Deliberately has no `submittedByUserId` field — the backend response
+ * never includes one, matching `savedResourceSummaryResponseSchema`'s same
+ * reasoning.
+ */
+export const resourceSubmissionResponseSchema = z.object({
+  id: z.string(),
+  category: categorySummarySchema,
+  name: z.string(),
+  shortDescription: z.string(),
+  fullDescription: z.string().nullish(),
+  addressLine1: z.string(),
+  addressLine2: z.string().nullish(),
+  city: z.string(),
+  province: z.string(),
+  postalCode: z.string(),
+  phone: z.string().nullish(),
+  email: z.string().nullish(),
+  websiteUrl: z.string().nullish(),
+  costType: costTypeSchema,
+  eligibilityInformation: z.string().nullish(),
+  accessibilityInformation: z.string().nullish(),
+  status: contributionStatusSchema,
+  submittedAt: z.string(),
+  updatedAt: z.string(),
+  withdrawnAt: z.string().nullish(),
+});
+export type ResourceSubmissionResponse = z.infer<typeof resourceSubmissionResponseSchema>;
+
+export const resourceSubmissionPageResponseSchema = z.object({
+  content: z.array(resourceSubmissionResponseSchema),
+  page: z.number(),
+  size: z.number(),
+  totalElements: z.number(),
+  totalPages: z.number(),
+});
+export type ResourceSubmissionPageResponse = z.infer<typeof resourceSubmissionPageResponseSchema>;
+
+export const issueTypeSchema = z.enum([
+  "GENERAL_INFORMATION",
+  "ADDRESS",
+  "CONTACT_INFORMATION",
+  "OPERATING_HOURS",
+  "ELIGIBILITY",
+  "ACCESSIBILITY",
+  "COST",
+  "RESOURCE_CLOSED",
+  "DUPLICATE_RESOURCE",
+  "OTHER",
+]);
+export type IssueType = z.infer<typeof issueTypeSchema>;
+
+/**
+ * The resource a correction report is about (Milestone 8B). `name`/`slug`
+ * come from a snapshot captured when the report was created, not a live
+ * read — they stay meaningful even if the resource is later deleted, in
+ * which case `resourceId` is `null`.
+ */
+export const correctionReportTargetResponseSchema = z.object({
+  resourceId: z.string().nullish(),
+  name: z.string(),
+  slug: z.string(),
+});
+export type CorrectionReportTargetResponse = z.infer<typeof correctionReportTargetResponseSchema>;
+
+export const correctionReportResponseSchema = z.object({
+  id: z.string(),
+  resource: correctionReportTargetResponseSchema,
+  issueType: issueTypeSchema,
+  explanation: z.string(),
+  proposedName: z.string().nullish(),
+  proposedDescription: z.string().nullish(),
+  proposedAddressLine1: z.string().nullish(),
+  proposedAddressLine2: z.string().nullish(),
+  proposedCity: z.string().nullish(),
+  proposedProvince: z.string().nullish(),
+  proposedPostalCode: z.string().nullish(),
+  proposedPhone: z.string().nullish(),
+  proposedEmail: z.string().nullish(),
+  proposedWebsiteUrl: z.string().nullish(),
+  proposedCostType: costTypeSchema.nullish(),
+  proposedCostDetails: z.string().nullish(),
+  proposedEligibility: z.string().nullish(),
+  status: contributionStatusSchema,
+  submittedAt: z.string(),
+  updatedAt: z.string(),
+  withdrawnAt: z.string().nullish(),
+});
+export type CorrectionReportResponse = z.infer<typeof correctionReportResponseSchema>;
+
+export const correctionReportPageResponseSchema = z.object({
+  content: z.array(correctionReportResponseSchema),
+  page: z.number(),
+  size: z.number(),
+  totalElements: z.number(),
+  totalPages: z.number(),
+});
+export type CorrectionReportPageResponse = z.infer<typeof correctionReportPageResponseSchema>;
+
 export const roleSchema = z.enum(["USER", "ORGANIZATION", "MODERATOR", "ADMIN"]);
 export type Role = z.infer<typeof roleSchema>;
 

@@ -20,18 +20,32 @@ import java.util.regex.Pattern;
  * first one) so callers see the complete picture in one response, matching
  * how {@code MethodArgumentNotValidException} handling works for HTTP
  * request bodies elsewhere in the project.
+ *
+ * <p><strong>{@code public}, and several of its field-level helpers are
+ * {@code public static}, as of Milestone 8B</strong>: {@code
+ * com.hfxconnect.resourcesubmission} and {@code com.hfxconnect.correctionreport}
+ * both need byte-for-byte the same province/postal-code/phone/email/website
+ * rules a resource itself is validated against (a submission proposes a
+ * future resource; a correction report proposes new values for fields an
+ * existing resource already has) — the same "shared pure utilities are
+ * extracted on second use, not preemptively" pattern {@code SlugGenerator}
+ * and {@code EmailNormalizer} already established (see
+ * {@code docs/architecture/backend-architecture.md}). The class stays in
+ * this package (not promoted to {@code common}) since resource creation
+ * remains its primary, most complete caller — {@link #validate} itself is
+ * not reused, only the individual field checks are.
  */
-final class ResourceValidation {
+public final class ResourceValidation {
 
-	static final int NAME_MAX_LENGTH = 180;
-	static final int DESCRIPTION_MAX_LENGTH = 4000;
-	static final int ADDRESS_LINE_MAX_LENGTH = 200;
-	static final int CITY_MAX_LENGTH = 100;
-	static final int PHONE_MAX_LENGTH = 40;
-	static final int EMAIL_MAX_LENGTH = 180;
-	static final int WEBSITE_URL_MAX_LENGTH = 500;
-	static final int COST_DETAILS_MAX_LENGTH = 500;
-	static final int ELIGIBILITY_MAX_LENGTH = 1000;
+	public static final int NAME_MAX_LENGTH = 180;
+	public static final int DESCRIPTION_MAX_LENGTH = 4000;
+	public static final int ADDRESS_LINE_MAX_LENGTH = 200;
+	public static final int CITY_MAX_LENGTH = 100;
+	public static final int PHONE_MAX_LENGTH = 40;
+	public static final int EMAIL_MAX_LENGTH = 180;
+	public static final int WEBSITE_URL_MAX_LENGTH = 500;
+	public static final int COST_DETAILS_MAX_LENGTH = 500;
+	public static final int ELIGIBILITY_MAX_LENGTH = 1000;
 
 	private static final Set<String> VALID_PROVINCES = Set.of(
 			"AB", "BC", "MB", "NB", "NL", "NS", "NT", "NU", "ON", "PE", "QC", "SK", "YT");
@@ -97,7 +111,7 @@ final class ResourceValidation {
 				normalizedEmail, normalizedWebsiteUrl, normalizedCostDetails, normalizedEligibility);
 	}
 
-	private static String requireBounded(Map<String, String> errors, String field, String value, int maxLength, String label) {
+	public static String requireBounded(Map<String, String> errors, String field, String value, int maxLength, String label) {
 		String normalized = value == null ? "" : collapseWhitespace(value);
 		if (normalized.isEmpty()) {
 			errors.put(field, label + " is required.");
@@ -110,7 +124,7 @@ final class ResourceValidation {
 		return normalized;
 	}
 
-	private static String optionalBounded(Map<String, String> errors, String field, String value, int maxLength, String label) {
+	public static String optionalBounded(Map<String, String> errors, String field, String value, int maxLength, String label) {
 		if (value == null) {
 			return null;
 		}
@@ -125,7 +139,7 @@ final class ResourceValidation {
 		return normalized;
 	}
 
-	private static String validateProvince(Map<String, String> errors, String province) {
+	public static String validateProvince(Map<String, String> errors, String province) {
 		if (province == null || province.isBlank()) {
 			errors.put("province", "Province is required.");
 			return null;
@@ -138,7 +152,7 @@ final class ResourceValidation {
 		return normalized;
 	}
 
-	private static String validatePostalCode(Map<String, String> errors, String postalCode) {
+	public static String validatePostalCode(Map<String, String> errors, String postalCode) {
 		if (postalCode == null || postalCode.isBlank()) {
 			errors.put("postalCode", "Postal code is required.");
 			return null;
@@ -154,7 +168,7 @@ final class ResourceValidation {
 		return normalized;
 	}
 
-	private static String validatePhone(Map<String, String> errors, String phone) {
+	public static String validatePhone(Map<String, String> errors, String phone) {
 		if (phone == null || phone.isBlank()) {
 			return null;
 		}
@@ -171,7 +185,7 @@ final class ResourceValidation {
 		return normalized;
 	}
 
-	private static String validateEmail(Map<String, String> errors, String email) {
+	public static String validateEmail(Map<String, String> errors, String email) {
 		if (email == null || email.isBlank()) {
 			return null;
 		}
@@ -187,7 +201,7 @@ final class ResourceValidation {
 		return normalized;
 	}
 
-	private static String validateWebsiteUrl(Map<String, String> errors, String websiteUrl) {
+	public static String validateWebsiteUrl(Map<String, String> errors, String websiteUrl) {
 		if (websiteUrl == null || websiteUrl.isBlank()) {
 			return null;
 		}
@@ -215,7 +229,7 @@ final class ResourceValidation {
 		return normalized;
 	}
 
-	private static String collapseWhitespace(String input) {
+	public static String collapseWhitespace(String input) {
 		return input.trim().replaceAll("\\s+", " ");
 	}
 

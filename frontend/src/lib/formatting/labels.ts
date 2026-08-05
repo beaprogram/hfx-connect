@@ -1,4 +1,4 @@
-import type { CostType, DayOfWeek, HoursStatus, VerificationStatus } from "@/lib/validation/schemas";
+import type { ContributionStatus, CostType, DayOfWeek, HoursStatus, IssueType, VerificationStatus } from "@/lib/validation/schemas";
 
 const COST_TYPE_LABELS: Record<CostType, string> = {
   FREE: "Free",
@@ -58,6 +58,35 @@ export function dayOfWeekLabel(day: DayOfWeek): string {
  * Returns the raw input unchanged if it doesn't match the expected shape,
  * rather than throwing, since this only ever renders already-validated API data.
  */
+const CONTRIBUTION_STATUS_LABELS: Record<ContributionStatus, string> = {
+  PENDING_REVIEW: "Pending review",
+  APPROVED: "Approved",
+  REJECTED: "Rejected",
+  WITHDRAWN: "Withdrawn",
+};
+
+/** A resource submission's or correction report's readable review-status label (Milestone 8B) — never colour alone. */
+export function contributionStatusLabel(status: ContributionStatus): string {
+  return CONTRIBUTION_STATUS_LABELS[status];
+}
+
+const ISSUE_TYPE_LABELS: Record<IssueType, string> = {
+  GENERAL_INFORMATION: "General information",
+  ADDRESS: "Address",
+  CONTACT_INFORMATION: "Contact information",
+  OPERATING_HOURS: "Operating hours",
+  ELIGIBILITY: "Eligibility",
+  ACCESSIBILITY: "Accessibility",
+  COST: "Cost",
+  RESOURCE_CLOSED: "Resource closed",
+  DUPLICATE_RESOURCE: "Duplicate listing",
+  OTHER: "Other",
+};
+
+export function issueTypeLabel(issueType: IssueType): string {
+  return ISSUE_TYPE_LABELS[issueType];
+}
+
 export function formatLocalTime(time: string): string {
   const match = /^(\d{1,2}):(\d{2})/.exec(time);
   if (!match) return time;

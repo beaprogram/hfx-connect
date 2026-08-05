@@ -14,6 +14,10 @@
 > Map Architecture" below. Updated again in Milestone 8A, which added
 > saved resources — the first private, per-account data this frontend
 > caches — see "Saved Resources and Private-Data Cache Isolation" below.
+> Updated again in Milestone 8B, which added resource submissions and
+> correction reports, extending the same private-cache-isolation
+> pattern to two more query-key prefixes and adding `returnTo` support
+> to `ProtectedRoute` itself.
 
 ## Route Structure
 
@@ -351,19 +355,27 @@ Summary of what actually exists in the code:
   `expiresIn` (seconds, converted to an absolute `expiresAt` with a 10-second
   clock-skew buffer) — nothing decodes or trusts the JWT's own claims
   client-side; the response already hands over the one number that matters.
-- **`components/auth/protected-route.tsx`** guards `/dashboard`: it renders
-  an accessible loading state for both `"loading"` and the brief instant
-  `"unauthenticated"` is true before its redirect effect fires, so protected
-  content is never painted even momentarily, then redirects to `/login`.
-  This is explicitly a UX convenience, not a security boundary — see the
-  component's own Javadoc-equivalent comment and ADR-009's "Frontend Route
-  Guard Is UX-Layer Only" section for why Next.js middleware/Proxy cannot
-  fill this role in this project's direct-frontend-to-backend architecture
-  (the refresh cookie belongs to the *backend's* origin — a Next.js Proxy
-  reading `cookies()` per
+- **`components/auth/protected-route.tsx`** guards `/dashboard` and, as of
+  Milestone 8B, `/submit-resource` and `/resources/[slug]/report`: it
+  renders an accessible loading state for both `"loading"` and the
+  brief instant `"unauthenticated"` is true before its redirect effect
+  fires, so protected content is never painted even momentarily, then
+  redirects to `/login`. This is explicitly a UX convenience, not a
+  security boundary — see the component's own Javadoc-equivalent
+  comment and ADR-009's "Frontend Route Guard Is UX-Layer Only" section
+  for why Next.js middleware/Proxy cannot fill this role in this
+  project's direct-frontend-to-backend architecture (the refresh cookie
+  belongs to the *backend's* origin — a Next.js Proxy reading
+  `cookies()` per
   `node_modules/next/dist/docs/01-app/02-guides/authentication.md`'s own
   "Optimistic checks with Proxy" section would need a cookie set for the
-  Next.js app's own domain, which this one isn't, per ADR-006).
+  Next.js app's own domain, which this one isn't, per ADR-006). As of
+  Milestone 8B, the redirect target is built through
+  `buildLoginHref(usePathname())` (Milestone 8A's `isSafeReturnPath`),
+  not a bare `/login` — so a signed-out visit to any route this guard
+  protects returns there after login, reusing the exact same
+  open-redirect-safe validation the "Sign in to save" flow already
+  established rather than a second implementation.
 - **`lib/api/auth.ts`** extends the typed API client
   (`register`/`login`/`refreshSession`/`logout`/`getCurrentUser`), reusing
   `lib/api/client.ts`'s existing `getJson` plus two new counterparts,
@@ -383,7 +395,12 @@ Summary of what actually exists in the code:
 ## Saved Resources and Private-Data Cache Isolation
 
 Full design rationale:
-[ADR-014](../decisions/ADR-014-saved-resources-design.md). Summary:
+[ADR-014](../decisions/ADR-014-saved-resources-design.md) (saved
+resources) and
+[ADR-015](../decisions/ADR-015-community-contribution-workflows-design.md)
+(resource submissions and correction reports, Milestone 8B, which
+extend every pattern below to two more private query-key prefixes
+rather than introducing new ones). Summary:
 
 - **`lib/query/use-saved-resources.ts`'s `useSavedResourceStatusMap(resourceIds)`**
   is called exactly once per listing container (the resource grid's
@@ -395,20 +412,23 @@ Full design rationale:
   with an empty id list.
 - **Every saved-resource query key is rooted in `userId`** (see "Query
   Keys" above) — never the access token, which rotates.
-- **`AuthProvider` clears the private saved-resource cache on two
-  events**: unconditionally on `logout()`, and the moment
-  `applySession()` detects the newly-authenticated user's id differs
-  from the previously-authenticated one (an account switch within the
-  same browser tab). Both use `queryClient.removeQueries` scoped to the
-  `saved-resources` key prefix — not a full `queryClient.clear()`,
+- **`AuthProvider` clears every private-data cache on two events**:
+  unconditionally on `logout()`, and the moment `applySession()`
+  detects the newly-authenticated user's id differs from the
+  previously-authenticated one (an account switch within the same
+  browser tab). `clearPrivateContributionCaches` (Milestone 8B) loops
+  `queryClient.removeQueries` over a small, explicit list of key
+  prefixes — `saved-resources`, `resource-submissions`,
+  `correction-reports` — rather than a full `queryClient.clear()`,
   which would also discard unrelated, harmless public caches (the
-  category list, public resource pages) for no benefit. This is why
-  `AuthProvider` now depends on `useQueryClient()`, which in turn means
-  every render of `AuthProvider` (including in tests) needs a
-  `QueryClientProvider` ancestor — a dependency that cascaded into
-  several pre-existing test files across this codebase that had
-  previously rendered `AuthProvider` (or a component consuming saved-
-  resource data) without one.
+  category list, public resource pages) for no benefit. Adding a future
+  private-data domain means appending one string to that list, not
+  writing new clearing logic. This is why `AuthProvider` depends on
+  `useQueryClient()`, which in turn means every render of `AuthProvider`
+  (including in tests) needs a `QueryClientProvider` ancestor — a
+  dependency that cascaded into several pre-existing test files across
+  this codebase that had previously rendered `AuthProvider` (or a
+  component consuming private-account data) without one.
 - **Save/remove mutations optimistically patch other cached status
   queries** on success (`patchStatusCaches`, via
   `queryClient.setQueriesData` with a predicate matching every
@@ -437,13 +457,18 @@ for the resulting `WebCorsConfig`.
 - Keyword search (Milestone 6A) has no autocomplete, typo tolerance, or
   relevance ranking — a submit-based, exact-substring, case-insensitive
   match only. No debounced/per-keystroke search either — see ADR-010.
-- No role-specific dashboards, category/resource creation forms,
-  submissions, or moderation UI — `/dashboard` shows the current
-  authenticated account's safe fields, a logout control, and (as of
-  Milestone 8A) a Saved Resources section; no other account feature
-  exists yet.
+- No role-specific dashboards, category/resource creation forms, or
+  moderation UI — `/dashboard` shows the current authenticated
+  account's safe fields, a logout control, a Saved Resources section
+  (Milestone 8A), and My Resource Submissions/My Correction Reports
+  sections (Milestone 8B); no other account feature exists yet.
 - No notes, folders, or collections on saved resources (Milestone 8A) —
   a flat, unorganized list only; no saved-resource sharing or export.
+- No editing a submission or report after it's created (beyond
+  withdrawal), no attachments/images, no draft saving, and no way to
+  see another user's contributions or any public contribution feed
+  (Milestone 8B) — approving, rejecting, and actually publishing a
+  submission or applying a correction are entirely Milestone 9.
 - The protected-route guard is UX-layer only; a direct request to
   `/dashboard`'s HTML bypasses nothing real, because the backend never
   trusted the frontend's routing in the first place — see "Authentication

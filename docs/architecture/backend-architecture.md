@@ -23,7 +23,10 @@
 > Updated again in Milestone 8A, which added a sixth domain
 > (`savedresource`) and this project's first genuinely private,
 > per-account data — see "Focused Entities Over Generic Frameworks"
-> below.
+> below. Updated again in Milestone 8B, which added a seventh and
+> eighth domain (`resourcesubmission`, `correctionreport`) and a real
+> Hibernate flush-ordering discovery — see "Flush Ordering Within a
+> Single Transaction Is Not Call Order" below.
 
 ## Layering
 
@@ -224,6 +227,21 @@ abstraction. If a third domain develops the same kind of dependency on `category
 on `resource`), that repetition — not this first instance — is the signal to consider
 whether an abstraction is actually warranted.
 
+That repetition arrived in Milestone 8B: `ResourceSubmissionService`
+depends directly on `CategoryRepository` (the identical "does this
+category exist and is it active" check `ResourceService` already
+performs), and `CorrectionReportService` depends directly on
+`ResourceRepository` (the identical "does this resource exist and is
+it active" check `SavedResourceService` already performs, Milestone
+8A). Even with a third and fourth real instance of this exact pattern
+now in the codebase, no shared abstraction was introduced — each
+check is two lines calling a repository method that already exists,
+and a "resource visibility" or "category visibility" service would add
+an indirection layer without removing any real duplication. The
+signal to actually build one would be the check's *logic* diverging
+into something nontrivial enough to be worth centralizing, not merely
+its being called from a fourth place.
+
 ## `saveAndFlush`, Not `save`, When the Race-Condition Catch Must Be Synchronous
 
 `CategoryService.create()` can safely use `categoryRepository.save(category)` and
@@ -248,6 +266,39 @@ surrounding try/catch is to guarantee the constraint violation surfaces
 *before* the method returns, and stating that guarantee explicitly at the
 call site (rather than relying on a reader already knowing `IDENTITY`'s
 flush timing) was judged clearer than the small redundancy costs.
+
+## Flush Ordering Within a Single Transaction Is Not Call Order
+
+`ResourceSubmissionService.withdraw()`/`CorrectionReportService.withdraw()`
+(Milestone 8B) both call `saveAndFlush` immediately after mutating the
+entity, rather than leaving the change to Hibernate's implicit
+auto-flush. This was discovered necessary, not assumed: a service-layer
+test chained "withdraw a submission" immediately followed by "resubmit
+the identical name/category" inside one shared test transaction, and
+the resubmission unexpectedly hit the duplicate-pending unique
+constraint — even though the withdrawal (an `UPDATE`) had already
+executed, in program order, before the resubmission (an `INSERT`).
+Hibernate's flush action queue does not preserve call order across
+different kinds of pending changes; by default it processes entity
+*insertions* before entity *updates* within one flush, regardless of
+which was dirty-checked or persisted first in the calling code. In a
+single shared session (this specific test's own transactional setup;
+in production, two genuinely separate HTTP requests would each get
+their own transaction and never share a flush at all), the new row's
+`INSERT` could physically reach the database before the withdrawal's
+`UPDATE` did, so the unique index still saw the old row as
+`PENDING_REVIEW` at insert time. Calling `saveAndFlush` on the
+withdrawal forces its `UPDATE` to commit to the database immediately,
+independent of whatever runs next — the same "make the state
+change synchronous, don't trust default flush timing" reasoning
+`saveAndFlush` already gets used for elsewhere in this codebase (see
+"`saveAndFlush`, Not `save`, When the Race-Condition Catch Must Be
+Synchronous" below), applied to an `UPDATE` this time rather than an
+`INSERT`. **The lesson for any future write where a later query's
+correctness depends on an earlier write already being visible in the
+same session:** don't assume Hibernate flushes pending changes in the
+order your code made them — verify with a real test that chains both
+operations, the same way this one was actually found.
 
 ## A Write That Must Survive an Exception Needs `PROPAGATION_REQUIRES_NEW`, Not `noRollbackFor`
 

@@ -9,6 +9,7 @@ jest.mock("@/lib/auth/auth-provider", () => ({
 const mockReplace = jest.fn();
 jest.mock("next/navigation", () => ({
   useRouter: () => ({ push: jest.fn(), replace: mockReplace }),
+  usePathname: () => "/dashboard",
 }));
 
 const mockUseAuth = useAuth as jest.MockedFunction<typeof useAuth>;
@@ -50,7 +51,7 @@ describe("ProtectedRoute", () => {
     );
 
     expect(screen.queryByText("Secret dashboard content")).not.toBeInTheDocument();
-    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith("/login"));
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith("/login?returnTo=%2Fdashboard"));
   });
 
   it("renders the protected content once authenticated", () => {

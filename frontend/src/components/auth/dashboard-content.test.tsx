@@ -4,10 +4,14 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { DashboardContent } from "./dashboard-content";
 import { getCurrentUser } from "@/lib/api/auth";
 import { getSavedResources } from "@/lib/api/saved-resources";
+import { getResourceSubmissions } from "@/lib/api/resource-submissions";
+import { getCorrectionReports } from "@/lib/api/correction-reports";
 import { useAuth } from "@/lib/auth/auth-provider";
 
 jest.mock("@/lib/api/auth");
 jest.mock("@/lib/api/saved-resources");
+jest.mock("@/lib/api/resource-submissions");
+jest.mock("@/lib/api/correction-reports");
 jest.mock("@/lib/auth/auth-provider");
 const mockPush = jest.fn();
 jest.mock("next/navigation", () => ({
@@ -16,6 +20,8 @@ jest.mock("next/navigation", () => ({
 
 const mockGetCurrentUser = getCurrentUser as jest.MockedFunction<typeof getCurrentUser>;
 const mockGetSavedResources = getSavedResources as jest.MockedFunction<typeof getSavedResources>;
+const mockGetResourceSubmissions = getResourceSubmissions as jest.MockedFunction<typeof getResourceSubmissions>;
+const mockGetCorrectionReports = getCorrectionReports as jest.MockedFunction<typeof getCorrectionReports>;
 const mockUseAuth = useAuth as jest.MockedFunction<typeof useAuth>;
 
 const user = {
@@ -47,6 +53,8 @@ describe("DashboardContent", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockGetSavedResources.mockResolvedValue(emptySavedPage);
+    mockGetResourceSubmissions.mockResolvedValue({ content: [], page: 0, size: 10, totalElements: 0, totalPages: 0 });
+    mockGetCorrectionReports.mockResolvedValue({ content: [], page: 0, size: 10, totalElements: 0, totalPages: 0 });
   });
 
   it("shows a loading state, then the account's safe fields once loaded", async () => {
@@ -61,7 +69,7 @@ describe("DashboardContent", () => {
     expect(screen.getByText("ACTIVE")).toBeInTheDocument();
   });
 
-  it("shows the real Saved Resources section, but no other fabricated features", async () => {
+  it("shows the real Saved Resources, My Resource Submissions, and My Correction Reports sections, but no other fabricated features", async () => {
     authenticate();
     mockGetCurrentUser.mockResolvedValue(user);
 
@@ -69,9 +77,12 @@ describe("DashboardContent", () => {
 
     await waitFor(() => expect(screen.getByText("student@example.org")).toBeInTheDocument());
     expect(screen.getByRole("heading", { name: "Saved Resources" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "My Resource Submissions" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "My Correction Reports" })).toBeInTheDocument();
     expect(screen.queryByText(/moderation/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/recommend/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/recent activity/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/estimated review time/i)).not.toBeInTheDocument();
   });
 
   it("logs out and redirects to /login", async () => {

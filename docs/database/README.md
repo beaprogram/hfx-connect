@@ -2,7 +2,7 @@
 
 ## Current Schema
 
-As of Milestone 8A, the schema contains eight Flyway migrations:
+As of Milestone 8B, the schema contains nine Flyway migrations:
 
 | Version | File | Purpose |
 |---|---|---|
@@ -14,6 +14,7 @@ As of Milestone 8A, the schema contains eight Flyway migrations:
 | 6 | `backend/src/main/resources/db/migration/V6__create_resource_operating_hours.sql` | Creates the `resource_operating_hours` table |
 | 7 | `backend/src/main/resources/db/migration/V7__add_resource_location.sql` | Adds `resources.location` (geography) and its GiST index |
 | 8 | `backend/src/main/resources/db/migration/V8__create_saved_resources_table.sql` | Creates the `saved_resources` table |
+| 9 | `backend/src/main/resources/db/migration/V9__create_resource_submissions_and_correction_reports.sql` | Creates the `resource_submissions` and `correction_reports` tables |
 
 ### `categories`
 
@@ -220,6 +221,108 @@ Read/written by `SavedResourceService` for the authenticated-only
 exposed as its own standalone resource, and never readable for any
 account other than the authenticated caller.
 
+### `resource_submissions`
+
+A user-proposed new community resource, awaiting review (Milestone 8B)
+— see [ADR-015](../decisions/ADR-015-community-contribution-workflows-design.md)
+for the full design. `id` is `UUID`, matching `resources.id`/`users.id`'s
+reasoning rather than `saved_resources.id`'s: a submission genuinely is
+addressable by its own id in a URL (`GET .../{submissionId}`), with no
+alternative natural key.
+
+| Column | Type | Constraints |
+|---|---|---|
+| `id` | `UUID` | Primary key |
+| `submitted_by_user_id` | `UUID` | `NOT NULL`, `REFERENCES users(id) ON DELETE RESTRICT` — a submission is community-contribution history with standalone value, so deleting the account must not silently destroy it (the opposite policy from `saved_resources.user_id`'s `CASCADE`) |
+| `category_id` | `BIGINT` | `NOT NULL`, `REFERENCES categories(id) ON DELETE RESTRICT` — mirrors `resources.category_id`'s existing policy |
+| `name` | `VARCHAR(180)` | `NOT NULL` |
+| `normalized_name` | `VARCHAR(180)` | `NOT NULL` — lowercased form of `name`, used only for the duplicate-pending index below |
+| `short_description` | `VARCHAR(300)` | `NOT NULL` |
+| `full_description` | `VARCHAR(4000)` | nullable |
+| `address_line_1` | `VARCHAR(200)` | `NOT NULL` |
+| `address_line_2` | `VARCHAR(200)` | nullable |
+| `city` | `VARCHAR(100)` | `NOT NULL` |
+| `province` | `VARCHAR(2)` | `NOT NULL` |
+| `postal_code` | `VARCHAR(7)` | `NOT NULL` |
+| `phone` | `VARCHAR(40)` | nullable |
+| `email` | `VARCHAR(180)` | nullable |
+| `website_url` | `VARCHAR(500)` | nullable |
+| `cost_type` | `VARCHAR(20)` | `NOT NULL`, `CHECK` one of `FREE`/`LOW_COST`/`PAID`/`UNKNOWN` |
+| `eligibility_information` | `VARCHAR(1000)` | nullable |
+| `accessibility_information` | `VARCHAR(1000)` | nullable — a field with no equivalent on `resources` yet; captured here as free text for a future resource-model expansion, not tied to today's `CommunityResource` columns |
+| `status` | `VARCHAR(20)` | `NOT NULL`, `CHECK` one of `PENDING_REVIEW`/`APPROVED`/`REJECTED`/`WITHDRAWN`, defaults `PENDING_REVIEW` |
+| `submitted_at` | `TIMESTAMPTZ` | `NOT NULL`, defaults to `now()` |
+| `updated_at` | `TIMESTAMPTZ` | `NOT NULL`, defaults to `now()` |
+| `withdrawn_at` | `TIMESTAMPTZ` | nullable |
+
+`resource_submissions_pending_duplicate_key` — a **partial** unique
+index, `UNIQUE (submitted_by_user_id, category_id, normalized_name)
+WHERE status = 'PENDING_REVIEW'`: at most one pending submission per
+account/category/name at a time, without ever blocking a later
+resubmission once the earlier one is withdrawn/approved/rejected.
+
+Indexes: `resource_submissions_owner_submitted_at_idx` on
+`(submitted_by_user_id, submitted_at DESC)` (the owner-list read path);
+`resource_submissions_category_id_idx` on `(category_id)`.
+
+Read/written by `ResourceSubmissionService` for the authenticated-only
+`POST`/`GET`/`GET {id}`/`POST {id}/withdraw` endpoints under
+`/api/v1/users/me/resource-submissions`. Never exposed publicly and
+never creates a `resources` row itself.
+
+### `correction_reports`
+
+A user-reported issue on an existing, active resource, awaiting review
+(Milestone 8B). `id` is `UUID` for the same reasoning as
+`resource_submissions.id` above.
+
+| Column | Type | Constraints |
+|---|---|---|
+| `id` | `UUID` | Primary key |
+| `reported_by_user_id` | `UUID` | `NOT NULL`, `REFERENCES users(id) ON DELETE RESTRICT` — same reasoning as `resource_submissions.submitted_by_user_id` |
+| `resource_id` | `UUID` | nullable, `REFERENCES resources(id) ON DELETE SET NULL` — a report outlives its target resource being deleted (a third, distinct deletion policy from both `saved_resources.resource_id`'s `CASCADE` and the `RESTRICT` columns above — see ADR-015) |
+| `resource_name_snapshot` | `VARCHAR(180)` | `NOT NULL` — captured once at creation; read directly for display so the report stays meaningful after `resource_id` becomes null |
+| `resource_slug_snapshot` | `VARCHAR(220)` | `NOT NULL` — same reasoning |
+| `issue_type` | `VARCHAR(30)` | `NOT NULL`, `CHECK` one of `GENERAL_INFORMATION`/`ADDRESS`/`CONTACT_INFORMATION`/`OPERATING_HOURS`/`ELIGIBILITY`/`ACCESSIBILITY`/`COST`/`RESOURCE_CLOSED`/`DUPLICATE_RESOURCE`/`OTHER` |
+| `explanation` | `VARCHAR(2000)` | `NOT NULL` |
+| `proposed_name` | `VARCHAR(180)` | nullable |
+| `proposed_description` | `VARCHAR(4000)` | nullable — matches `resources.description` (a single field); no proposed short/full split, since the real resource has no such split to correct |
+| `proposed_address_line_1` | `VARCHAR(200)` | nullable |
+| `proposed_address_line_2` | `VARCHAR(200)` | nullable |
+| `proposed_city` | `VARCHAR(100)` | nullable |
+| `proposed_province` | `VARCHAR(2)` | nullable |
+| `proposed_postal_code` | `VARCHAR(7)` | nullable |
+| `proposed_phone` | `VARCHAR(40)` | nullable |
+| `proposed_email` | `VARCHAR(180)` | nullable |
+| `proposed_website_url` | `VARCHAR(500)` | nullable |
+| `proposed_cost_type` | `VARCHAR(20)` | nullable, `CHECK` one of `FREE`/`LOW_COST`/`PAID`/`UNKNOWN` when present |
+| `proposed_cost_details` | `VARCHAR(500)` | nullable |
+| `proposed_eligibility` | `VARCHAR(1000)` | nullable |
+| `status` | `VARCHAR(20)` | `NOT NULL`, same `CHECK`/default as `resource_submissions.status` |
+| `submitted_at` | `TIMESTAMPTZ` | `NOT NULL`, defaults to `now()` |
+| `updated_at` | `TIMESTAMPTZ` | `NOT NULL`, defaults to `now()` |
+| `withdrawn_at` | `TIMESTAMPTZ` | nullable |
+
+Every `proposed_*` column is nullable and independently optional — a
+`RESOURCE_CLOSED` or `OTHER` report can be explanation-only, with no
+proposed correction at all.
+
+`correction_reports_pending_duplicate_key` — a partial unique index,
+`UNIQUE (reported_by_user_id, resource_id, issue_type) WHERE status =
+'PENDING_REVIEW'`: at most one pending report per account/resource/
+issue-type at a time, without blocking a different issue type on the
+same resource or a later re-report.
+
+Indexes: `correction_reports_owner_submitted_at_idx` on
+`(reported_by_user_id, submitted_at DESC)`;
+`correction_reports_resource_id_idx` on `(resource_id)`.
+
+Read/written by `CorrectionReportService` for the authenticated-only
+`POST /api/v1/resources/{resourceId}/correction-reports` and
+`GET`/`GET {id}`/`POST {id}/withdraw` under
+`/api/v1/users/me/correction-reports`. Never exposed publicly and never
+modifies the `resources` row it targets.
+
 ## Database Engine
 
 PostgreSQL 17 with the PostGIS 3.5 extension, via the `postgis/postgis:17-3.5` Docker
@@ -235,18 +338,20 @@ see [ADR-004](../decisions/ADR-004-manual-flyway-configuration.md) for why, and
 `backend/README.md` for how to run and inspect migrations locally.
 
 Hibernate/JPA is used for reading and writing rows (`categories`, `resources`,
-`resource_operating_hours`, and `saved_resources` all have JPA entities), but
-never for schema creation or changes —
-`spring.jpa.hibernate.ddl-auto=validate` makes Hibernate check that entity mappings
-match what Flyway already created, and fail startup if they don't, rather than ever
-creating or altering a table itself.
+`resource_operating_hours`, `saved_resources`, `resource_submissions`, and
+`correction_reports` all have JPA entities), but never for schema creation
+or changes — `spring.jpa.hibernate.ddl-auto=validate` makes Hibernate check
+that entity mappings match what Flyway already created, and fail startup if
+they don't, rather than ever creating or altering a table itself.
 
 ## Planned Entities
 
 The remaining entities anticipated by the product requirements are listed in
 [docs/architecture/system-overview.md](../architecture/system-overview.md#data-model-direction):
-`organizations`, `resource_reports`, `resource_submissions`, `events`, and
-`resource_history` (`operating_hours` is now implemented, as
-`resource_operating_hours` above — Milestone 6B; `saved_resources` is now
-implemented, as above — Milestone 8A). These will be introduced as real
-Flyway migrations in later milestones.
+`organizations`, `events`, and `resource_history` (`operating_hours` is now
+implemented, as `resource_operating_hours` above — Milestone 6B;
+`saved_resources` is now implemented, as above — Milestone 8A;
+`resource_submissions`/`correction_reports` are now implemented, as above —
+Milestone 8B, in place of the originally-anticipated `resource_reports`
+name). These will be introduced as real Flyway migrations in later
+milestones.

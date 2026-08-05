@@ -144,6 +144,15 @@ export function ResourceDetail({ resource }: { resource: ResourceResponse }) {
       </section>
 
       <p className="mt-10 text-sm text-slate-500">Added {formatDate(resource.createdAt)}</p>
+
+      <p className="mt-4">
+        <Link
+          href={`/resources/${resource.slug}/report`}
+          className="rounded-sm text-sm text-slate-600 underline underline-offset-2 hover:text-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+        >
+          Report incorrect information
+        </Link>
+      </p>
     </article>
   );
 }

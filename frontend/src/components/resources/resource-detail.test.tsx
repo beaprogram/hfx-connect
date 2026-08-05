@@ -66,6 +66,15 @@ describe("ResourceDetail", () => {
     expect(headings[0]).toHaveTextContent("Halifax Central Library");
   });
 
+  it("links to the correction-report form for this resource's slug", () => {
+    renderWithQueryClient(<ResourceDetail resource={fullResource} />);
+
+    expect(screen.getByRole("link", { name: "Report incorrect information" })).toHaveAttribute(
+      "href",
+      "/resources/halifax-central-library/report",
+    );
+  });
+
   it("links the category to the filtered resource list", () => {
     renderWithQueryClient(<ResourceDetail resource={fullResource} />);
 

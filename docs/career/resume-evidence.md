@@ -1123,3 +1123,87 @@ application until this milestone's own manual verification caught it.
 realistic per-account saved-item counts, and real-world save/remove
 request volume, to validate whether the current page-size cap and
 batch-status id limit (100) remain generous enough in practice.
+
+## Community Contribution Workflows: Resource Submissions and Correction Reports
+
+### Product Purpose
+The first features that let the community using the directory also
+help grow and correct it: propose a resource that isn't listed yet, or
+report an issue with one that is — both reviewed later, never applied
+automatically, closing a gap the product scope always intended without
+granting any new write access to the public dataset.
+
+### Technologies Used
+Spring Data JPA (PostgreSQL partial unique indexes as the database-
+level duplicate-prevention authority), Spring Security
+(`@AuthenticationPrincipal`-only ownership across two new domains),
+TanStack Query (extending an existing private-cache-isolation pattern
+to two more data domains instead of building a new one), and Playwright
+for real two-account, cross-session, cross-domain manual verification.
+
+### Engineering Complexity
+Designed two independently-shaped contribution tables rather than one
+generic "report" table, each with its own foreign-key deletion policy
+chosen for its actual product meaning — a submitting/reporting
+account's history survives that account being deleted (`RESTRICT`), but
+a correction report itself survives its *target resource* being
+deleted (`SET NULL` plus a name/slug snapshot captured at creation),
+three distinct policies across two tables where a less careful design
+would have defaulted to one blanket rule. Found and fixed a genuine
+Hibernate flush-ordering bug during the service layer's own test
+development: a withdrawal immediately followed by a resubmission of the
+same shape hit an unexpected duplicate-conflict, traced to Hibernate
+processing entity insertions before updates within one flush regardless
+of call order — fixed with an explicit `saveAndFlush` and documented as
+a general lesson for any future write whose correctness depends on an
+earlier write already being visible in the same session. Found and
+fixed two more real, pre-existing test-isolation bugs unrelated to this
+milestone's own feature code, surfaced only once this milestone's own
+tests started adding enough rows to a shared, never-rolled-back
+integration-test database for two earlier milestones' implicit
+"pristine database" assumptions to finally break.
+
+### Implementation
+`backend/src/main/java/com/hfxconnect/resourcesubmission/`,
+`backend/src/main/java/com/hfxconnect/correctionreport/` (entities,
+repositories, services, controllers, DTOs, migration);
+`frontend/src/components/contributions/` (two forms, two dashboard
+sections, two detail pages); the `ProtectedRoute` and `AuthProvider`
+generalizations in `frontend/src/lib/auth/`.
+
+### Tests
+85 new backend tests (48 covering resource submissions — repository,
+service, full role-matrix API; 37 covering correction reports,
+including a real resource-deletion snapshot-preservation test) plus 3
+new regression tests for the pre-existing bugs found along the way,
+alongside the existing 554 (639 total, 0 failures). 79 new frontend
+tests across 13 new/extended files, alongside the existing 327 (406
+total, 0 failures). 41/41 scripted real-browser manual verification
+checks passed, including genuine two-account isolation across both new
+domains and a live confirmation that a submitted correction report
+never modifies its target resource.
+
+### Evidence
+Commits on branch `milestone/08b-submissions-corrections`; see
+`docs/development-log/2026-08-05.md` for the full session record and
+`docs/milestones/milestone-08b-submissions-corrections.md` for
+acceptance criteria.
+
+### Potential Resume Wording
+Designed and implemented two independent community-contribution
+workflows for a Spring Boot/Next.js application, each with its own
+foreign-key deletion policy chosen for its real product meaning rather
+than a single default rule, backed by PostgreSQL partial unique indexes
+as the authoritative concurrent-duplicate guard; diagnosed a genuine
+Hibernate flush-ordering bug during test development (entity insertions
+processed before updates within one flush, independent of call order)
+and fixed it with an explicit synchronous flush, documenting the lesson
+for future writes with the same shape; and, while validating the fix,
+discovered and repaired two further pre-existing test-isolation bugs in
+a shared integration-test database that had gone unnoticed for several
+prior milestones.
+
+### Measurements Still Needed
+[MEASURE AFTER DEPLOYMENT]: real-world submission/report volume and
+review-queue growth rate, to inform Milestone 9's moderation-queue
+pagination and any eventual rate-limiting thresholds.

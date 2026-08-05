@@ -235,6 +235,24 @@ curl -X POST "http://localhost:8080/api/v1/users/me/saved-resources/status" \
   -d '{"resourceIds":["{resourceId}"]}'
 ```
 
+```bash
+# Resource submissions (Milestone 8B) — any authenticated, ACTIVE account
+curl -X POST "http://localhost:8080/api/v1/users/me/resource-submissions" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"categoryId":1,"name":"Halifax Food Bank","shortDescription":"Free groceries.","addressLine1":"123 Main St","city":"Halifax","province":"NS","postalCode":"B3H 4R2","costType":"FREE"}'
+curl "http://localhost:8080/api/v1/users/me/resource-submissions" \
+  -H "Authorization: Bearer $TOKEN"
+curl -X POST "http://localhost:8080/api/v1/users/me/resource-submissions/{submissionId}/withdraw" \
+  -H "Authorization: Bearer $TOKEN"
+
+# Correction reports (Milestone 8B) — any authenticated, ACTIVE account
+curl -X POST "http://localhost:8080/api/v1/resources/{resourceId}/correction-reports" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"issueType":"ADDRESS","explanation":"The address listed is out of date."}'
+curl "http://localhost:8080/api/v1/users/me/correction-reports" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
 **Keyword search (`q`, Milestone 6A):** case-insensitive substring match
 across `name`/`description`/`addressLine1`/`city`; at most 100 characters
 after normalization (trim, whitespace collapse); blank is treated as no
@@ -276,6 +294,20 @@ saved list excludes resources that have since gone inactive but
 preserves the underlying relation (it reappears if the resource is
 reactivated). Full design:
 [ADR-014](../docs/decisions/ADR-014-saved-resources-design.md).
+
+**Resource submissions and correction reports (Milestone 8B):** any
+authenticated, `ACTIVE`-status account may propose a new resource
+(`POST /api/v1/users/me/resource-submissions`) or report an issue on
+an existing active one (`POST
+/api/v1/resources/{resourceId}/correction-reports`) — both create a
+`PENDING_REVIEW` item visible only to their owner; **neither creates
+nor modifies a public resource**. Identity always comes from the
+authenticated principal. A duplicate-pending submission (same account/
+category/name) or report (same account/resource/issue type) returns
+`409`, backed by a database partial unique index, not an application
+check alone. Either can be withdrawn (`POST .../{id}/withdraw`) while
+still `PENDING_REVIEW`. Full design:
+[ADR-015](../docs/decisions/ADR-015-community-contribution-workflows-design.md).
 
 A resource is created under an existing, active category (`categories.id`, a
 `BIGINT` — not the `UUID` a resource's own `id` is; see
@@ -465,6 +497,18 @@ backend/
                                                              CommunityResource — see ADR-014 and
                                                              backend-architecture.md's "Focused Entities Over
                                                              Generic Frameworks" section
+    resourcesubmission/                          Resource-submission domain (Milestone 8B):
+                                                             ResourceSubmission(+repository), SubmissionStatus,
+                                                             ResourceSubmissionService, ResourceSubmissionValidation
+                                                             (reuses ResourceValidation's field helpers),
+                                                             ResourceSubmissionController, DTOs — see ADR-015
+    correctionreport/                              Correction-report domain (Milestone 8B):
+                                                             CorrectionReport(+repository), CorrectionReportStatus,
+                                                             IssueType, CorrectionReportService,
+                                                             CorrectionReportValidation, CorrectionReportController,
+                                                             DTOs — nullable target-resource association with a
+                                                             name/slug snapshot (survives resource deletion) —
+                                                             see ADR-015
   src/main/resources/
     application.properties                        Base configuration (env-based DB connection,
                                                              JPA, Actuator, JWT/cookie config)
@@ -482,6 +526,8 @@ backend/
                                                              see ADR-012)
       V8__create_saved_resources_table.sql   Eighth Flyway migration (Milestone 8A —
                                                              see ADR-014)
+      V9__create_resource_submissions_and_correction_reports.sql   Ninth Flyway
+                                                             migration (Milestone 8B — see ADR-015)
   src/test/java/com/hfxconnect/
     AbstractPostgresIntegrationTest.java   Shared Testcontainers setup (public — extended
                                                              from sub-packages like category/, resource/)
@@ -523,6 +569,16 @@ backend/
                                                              insert race; service; full role-matrix API
                                                              integration — see
                                                              docs/milestones/milestone-08a-saved-resources.md)
+    resourcesubmission/                          Resource-submission domain tests (repository —
+                                                             schema/FK/duplicate-pending partial-unique-index
+                                                             behavior; service; full role-matrix API
+                                                             integration — see
+                                                             docs/milestones/milestone-08b-submissions-corrections.md)
+    correctionreport/                              Correction-report domain tests (repository —
+                                                             schema/FK/SET NULL-and-snapshot resource-deletion
+                                                             behavior/duplicate-pending; service; full
+                                                             role-matrix API integration — see
+                                                             docs/milestones/milestone-08b-submissions-corrections.md)
 ```
 
 Domain packages not yet needed (`search/`, `moderation/`, `event/`, etc., as

@@ -1,4 +1,4 @@
-import { savedResourceKeys } from "./keys";
+import { savedResourceKeys, resourceSubmissionKeys, correctionReportKeys } from "./keys";
 
 describe("savedResourceKeys", () => {
   it("roots every key in the given userId", () => {
@@ -22,6 +22,46 @@ describe("savedResourceKeys", () => {
   it("distinguishes a genuinely different set of ids", () => {
     const keyA = savedResourceKeys.status("user-1", ["a"]);
     const keyB = savedResourceKeys.status("user-1", ["a", "b"]);
+    expect(keyA).not.toEqual(keyB);
+  });
+});
+
+describe("resourceSubmissionKeys", () => {
+  it("roots every key in the given userId", () => {
+    expect(resourceSubmissionKeys.all("user-1")).toEqual(["resource-submissions", "user-1"]);
+    expect(resourceSubmissionKeys.list("user-1", { page: 0, size: 20 })[1]).toBe("user-1");
+    expect(resourceSubmissionKeys.detail("user-1", "sub-1")[1]).toBe("user-1");
+  });
+
+  it("never uses the same key for two different accounts", () => {
+    const keyA = resourceSubmissionKeys.list("user-1", { page: 0, size: 20 });
+    const keyB = resourceSubmissionKeys.list("user-2", { page: 0, size: 20 });
+    expect(keyA).not.toEqual(keyB);
+  });
+
+  it("distinguishes different submission ids", () => {
+    const keyA = resourceSubmissionKeys.detail("user-1", "sub-1");
+    const keyB = resourceSubmissionKeys.detail("user-1", "sub-2");
+    expect(keyA).not.toEqual(keyB);
+  });
+});
+
+describe("correctionReportKeys", () => {
+  it("roots every key in the given userId", () => {
+    expect(correctionReportKeys.all("user-1")).toEqual(["correction-reports", "user-1"]);
+    expect(correctionReportKeys.list("user-1", { page: 0, size: 20 })[1]).toBe("user-1");
+    expect(correctionReportKeys.detail("user-1", "report-1")[1]).toBe("user-1");
+  });
+
+  it("never uses the same key for two different accounts", () => {
+    const keyA = correctionReportKeys.list("user-1", { page: 0, size: 20 });
+    const keyB = correctionReportKeys.list("user-2", { page: 0, size: 20 });
+    expect(keyA).not.toEqual(keyB);
+  });
+
+  it("distinguishes different report ids", () => {
+    const keyA = correctionReportKeys.detail("user-1", "report-1");
+    const keyB = correctionReportKeys.detail("user-1", "report-2");
     expect(keyA).not.toEqual(keyB);
   });
 });

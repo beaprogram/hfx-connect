@@ -758,6 +758,67 @@ security benefit, since none of that is private. I scoped the clearing
 to exactly the `saved-resources`-prefixed query keys instead, so a
 logout stays cheap for everything that doesn't need to be private.
 
+## Answerable Now (Milestone 8B)
+
+**You have two contribution tables now. Why not one generic "report"
+table with a type column?** I considered it, but the two shapes are
+genuinely different — a submission proposes an entire new resource
+record with no target to reference; a report references an existing
+resource and carries a small set of optional proposed fields plus a
+required issue type. Forcing both through one table would mean every
+row carries a large number of columns that are meaningless for the
+other kind of contribution, and every query needs a discriminator
+check. I'd rather have two legible tables than one table that needs a
+comment explaining which half of its columns actually apply.
+
+**Why does deleting a user versus deleting a resource have three
+different foreign-key behaviors across these two tables?** Because
+they mean three different things. Deleting the account that submitted
+or reported something shouldn't silently destroy that history — a
+submission or report has standalone value even after the account is
+gone — so both owner columns use `ON DELETE RESTRICT`. But deleting the
+*resource* a correction report is about is different again: the report
+still has review value afterward — "this was reported as a duplicate,
+then removed" is exactly the kind of thing worth keeping — so that
+column uses `ON DELETE SET NULL`, and I capture the resource's name and
+slug in a snapshot at creation time so the report stays meaningful even
+after the live association is gone. Three columns, three real
+policies, chosen from what each relationship actually means rather
+than picking one default and applying it everywhere.
+
+**Walk me through a bug that had nothing to do with your actual
+feature logic.** While writing service-layer tests, I chained
+"withdraw a submission" immediately followed by "resubmit the same
+name and category" in one test method, and the resubmission failed
+with an unexpected duplicate-pending conflict — even though the
+withdrawal had already run first, in program order. It turned out
+Hibernate's flush action queue processes entity insertions before
+updates within a single flush, regardless of the order your code
+actually made those changes in. So within one shared transaction, the
+new row's insert could physically reach the database before the
+withdrawal's update did, and the unique index still saw the old row as
+pending. I fixed it by having the withdrawal call `saveAndFlush`
+explicitly, forcing that specific update to commit before the method
+returns, instead of trusting default auto-flush timing. The lesson I
+took from it: if a later write's correctness depends on an earlier
+write already being visible, don't assume ORM flush order matches your
+code's call order — verify it with a test that actually chains both
+operations.
+
+**How did you catch the CORS-style "this only breaks in a real
+browser" class of bug this time?** I didn't have to reproduce it fresh
+— I already knew the shape of the risk from Milestone 8A's CORS gap, so
+I made sure this milestone's own manual verification actually drove
+both new protected routes through a real browser redirect, not just
+asserted against the API directly. But I did find two *different*
+real bugs the same way manual verification always seems to catch: two
+pre-existing tests in other files had each implicitly assumed a
+pristine shared test database, and once my own new tests added enough
+rows to that same shared database, both assumptions quietly stopped
+holding. Neither was caught by any single test in isolation — only by
+running the full suite together, which is exactly why "all tests pass
+in isolation" isn't the same guarantee as "the full suite is green."
+
 ## To Be Added in Later Milestones
 
 - How moderation approval and audit-history writes are made transactional (Milestone
@@ -767,4 +828,7 @@ logout stays cheap for everything that doesn't need to be private.
 - How saved-resource query/status-lookup performance holds up at realistic
   per-account saved-item counts (deferred — Milestone 8A's own manual-verification
   dataset was two resources and three accounts).
+- How submission/correction-report volume and review-queue growth behave at
+  production scale (deferred — Milestone 8B's own manual-verification dataset
+  was two resources, three accounts, and a handful of contributions).
 - Trade-offs made and limitations knowingly deferred, updated at each milestone.
