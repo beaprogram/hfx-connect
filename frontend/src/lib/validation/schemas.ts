@@ -124,6 +124,8 @@ export const resourceResponseSchema = z.object({
   costDetails: z.string().nullish(),
   eligibility: z.string().nullish(),
   verificationStatus: verificationStatusSchema,
+  /** Set once a moderator verifies this resource (Milestone 9A) — null otherwise. */
+  lastVerifiedAt: z.string().nullish(),
   active: z.boolean(),
   category: categorySummarySchema,
   createdAt: z.string(),
@@ -218,10 +220,23 @@ export const contributionStatusSchema = z.enum(["PENDING_REVIEW", "APPROVED", "R
 export type ContributionStatus = z.infer<typeof contributionStatusSchema>;
 
 /**
+ * The public resource an approved submission created (Milestone 9A) — shown
+ * to both the submission's owner and, in the moderation UI, to reviewers.
+ */
+export const resultingResourceSummarySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  slug: z.string(),
+});
+export type ResultingResourceSummary = z.infer<typeof resultingResourceSummarySchema>;
+
+/**
  * A proposed new resource (Milestone 8B), owned by the current user.
  * Deliberately has no `submittedByUserId` field — the backend response
  * never includes one, matching `savedResourceSummaryResponseSchema`'s same
- * reasoning.
+ * reasoning. `reviewedAt`/`reviewReason`/`resultingResource` are populated
+ * once a moderator has decided (Milestone 9A) — the reviewer's identity is
+ * never included in this owner-facing shape.
  */
 export const resourceSubmissionResponseSchema = z.object({
   id: z.string(),
@@ -244,6 +259,9 @@ export const resourceSubmissionResponseSchema = z.object({
   submittedAt: z.string(),
   updatedAt: z.string(),
   withdrawnAt: z.string().nullish(),
+  reviewedAt: z.string().nullish(),
+  reviewReason: z.string().nullish(),
+  resultingResource: resultingResourceSummarySchema.nullish(),
 });
 export type ResourceSubmissionResponse = z.infer<typeof resourceSubmissionResponseSchema>;
 
@@ -283,6 +301,11 @@ export const correctionReportTargetResponseSchema = z.object({
 });
 export type CorrectionReportTargetResponse = z.infer<typeof correctionReportTargetResponseSchema>;
 
+/**
+ * `changesApplied` is `null` while pending/withdrawn, and only meaningful
+ * once `status` is `APPROVED` (Milestone 9A) — a moderator may approve a
+ * report without applying any automatic field change (see ADR-016).
+ */
 export const correctionReportResponseSchema = z.object({
   id: z.string(),
   resource: correctionReportTargetResponseSchema,
@@ -304,6 +327,9 @@ export const correctionReportResponseSchema = z.object({
   status: contributionStatusSchema,
   submittedAt: z.string(),
   updatedAt: z.string(),
+  reviewedAt: z.string().nullish(),
+  reviewReason: z.string().nullish(),
+  changesApplied: z.boolean().nullish(),
   withdrawnAt: z.string().nullish(),
 });
 export type CorrectionReportResponse = z.infer<typeof correctionReportResponseSchema>;
@@ -355,3 +381,174 @@ export const apiErrorSchema = z.object({
   fieldErrors: z.record(z.string(), z.string()).nullish(),
 });
 export type ApiErrorBody = z.infer<typeof apiErrorSchema>;
+
+/**
+ * Moderation (Milestone 9A). Every schema below is used only by
+ * MODERATOR/ADMIN-facing routes — see `lib/api/moderation.ts` and
+ * `components/moderation/`. Submitter/reporter identity is deliberately
+ * never included in any queue or detail shape (see ADR-016's "Submitter
+ * Identity" section) — only the reviewing moderator's account id
+ * (`reviewedByUserId`) appears, and only after a decision has been made.
+ */
+
+export const moderationSubmissionQueueItemSchema = z.object({
+  id: z.string(),
+  category: categorySummarySchema,
+  name: z.string(),
+  shortDescription: z.string(),
+  status: contributionStatusSchema,
+  submittedAt: z.string(),
+});
+export type ModerationSubmissionQueueItem = z.infer<typeof moderationSubmissionQueueItemSchema>;
+
+export const moderationSubmissionQueuePageSchema = z.object({
+  content: z.array(moderationSubmissionQueueItemSchema),
+  page: z.number(),
+  size: z.number(),
+  totalElements: z.number(),
+  totalPages: z.number(),
+});
+export type ModerationSubmissionQueuePage = z.infer<typeof moderationSubmissionQueuePageSchema>;
+
+export const moderationSubmissionDetailSchema = z.object({
+  id: z.string(),
+  category: categorySummarySchema,
+  name: z.string(),
+  shortDescription: z.string(),
+  fullDescription: z.string().nullish(),
+  addressLine1: z.string(),
+  addressLine2: z.string().nullish(),
+  city: z.string(),
+  province: z.string(),
+  postalCode: z.string(),
+  phone: z.string().nullish(),
+  email: z.string().nullish(),
+  websiteUrl: z.string().nullish(),
+  costType: costTypeSchema,
+  eligibilityInformation: z.string().nullish(),
+  accessibilityInformation: z.string().nullish(),
+  status: contributionStatusSchema,
+  submittedAt: z.string(),
+  updatedAt: z.string(),
+  withdrawnAt: z.string().nullish(),
+  reviewedByUserId: z.string().nullish(),
+  reviewedAt: z.string().nullish(),
+  reviewReason: z.string().nullish(),
+  resultingResource: resultingResourceSummarySchema.nullish(),
+});
+export type ModerationSubmissionDetail = z.infer<typeof moderationSubmissionDetailSchema>;
+
+export const moderationCorrectionQueueItemSchema = z.object({
+  id: z.string(),
+  resource: correctionReportTargetResponseSchema,
+  issueType: issueTypeSchema,
+  explanationPreview: z.string(),
+  status: contributionStatusSchema,
+  submittedAt: z.string(),
+});
+export type ModerationCorrectionQueueItem = z.infer<typeof moderationCorrectionQueueItemSchema>;
+
+export const moderationCorrectionQueuePageSchema = z.object({
+  content: z.array(moderationCorrectionQueueItemSchema),
+  page: z.number(),
+  size: z.number(),
+  totalElements: z.number(),
+  totalPages: z.number(),
+});
+export type ModerationCorrectionQueuePage = z.infer<typeof moderationCorrectionQueuePageSchema>;
+
+/** The target resource's current live values — `null` when the resource has since been deleted. */
+export const currentResourceStateSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string(),
+  addressLine1: z.string(),
+  addressLine2: z.string().nullish(),
+  city: z.string(),
+  province: z.string(),
+  postalCode: z.string(),
+  phone: z.string().nullish(),
+  email: z.string().nullish(),
+  websiteUrl: z.string().nullish(),
+  costType: costTypeSchema,
+  costDetails: z.string().nullish(),
+  eligibility: z.string().nullish(),
+  active: z.boolean(),
+});
+export type CurrentResourceState = z.infer<typeof currentResourceStateSchema>;
+
+export const moderationCorrectionDetailSchema = z.object({
+  id: z.string(),
+  resource: correctionReportTargetResponseSchema,
+  currentResource: currentResourceStateSchema.nullish(),
+  issueType: issueTypeSchema,
+  explanation: z.string(),
+  proposedName: z.string().nullish(),
+  proposedDescription: z.string().nullish(),
+  proposedAddressLine1: z.string().nullish(),
+  proposedAddressLine2: z.string().nullish(),
+  proposedCity: z.string().nullish(),
+  proposedProvince: z.string().nullish(),
+  proposedPostalCode: z.string().nullish(),
+  proposedPhone: z.string().nullish(),
+  proposedEmail: z.string().nullish(),
+  proposedWebsiteUrl: z.string().nullish(),
+  proposedCostType: costTypeSchema.nullish(),
+  proposedCostDetails: z.string().nullish(),
+  proposedEligibility: z.string().nullish(),
+  status: contributionStatusSchema,
+  submittedAt: z.string(),
+  updatedAt: z.string(),
+  withdrawnAt: z.string().nullish(),
+  reviewedByUserId: z.string().nullish(),
+  reviewedAt: z.string().nullish(),
+  reviewReason: z.string().nullish(),
+  appliedToResourceAt: z.string().nullish(),
+});
+export type ModerationCorrectionDetail = z.infer<typeof moderationCorrectionDetailSchema>;
+
+export const contributionTypeSchema = z.enum(["RESOURCE_SUBMISSION", "CORRECTION_REPORT"]);
+export type ContributionType = z.infer<typeof contributionTypeSchema>;
+
+export const moderationActionSchema = z.enum([
+  "REVIEW_DECISION",
+  "RESOURCE_CREATED",
+  "RESOURCE_UPDATED",
+  "RESOURCE_DEACTIVATED",
+]);
+export type ModerationAction = z.infer<typeof moderationActionSchema>;
+
+export const moderationDecisionSchema = z.enum(["APPROVED", "REJECTED"]);
+export type ModerationDecision = z.infer<typeof moderationDecisionSchema>;
+
+/**
+ * Moderator/admin-only audit trail entry (Milestone 9A) — never fetched by
+ * any owner-facing or public route. `beforeSnapshot`/`afterSnapshot` are
+ * small, explicitly-built field maps the backend constructs (never a
+ * serialized entity) — treated here as an opaque record for display, not
+ * something the frontend interprets structurally.
+ */
+export const moderationAuditEventSchema = z.object({
+  id: z.string(),
+  contributionType: contributionTypeSchema,
+  contributionId: z.string(),
+  action: moderationActionSchema,
+  decision: moderationDecisionSchema.nullish(),
+  actorUserId: z.string(),
+  actorEmail: z.string(),
+  reviewReason: z.string().nullish(),
+  affectedResourceId: z.string().nullish(),
+  beforeSnapshot: z.record(z.string(), z.unknown()).nullish(),
+  afterSnapshot: z.record(z.string(), z.unknown()).nullish(),
+  createdAt: z.string(),
+});
+export type ModerationAuditEvent = z.infer<typeof moderationAuditEventSchema>;
+
+export const moderationAuditEventPageSchema = z.object({
+  content: z.array(moderationAuditEventSchema),
+  page: z.number(),
+  size: z.number(),
+  totalElements: z.number(),
+  totalPages: z.number(),
+});
+export type ModerationAuditEventPage = z.infer<typeof moderationAuditEventPageSchema>;

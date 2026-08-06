@@ -51,11 +51,41 @@ export function ResourceSubmissionDetail({ submissionId }: { submissionId: strin
         </div>
       </div>
 
-      <p className="text-sm text-slate-700" role="status">
-        This submission is not a public resource. It is visible only to you while it awaits review.
-      </p>
+      {submission.status === "PENDING_REVIEW" && (
+        <p className="text-sm text-slate-700" role="status">
+          This submission is not a public resource. It is visible only to you while it awaits review.
+        </p>
+      )}
+      {submission.status === "APPROVED" && submission.resultingResource && (
+        <p className="text-sm text-slate-700" role="status">
+          Approved and published.{" "}
+          <Link
+            href={`/resources/${submission.resultingResource.slug}`}
+            className="font-medium text-blue-700 underline-offset-2 hover:underline"
+          >
+            View the public listing
+          </Link>
+          {submission.reviewReason && <> — &ldquo;{submission.reviewReason}&rdquo;</>}
+        </p>
+      )}
+      {submission.status === "REJECTED" && (
+        <p className="text-sm text-slate-700" role="status">
+          Rejected{submission.reviewReason && <> — &ldquo;{submission.reviewReason}&rdquo;</>}
+        </p>
+      )}
+      {submission.status === "WITHDRAWN" && (
+        <p className="text-sm text-slate-700" role="status">
+          Withdrawn
+        </p>
+      )}
 
       <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-2 text-sm">
+        {submission.reviewedAt && (
+          <>
+            <dt className="font-medium text-slate-700">Reviewed</dt>
+            <dd className="text-slate-900">{formatDate(submission.reviewedAt)}</dd>
+          </>
+        )}
         <dt className="font-medium text-slate-700">Category</dt>
         <dd className="text-slate-900">{submission.category.name}</dd>
         <dt className="font-medium text-slate-700">Short description</dt>

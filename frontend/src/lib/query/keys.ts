@@ -99,3 +99,26 @@ export const correctionReportKeys = {
   detail: (userId: string, reportId: string) =>
     [...correctionReportKeys.all(userId), "detail", reportId] as const,
 };
+
+/**
+ * Moderation keys (Milestone 9A) — not rooted in `userId` like the three
+ * factories above: this data isn't owned by a specific account, it's
+ * role-gated shared moderator state. It is still cleared on logout/account-
+ * switch (see `lib/auth/auth-provider.tsx`'s `MODERATION_QUERY_KEY_PREFIX`)
+ * for the same reason — it must never sit in one browser's cache across a
+ * session boundary, even though no single user "owns" it.
+ */
+export const moderationKeys = {
+  submissionQueue: (params: { status?: string; categoryId?: number; page: number; size: number; sort?: string }) =>
+    ["moderation", "resource-submissions", "queue", params] as const,
+  submissionDetail: (submissionId: string) => ["moderation", "resource-submissions", "detail", submissionId] as const,
+  submissionAudit: (submissionId: string, params: { page: number; size: number }) =>
+    ["moderation", "resource-submissions", "audit", submissionId, params] as const,
+  correctionQueue: (params: { status?: string; issueType?: string; page: number; size: number; sort?: string }) =>
+    ["moderation", "correction-reports", "queue", params] as const,
+  correctionDetail: (reportId: string) => ["moderation", "correction-reports", "detail", reportId] as const,
+  correctionAudit: (reportId: string, params: { page: number; size: number }) =>
+    ["moderation", "correction-reports", "audit", reportId, params] as const,
+  globalAudit: (params: { contributionType?: string; decision?: string; page: number; size: number }) =>
+    ["moderation", "audit-events", params] as const,
+};
