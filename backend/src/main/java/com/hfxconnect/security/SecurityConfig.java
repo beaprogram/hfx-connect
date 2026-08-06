@@ -42,8 +42,16 @@ import org.springframework.web.cors.CorsConfigurationSource;
  *       {@code GET /api/v1/resources/nearby} is already covered by the
  *       {@code GET /api/v1/resources/**} public rule above — no separate
  *       matcher needed.
+ *   <li>{@code /api/v1/moderation/**} — {@code ADMIN} or {@code MODERATOR}
+ *       (Milestone 9A — see ADR-016). Every moderation route (queue, detail,
+ *       approve, reject, audit history) lives under this one prefix, so a
+ *       single matcher covers all of them; the moderation workflow's own
+ *       self-review check happens inside the service layer, not here — this
+ *       matcher only answers "may this account moderate at all."
  *   <li>Everything else: {@code authenticated()} — fail closed, not fail
- *       open, for any route this list doesn't already name.
+ *       open, for any route this list doesn't already name (this is what
+ *       covers the current-user resource-submission/correction-report
+ *       routes, Milestone 8B — any authenticated role may use those).
  * </ul>
  */
 @Configuration
@@ -94,6 +102,7 @@ public class SecurityConfig {
 						.hasAnyRole("ADMIN", "MODERATOR")
 						.requestMatchers(HttpMethod.PUT, "/api/v1/resources/*/location")
 						.hasAnyRole("ADMIN", "MODERATOR")
+						.requestMatchers("/api/v1/moderation/**").hasAnyRole("ADMIN", "MODERATOR")
 						.anyRequest().authenticated())
 				.addFilterBefore(new JwtAuthenticationFilter(accessTokenService, userRepository),
 						UsernamePasswordAuthenticationFilter.class);
