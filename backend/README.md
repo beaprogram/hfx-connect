@@ -251,6 +251,16 @@ curl -X POST "http://localhost:8080/api/v1/resources/{resourceId}/correction-rep
   -d '{"issueType":"ADDRESS","explanation":"The address listed is out of date."}'
 curl "http://localhost:8080/api/v1/users/me/correction-reports" \
   -H "Authorization: Bearer $TOKEN"
+
+# Moderation (Milestone 9A) — ADMIN/MODERATOR only
+curl "http://localhost:8080/api/v1/moderation/resource-submissions" \
+  -H "Authorization: Bearer $MODERATOR_TOKEN"
+curl -X POST "http://localhost:8080/api/v1/moderation/resource-submissions/{submissionId}/approve" \
+  -H "Authorization: Bearer $MODERATOR_TOKEN" -H "Content-Type: application/json" \
+  -d '{"reason":"Verified against the organization'"'"'s website."}'
+curl -X POST "http://localhost:8080/api/v1/moderation/correction-reports/{reportId}/approve" \
+  -H "Authorization: Bearer $MODERATOR_TOKEN" -H "Content-Type: application/json" \
+  -d '{"reason":"Confirmed the new address.","applyProposedChanges":true,"deactivateResource":false}'
 ```
 
 **Keyword search (`q`, Milestone 6A):** case-insensitive substring match
@@ -308,6 +318,18 @@ category/name) or report (same account/resource/issue type) returns
 check alone. Either can be withdrawn (`POST .../{id}/withdraw`) while
 still `PENDING_REVIEW`. Full design:
 [ADR-015](../docs/decisions/ADR-015-community-contribution-workflows-design.md).
+
+**Moderation (Milestone 9A):** an `ADMIN`/`MODERATOR` account can list
+either contribution type's queue, inspect full detail, and approve or
+reject with a required reason. Approving a submission publishes it as
+a real, `VERIFIED` public resource in the same transaction; approving
+a correction applies whichever of its supported proposed fields are
+present (or deactivates the resource, for an approved `RESOURCE_CLOSED`
+report). A moderator/admin can never review their own contribution,
+and a row-level `PESSIMISTIC_WRITE` lock guarantees exactly one of two
+concurrent decisions on the same item ever succeeds — the other gets
+`409`. Every final decision records an append-only audit event. Full
+design: [ADR-016](../docs/decisions/ADR-016-moderation-workflow-design.md).
 
 A resource is created under an existing, active category (`categories.id`, a
 `BIGINT` — not the `UUID` a resource's own `id` is; see
@@ -509,6 +531,15 @@ backend/
                                                              DTOs — nullable target-resource association with a
                                                              name/slug snapshot (survives resource deletion) —
                                                              see ADR-015
+    moderation/                                    Moderation domain (Milestone 9A): ModerationAuditEvent
+                                                             (+repository, JSONB snapshots), ContributionType/
+                                                             ModerationAction/ModerationDecision,
+                                                             ResourceSubmissionReviewService,
+                                                             CorrectionReportReviewService, ModerationAuditRecorder/
+                                                             QueryService, three controllers, DTOs, six exception
+                                                             types — PESSIMISTIC_WRITE row locking for concurrency,
+                                                             self-review prevention, publication/correction-
+                                                             application transactions — see ADR-016
   src/main/resources/
     application.properties                        Base configuration (env-based DB connection,
                                                              JPA, Actuator, JWT/cookie config)
@@ -528,6 +559,8 @@ backend/
                                                              see ADR-014)
       V9__create_resource_submissions_and_correction_reports.sql   Ninth Flyway
                                                              migration (Milestone 8B — see ADR-015)
+      V10__add_moderation_workflow_and_audit.sql   Tenth Flyway migration
+                                                             (Milestone 9A — see ADR-016)
   src/test/java/com/hfxconnect/
     AbstractPostgresIntegrationTest.java   Shared Testcontainers setup (public — extended
                                                              from sub-packages like category/, resource/)

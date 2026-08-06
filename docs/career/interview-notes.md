@@ -819,10 +819,72 @@ holding. Neither was caught by any single test in isolation — only by
 running the full suite together, which is exactly why "all tests pass
 in isolation" isn't the same guarantee as "the full suite is green."
 
+## Answerable Now (Milestone 9A)
+
+**Two moderators click approve on the same submission at nearly the
+same instant. Walk me through what actually happens.** Both requests
+try to acquire a `PESSIMISTIC_WRITE` lock (`SELECT ... FOR UPDATE`) on
+the submission row as the very first thing their review transaction
+does. Whichever gets there first holds the lock for its *entire*
+transaction — revalidating fields, creating the resource, marking the
+submission approved, writing the audit event — and the second request
+blocks on that same `SELECT ... FOR UPDATE` the whole time. Once the
+first transaction commits, the second one's lock finally succeeds, it
+re-reads the row, sees the status is no longer `PENDING_REVIEW`, and
+returns `409` immediately. I picked this over JPA's optimistic
+`@Version` locking specifically because it makes the *whole* decision
+atomic against a competitor, not just the final write — there's no
+window where one request could get partway through side effects before
+discovering it lost the race, and no separate exception-translation
+code path for the optimistic-lock-failure case to get wrong. I proved
+it with an actual test spinning up two real threads and a
+`CountDownLatch` to force them to race, not just a unit test asserting
+what exception type a mock would throw.
+
+**Why lock the target resource too, not just the correction report?**
+Because two *different* pending reports can target the same resource.
+If moderator A approves a report changing the address while moderator
+B concurrently approves a different report changing the phone number,
+locking only each report's own row doesn't stop both transactions from
+reading the resource's "current" state before either commits — B's
+transaction would then write back a resource object that still has the
+*old* address, silently reverting A's already-committed change. I only
+caught this by explicitly reasoning through the failure mode — it's not
+something a single-report-focused test would ever surface, since it
+needs two *different* reports on the *same* resource to manifest.
+Locking the resource row itself, independently of whichever report is
+being processed, closes it.
+
+**Tell me about a bug your own tests didn't catch.** I added a
+`lastVerifiedAt` column and threaded it correctly through the entity,
+the service layer, and the moderation-facing audit snapshots — all of
+it compiled, and every test I'd written against those layers passed.
+It just never occurred to me to check whether the *public* resource
+API response — a completely different DTO that happens to expose
+overlapping data — had been updated too. It hadn't. I only found it
+because manual verification meant literally curling a real approved
+resource and reading the JSON back, and `lastVerifiedAt` wasn't there.
+The fix was trivial once I saw it; the lesson is the part I wrote down —
+when a field gets added to an entity that already backs more than one
+response shape, "my tests for the layer I touched are green" doesn't
+mean every DTO claiming to expose that data actually got updated. I
+added a regression test asserting the live response body specifically,
+not just the entity/service objects, so this exact gap can't reopen
+silently.
+
+**Why does `ADMIN` get no exception to the self-review rule?** Because
+it's a conflict-of-interest rule, not a permission gate — the concern
+isn't "does this account have enough privilege," it's "should this
+specific person be the one deciding on their own submission," and role
+doesn't change the answer to that. It would have been easy to write the
+check as "if not ADMIN, block self-review," and it would have passed
+every test I'd have thought to write for the *submission* side of the
+flow — I only avoided it because I wrote a dedicated test asserting an
+`ADMIN` account gets blocked reviewing its own contribution before
+implementing the check, not after.
+
 ## To Be Added in Later Milestones
 
-- How moderation approval and audit-history writes are made transactional (Milestone
-  9).
 - How geographic search is kept fast as content grows at production scale (deferred —
   Milestone 7A/7B's own datasets were too small to benchmark meaningfully).
 - How saved-resource query/status-lookup performance holds up at realistic
@@ -831,4 +893,8 @@ in isolation" isn't the same guarantee as "the full suite is green."
 - How submission/correction-report volume and review-queue growth behave at
   production scale (deferred — Milestone 8B's own manual-verification dataset
   was two resources, three accounts, and a handful of contributions).
+- How moderation queue depth and reviewer throughput behave at production scale,
+  and whether reviewer assignment/queue prioritization end up justified (deferred —
+  Milestone 9A explicitly excluded both from scope; its own manual-verification
+  dataset was six accounts and a handful of contributions).
 - Trade-offs made and limitations knowingly deferred, updated at each milestone.

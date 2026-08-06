@@ -514,3 +514,47 @@ is always available at `/v3/api-docs` (JSON) and `/swagger-ui.html` (interactive
 a running backend, and is verified by an integration test
 (`CategoryApiIntegrationTest.openApiDocumentIncludesTheCategoryEndpoints`) rather than
 only inspected manually.
+
+## Row-Level Locking for Multi-Step Decisions That Must Not Race
+
+Milestone 9A's moderation review is the first place in this codebase
+where a single request must atomically decide "is this the winning
+transaction" *and* perform a multi-step mutation (revalidate, publish
+or apply, mark reviewed, record audit) as one unit no concurrent
+request can partially interleave with. `ResourceSubmissionRepository
+.findByIdForReview`/`CorrectionReportRepository.findByIdForReview`
+acquire `@Lock(LockModeType.PESSIMISTIC_WRITE)` (`SELECT ... FOR
+UPDATE`) on the contribution row for the whole transaction, rather than
+using JPA optimistic locking (`@Version`) with a retry/exception path.
+A second concurrent caller's own `SELECT ... FOR UPDATE` blocks until
+the first transaction commits or rolls back, then observes the
+now-current status and fails fast — the entire review transaction is
+serialized, not just its final `UPDATE` statement, and there is no
+separate "catch the optimistic-lock exception and translate it" code
+path to get wrong. See
+[ADR-016](../decisions/ADR-016-moderation-workflow-design.md)'s
+"Concurrency Control" section for the full rationale, including why
+correction application locks a *second*, independent row (the target
+resource, via `ResourceRepository.findByIdForUpdate`) on top of the
+report's own lock — two different pending reports can target the same
+resource, which a lock on the report row alone would not protect
+against.
+
+## A Schema/Entity Change Can Compile and Pass Entity-Layer Tests While Never Reaching a Sibling Response DTO
+
+Milestone 9A added `CommunityResource.lastVerifiedAt` and threaded it
+correctly through the entity, `ResourceService`, and the
+*moderation-facing* audit snapshots — all of which compiled cleanly and
+passed every automated test written against them. It was never added
+to the *public* `ResourceResponse` DTO (`GET /api/v1/resources/{id}`
+and `.../slug/{slug}`), because no automated test asserted that DTO's
+actual field set end-to-end; the gap was only caught by a manual
+end-to-end pass reading a live HTTP response body. The lesson, not
+specific to this one field: when a new column is added to an entity
+that already backs more than one response DTO ("full resource detail"
+in this codebase is both `ResourceResponse` and the moderation-facing
+detail responses), every DTO claiming to expose that data needs to be
+checked explicitly — entity/service-layer test coverage does not imply
+response-DTO coverage. See ADR-016's "Verification Policy" section for
+the full account and the regression test now guarding against it
+recurring.
