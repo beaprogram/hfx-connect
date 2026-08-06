@@ -1,5 +1,6 @@
 package com.hfxconnect.resource;
 
+import jakarta.persistence.LockModeType;
 import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalTime;
@@ -8,12 +9,27 @@ import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 
 public interface ResourceRepository extends JpaRepository<CommunityResource, UUID> {
 
 	boolean existsBySlug(String slug);
+
+	/**
+	 * Row-locking lookup used only by the Milestone 9A correction-report
+	 * approval flow: two pending correction reports can target the same
+	 * resource, and applying both concurrently without locking the resource
+	 * row itself (not just the correction_report row each report's own
+	 * moderation-queue lock already protects) would be a classic lost-update
+	 * race — one moderator's committed field change silently overwritten by
+	 * the other's stale in-memory copy of the "current" resource state. See
+	 * ADR-016 for the full concurrency-control rationale.
+	 */
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query("SELECT r FROM CommunityResource r WHERE r.id = :id")
+	Optional<CommunityResource> findByIdForUpdate(UUID id);
 
 	Optional<CommunityResource> findBySlugAndActiveTrue(String slug);
 

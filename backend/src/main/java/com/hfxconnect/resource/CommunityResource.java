@@ -31,9 +31,10 @@ import java.util.UUID;
  * this entity does not attempt to reimplement that rule in Java.
  *
  * <p>There is no HTTP API yet (Milestone 3C), so this entity has no public
- * setters at all — only the focused {@link #updateDetails} and
- * {@link #deactivate()} mutation methods {@link ResourceService} uses. The
- * slug is never mutated after creation.
+ * setters at all — only the focused {@link #updateDetails},
+ * {@link #deactivate()}, and (Milestone 9A) {@link #markVerified} mutation
+ * methods {@link ResourceService} and the moderation workflow use. The slug
+ * is never mutated after creation.
  */
 @Entity
 @Table(name = "resources")
@@ -93,6 +94,9 @@ public class CommunityResource {
 	@Enumerated(EnumType.STRING)
 	@Column(name = "verification_status", nullable = false, length = 20)
 	private VerificationStatus verificationStatus;
+
+	@Column(name = "last_verified_at")
+	private Instant lastVerifiedAt;
 
 	@Column(nullable = false)
 	private boolean active;
@@ -157,6 +161,20 @@ public class CommunityResource {
 
 	public void deactivate() {
 		this.active = false;
+	}
+
+	/**
+	 * Marks this resource {@link VerificationStatus#VERIFIED} with the given
+	 * timestamp — used only by the Milestone 9A moderation workflow, when a
+	 * MODERATOR or ADMIN approves a resource submission (at creation) or a
+	 * correction report (after applying its changes). Justified because a
+	 * moderator reviewed the complete record; no mutator exists for setting
+	 * {@code verificationStatus} back to {@link VerificationStatus#UNVERIFIED}
+	 * — nothing in this milestone's scope needs that direction.
+	 */
+	public void markVerified(Instant at) {
+		this.verificationStatus = VerificationStatus.VERIFIED;
+		this.lastVerifiedAt = at;
 	}
 
 	@PrePersist
@@ -237,6 +255,10 @@ public class CommunityResource {
 
 	public VerificationStatus getVerificationStatus() {
 		return verificationStatus;
+	}
+
+	public Instant getLastVerifiedAt() {
+		return lastVerifiedAt;
 	}
 
 	public boolean isActive() {

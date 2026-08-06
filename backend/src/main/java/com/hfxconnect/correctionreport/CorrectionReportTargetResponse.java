@@ -9,7 +9,8 @@ public record CorrectionReportTargetResponse(
 		String name,
 		String slug) {
 
-	static CorrectionReportTargetResponse from(CorrectionReport report) {
+	/** {@code public} as of Milestone 9A — also used by {@code com.hfxconnect.moderation}'s queue/detail responses. */
+	public static CorrectionReportTargetResponse from(CorrectionReport report) {
 		var resource = report.getResource();
 		return new CorrectionReportTargetResponse(
 				resource == null ? null : resource.getId(),

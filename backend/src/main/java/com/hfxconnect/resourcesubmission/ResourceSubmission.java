@@ -110,6 +110,24 @@ public class ResourceSubmission {
 	@Column(name = "withdrawn_at")
 	private Instant withdrawnAt;
 
+	@Column(name = "reviewed_by_user_id")
+	private UUID reviewedByUserId;
+
+	@Column(name = "reviewed_at")
+	private Instant reviewedAt;
+
+	@Column(name = "review_reason", length = 1000)
+	private String reviewReason;
+
+	@Column(name = "resulting_resource_id")
+	private UUID resultingResourceId;
+
+	@Column(name = "resulting_resource_name", length = 180)
+	private String resultingResourceName;
+
+	@Column(name = "resulting_resource_slug", length = 220)
+	private String resultingResourceSlug;
+
 	protected ResourceSubmission() {
 		// required by JPA
 	}
@@ -150,6 +168,41 @@ public class ResourceSubmission {
 		}
 		this.status = SubmissionStatus.WITHDRAWN;
 		this.withdrawnAt = Instant.now();
+	}
+
+	/**
+	 * Approves this submission (Milestone 9A) — only legal while still
+	 * {@link SubmissionStatus#PENDING_REVIEW}; the caller ({@code
+	 * ResourceSubmissionReviewService}) is responsible for the self-review
+	 * and concurrency-lock checks that happen before this is called, but this
+	 * status guard stays as defense in depth, the same reasoning
+	 * {@link #withdraw} already applies.
+	 */
+	public void approve(UUID reviewerId, String reason, UUID resultingResourceId, String resultingResourceName,
+			String resultingResourceSlug) {
+		if (status != SubmissionStatus.PENDING_REVIEW) {
+			throw new InvalidContributionStatusException(
+					"Only a pending-review submission can be approved (current status: " + status + ").");
+		}
+		this.status = SubmissionStatus.APPROVED;
+		this.reviewedByUserId = reviewerId;
+		this.reviewedAt = Instant.now();
+		this.reviewReason = reason;
+		this.resultingResourceId = resultingResourceId;
+		this.resultingResourceName = resultingResourceName;
+		this.resultingResourceSlug = resultingResourceSlug;
+	}
+
+	/** Rejects this submission (Milestone 9A) — only legal while still {@link SubmissionStatus#PENDING_REVIEW}. */
+	public void reject(UUID reviewerId, String reason) {
+		if (status != SubmissionStatus.PENDING_REVIEW) {
+			throw new InvalidContributionStatusException(
+					"Only a pending-review submission can be rejected (current status: " + status + ").");
+		}
+		this.status = SubmissionStatus.REJECTED;
+		this.reviewedByUserId = reviewerId;
+		this.reviewedAt = Instant.now();
+		this.reviewReason = reason;
 	}
 
 	@PrePersist
@@ -250,6 +303,30 @@ public class ResourceSubmission {
 
 	public Instant getWithdrawnAt() {
 		return withdrawnAt;
+	}
+
+	public UUID getReviewedByUserId() {
+		return reviewedByUserId;
+	}
+
+	public Instant getReviewedAt() {
+		return reviewedAt;
+	}
+
+	public String getReviewReason() {
+		return reviewReason;
+	}
+
+	public UUID getResultingResourceId() {
+		return resultingResourceId;
+	}
+
+	public String getResultingResourceName() {
+		return resultingResourceName;
+	}
+
+	public String getResultingResourceSlug() {
+		return resultingResourceSlug;
 	}
 
 }

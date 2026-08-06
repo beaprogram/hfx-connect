@@ -10,6 +10,11 @@ import java.util.UUID;
  * milestone's "return 404 for inaccessible contribution IDs rather than
  * revealing ownership" requirement. The message never distinguishes the two
  * cases either.
+ *
+ * <p>{@link #byId}: {@code public} as of Milestone 9A — also thrown by
+ * {@code com.hfxconnect.moderation} when a moderator requests a submission id
+ * that does not exist at all (a moderator's queue/detail/review routes are
+ * not owner-scoped, but a genuinely missing id is still a 404).
  */
 public class ResourceSubmissionNotFoundException extends NotFoundException {
 
@@ -17,7 +22,7 @@ public class ResourceSubmissionNotFoundException extends NotFoundException {
 		super("RESOURCE_SUBMISSION_NOT_FOUND", message);
 	}
 
-	static ResourceSubmissionNotFoundException byId(UUID id) {
+	public static ResourceSubmissionNotFoundException byId(UUID id) {
 		return new ResourceSubmissionNotFoundException("No resource submission exists with id " + id + ".");
 	}
 

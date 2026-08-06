@@ -22,6 +22,8 @@ public record ResourceResponse(
 		String costDetails,
 		String eligibility,
 		VerificationStatus verificationStatus,
+		@Schema(description = "When a moderator last verified this resource (Milestone 9A). Null until a moderation review sets it — see ADR-016.")
+		Instant lastVerifiedAt,
 		boolean active,
 		CategorySummaryResponse category,
 		Instant createdAt,
@@ -47,6 +49,7 @@ public record ResourceResponse(
 				details.costDetails(),
 				details.eligibility(),
 				details.verificationStatus(),
+				details.lastVerifiedAt(),
 				details.active(),
 				CategorySummaryResponse.from(details),
 				details.createdAt(),

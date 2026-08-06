@@ -5,7 +5,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.Instant;
 import java.util.UUID;
 
-@Schema(description = "A correction report belonging to the current user. Never includes another user's data or any internal review detail.")
+@Schema(description = "A correction report belonging to the current user. Never includes another user's data, the reviewing moderator's identity, or any internal audit detail.")
 public record CorrectionReportResponse(
 		UUID id,
 		CorrectionReportTargetResponse resource,
@@ -27,9 +27,15 @@ public record CorrectionReportResponse(
 		CorrectionReportStatus status,
 		Instant submittedAt,
 		Instant updatedAt,
-		Instant withdrawnAt) {
+		Instant withdrawnAt,
+		Instant reviewedAt,
+		String reviewReason,
+		Boolean changesApplied) {
 
 	static CorrectionReportResponse from(CorrectionReport report) {
+		Boolean changesApplied = report.getStatus() == CorrectionReportStatus.APPROVED
+				? report.getAppliedToResourceAt() != null
+				: null;
 		return new CorrectionReportResponse(
 				report.getId(),
 				CorrectionReportTargetResponse.from(report),
@@ -51,7 +57,10 @@ public record CorrectionReportResponse(
 				report.getStatus(),
 				report.getSubmittedAt(),
 				report.getUpdatedAt(),
-				report.getWithdrawnAt());
+				report.getWithdrawnAt(),
+				report.getReviewedAt(),
+				report.getReviewReason(),
+				changesApplied);
 	}
 
 }
