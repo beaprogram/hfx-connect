@@ -185,6 +185,7 @@ describe("AuthProvider", () => {
       ["saved-resources", user.id, "list", { page: 0 }],
       ["resource-submissions", user.id, "list", { page: 0 }],
       ["correction-reports", user.id, "list", { page: 0 }],
+      ["moderation", "resource-submissions", "queue", { page: 0 }],
     ];
     for (const key of privateKeys) {
       queryClient.setQueryData(key, { content: ["fake"] });
@@ -231,6 +232,7 @@ describe("AuthProvider", () => {
       ["saved-resources", user.id, "list", { page: 0 }],
       ["resource-submissions", user.id, "list", { page: 0 }],
       ["correction-reports", user.id, "list", { page: 0 }],
+      ["moderation", "resource-submissions", "queue", { page: 0 }],
     ];
     for (const key of privateKeys) {
       queryClient.setQueryData(key, { content: ["fake"] });

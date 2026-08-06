@@ -97,6 +97,48 @@ describe("CorrectionReportDetail", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(/couldn't find that report/i);
   });
 
+  it("shows 'Approved. The reported information was reviewed and applied.' when changes were applied", async () => {
+    mockGetCorrectionReport.mockResolvedValue({
+      ...report,
+      status: "APPROVED",
+      reviewedAt: "2026-08-02T00:00:00Z",
+      reviewReason: "Confirmed the new address.",
+      changesApplied: true,
+    });
+    renderWithQueryClient();
+
+    expect(await screen.findByText(/approved\. the reported information was reviewed and applied\./i)).toBeInTheDocument();
+    expect(screen.getByText(/confirmed the new address/i)).toBeInTheDocument();
+  });
+
+  it("shows 'Approved. The reported information was reviewed.' when no changes were applied", async () => {
+    mockGetCorrectionReport.mockResolvedValue({
+      ...report,
+      status: "APPROVED",
+      reviewedAt: "2026-08-02T00:00:00Z",
+      reviewReason: "Acknowledged.",
+      changesApplied: false,
+    });
+    renderWithQueryClient();
+
+    const status = await screen.findByText(/approved\. the reported information was reviewed\./i);
+    expect(status).toBeInTheDocument();
+    expect(status.textContent).not.toMatch(/and applied/i);
+  });
+
+  it("never shows the reviewing moderator's identity", async () => {
+    mockGetCorrectionReport.mockResolvedValue({
+      ...report,
+      status: "REJECTED",
+      reviewedAt: "2026-08-02T00:00:00Z",
+      reviewReason: "Not verifiable.",
+    });
+    renderWithQueryClient();
+
+    await screen.findByText(/not verifiable/i);
+    expect(screen.queryByText(/mod-1|moderator@/i)).not.toBeInTheDocument();
+  });
+
   it("shows a Withdraw button for a pending report and withdraws on click", async () => {
     mockGetCorrectionReport.mockResolvedValue(report);
     mockWithdrawCorrectionReport.mockResolvedValue({ ...report, status: "WITHDRAWN", withdrawnAt: "2026-08-02T00:00:00Z" });
