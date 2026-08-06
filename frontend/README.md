@@ -20,17 +20,25 @@ Saved Resources section on the dashboard, and, as of Milestone 8B, two
 community-contribution workflows: propose a new resource
 (`/submit-resource`) and report an issue on an existing one
 (`/resources/[slug]/report`), each tracked in its own paginated
-dashboard section with a withdraw action on still-pending items. See
+dashboard section with a withdraw action on still-pending items and
+(Milestone 9A) the review outcome once decided. As of Milestone 9A, a
+`MODERATOR`/`ADMIN` account also sees a "Moderation" nav link and can
+review either contribution type at `/moderation` — a queue, full
+detail, and approve/reject decision forms, gated by a role-aware route
+guard distinct from the plain authentication guard every other
+protected route uses. See
 [docs/architecture/frontend-architecture.md](../docs/architecture/frontend-architecture.md#authentication-architecture)
 for the authentication design, its
 ["URL State" section](../docs/architecture/frontend-architecture.md#url-state-resources)
 for the search design, its
 ["Interactive Map Architecture" section](../docs/architecture/frontend-architecture.md#interactive-map-architecture)
-for the map, and its
+for the map, its
 ["Saved Resources and Private-Data Cache Isolation" section](../docs/architecture/frontend-architecture.md#saved-resources-and-private-data-cache-isolation)
 for the private-data cache pattern shared by saved resources,
-submissions, and correction reports. Role-specific dashboards are not
-implemented yet.
+submissions, correction reports, and moderation, and its
+["Role-Based Route Guarding" section](../docs/architecture/frontend-architecture.md#role-based-route-guarding-milestone-9a)
+for the moderation guard. No role-management UI or reviewer-assignment
+UI exist yet.
 
 ## Stack
 
@@ -113,8 +121,14 @@ frontend/
       submit-resource/page.tsx  Resource-submission form (protected, Milestone 8B)
       dashboard/
         page.tsx                     Protected: the current authenticated account (Milestone 5C)
-        submissions/[id]/page.tsx        Owned submission detail (Milestone 8B)
-        correction-reports/[id]/page.tsx  Owned report detail (Milestone 8B)
+        submissions/[id]/page.tsx        Owned submission detail (Milestone 8B; review
+                                            outcome copy, Milestone 9A)
+        correction-reports/[id]/page.tsx  Owned report detail (Milestone 8B; review
+                                            outcome copy, Milestone 9A)
+      moderation/                 MODERATOR/ADMIN only (Milestone 9A)
+        page.tsx                     Queue tabs (resource submissions, correction reports)
+        resource-submissions/[id]/page.tsx  Submission review detail + decision forms
+        correction-reports/[id]/page.tsx     Report review detail + decision forms
     components/
       categories/               Category card/grid
       resources/                Resource card/grid, filter form (incl. keyword search
@@ -136,11 +150,19 @@ frontend/
                                             ResourceSubmissionDetail/
                                             CorrectionReportDetail, ContributionStatusBadge
                                             (Milestone 8B)
-      navigation/                Mobile disclosure nav (auth-aware as of Milestone 5C)
+      moderation/                 ModerationRoute (role guard), ResourceSubmissionQueue/
+                                            CorrectionReportQueue, ModerationTabs,
+                                            ResourceSubmissionReviewDetail/
+                                            CorrectionReportReviewDetail,
+                                            ModerationDecisionForm/CorrectionApprovalForm,
+                                            ModerationAuditHistory (Milestone 9A)
+      navigation/                Mobile disclosure nav (auth-aware as of Milestone 5C;
+                                            role-conditional "Moderation" link, Milestone 9A)
       auth/                          Login/register forms, dashboard content, the
                                             protected-route guard (returnTo-aware,
                                             Milestone 8B), the auth-aware nav link
-                                            (Milestone 5C), and SavedResourcesSection
+                                            (Milestone 5C; role-conditional "Moderation"
+                                            link, Milestone 9A), and SavedResourcesSection
                                             (Milestone 8A)
       feedback/                    Shared badge/empty-state/error components
       site-header.tsx, site-footer.tsx
@@ -149,13 +171,15 @@ frontend/
                                             resource (categories.ts, resources.ts, auth.ts,
                                             saved-resources.ts — Milestone 8A;
                                             resource-submissions.ts,
-                                            correction-reports.ts — Milestone 8B)
+                                            correction-reports.ts — Milestone 8B;
+                                            moderation.ts — Milestone 9A)
       auth/                         AuthProvider/useAuth — the in-memory session
                                             (Milestone 5C; clears every private-data
                                             cache prefix on logout/account switch,
-                                            Milestone 8A/8B) — and return-to.ts's
+                                            Milestone 8A/8B/9A) — and return-to.ts's
                                             open-redirect-safe returnTo validation, now
-                                            also used by ProtectedRoute (Milestone 8B)
+                                            also used by ProtectedRoute (Milestone 8B) and
+                                            ModerationRoute (Milestone 9A)
       map/                          MapSearchProvider/useMapSearch (session-scoped
                                             centre/radius/geolocation/selection state,
                                             mounted at the /resources layout) and
@@ -230,3 +254,7 @@ three account-linked domains.
   and form/validation conventions `register-form.tsx`/
   `resource-filter-form.tsx` already established; `npm audit` is
   unchanged from Milestone 8A.
+- Milestone 9A introduced no new dependencies either — the moderation
+  queue/detail/decision-form UI reuses the same API client, TanStack
+  Query, and form/validation conventions every prior milestone
+  established; `npm audit` is unchanged from Milestone 8B.

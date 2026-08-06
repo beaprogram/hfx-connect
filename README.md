@@ -9,8 +9,8 @@ newcomer services, recreation, and events — that are currently scattered acros
 municipal websites, organization pages, and social media, and adds transparent
 verification so users can trust what they find.
 
-**Project status: Milestone 8B (Resource Submissions and Correction
-Reports) complete.** The backend
+**Project status: Milestone 9A (Moderation Queue, Review Decisions,
+Publication, and Audit History) complete.** The backend
 has three working REST APIs: categories
 (Milestone 3A —
 [backend/README.md](backend/README.md#category-api-apiv1categories)), resources
@@ -57,6 +57,16 @@ authenticated account can now also propose a new resource
 withdraw action; neither publishes a resource nor modifies one
 automatically (see
 [ADR-015](docs/decisions/ADR-015-community-contribution-workflows-design.md)).
+A current `MODERATOR`/`ADMIN` account can now review either kind of
+pending contribution at `/moderation` (Milestone 9A): approving a
+resource submission publishes it as a real, verified public resource;
+approving a correction report applies its supported changes (or
+deactivates the resource, for an approved closure report) — every
+decision requires a reason, is visible safely to the contribution's
+owner, and leaves an immutable audit record; a moderator can never
+review their own contribution, and two moderators can never both
+"win" a race to decide the same item (see
+[ADR-016](docs/decisions/ADR-016-moderation-workflow-design.md)).
 See
 [docs/milestones/](docs/milestones/) for exactly what each milestone delivered, and
 [docs/development-workflow.md](docs/development-workflow.md) for the full
@@ -97,14 +107,15 @@ protected dashboard (`/login`, `/register`, `/dashboard` on the frontend;
 `GET /api/v1/users/me` on the backend) are real too, with backend-enforced
 role-based authorization on category/resource creation and operating-hours
 replacement. The interactive map (Milestone 7B), saved resources
-(Milestone 8A), and resource submissions/correction reports (Milestone
-8B) are all real now too — though moderation of either contribution
-type (approving, rejecting, and actually applying it) is not yet
-implemented. Organization/moderator tooling and role-specific
-dashboards are not implemented yet either. There is no update/delete
-endpoint on any backend API yet, and keyword search still has no
-relevance ranking or typo tolerance. Everything else in this section
-describes the plan, not the current state.
+(Milestone 8A), resource submissions/correction reports (Milestone
+8B), and moderation of both contribution types — review, approval,
+publication, correction application, and audit history (Milestone 9A)
+— are all real now too. Organization tooling, role-specific
+dashboards beyond the moderation queue, and reviewer assignment are not
+implemented yet. There is no update/delete endpoint on any backend API
+yet, and keyword search still has no relevance ranking or typo
+tolerance. Everything else in this section describes the plan, not the
+current state.
 
 ## Technology Stack
 
@@ -250,6 +261,7 @@ Runs on [http://localhost:3000](http://localhost:3000) and expects the backend a
 - [Milestone 7B: Interactive Map, Browser Geolocation, and List/Map Synchronization](docs/milestones/milestone-07b-interactive-map.md)
 - [Milestone 8A: Saved Resources and Authenticated Dashboard Integration](docs/milestones/milestone-08a-saved-resources.md)
 - [Milestone 8B: Resource Submissions and Correction Reports](docs/milestones/milestone-08b-submissions-corrections.md)
+- [Milestone 9A: Moderation Queue, Review Decisions, Publication, and Audit History](docs/milestones/milestone-09a-moderation-workflow.md)
 - [Wireframes](docs/wireframes/)
 - [API Documentation](docs/api/README.md)
 - [Database Documentation](docs/database/)
@@ -266,11 +278,12 @@ Runs on [http://localhost:3000](http://localhost:3000) and expects the backend a
 - [ADR-013: Interactive Map and Geolocation Design](docs/decisions/ADR-013-interactive-map-and-geolocation-design.md)
 - [ADR-014: Saved Resources Design](docs/decisions/ADR-014-saved-resources-design.md)
 - [ADR-015: Community Contribution Workflows Design](docs/decisions/ADR-015-community-contribution-workflows-design.md)
+- [ADR-016: Moderation Workflow Design](docs/decisions/ADR-016-moderation-workflow-design.md)
 - [Development Log](docs/development-log/)
 - [Resume Evidence](docs/career/resume-evidence.md)
 - [Interview Notes](docs/career/interview-notes.md)
 
-## Known Limitations (as of Milestone 8B)
+## Known Limitations (as of Milestone 9A)
 
 - **No rate limiting exists** — login accepts unlimited attempts. **No
   access-token revocation exists** — a compromised access token remains valid
@@ -287,11 +300,16 @@ Runs on [http://localhost:3000](http://localhost:3000) and expects the backend a
   not a security boundary — the backend's `SecurityConfig` is authoritative
   regardless of what the frontend renders or hides. See
   [ADR-009](docs/decisions/ADR-009-request-authentication-and-role-authorization.md).
-- No role-specific dashboards, category/resource creation UI,
-  moderation, or organization tooling exist yet. Saved resources
-  (Milestone 8A) and resource submissions/correction reports (Milestone
-  8B) are real — see below — but no notes, folders, collections,
-  sharing, or export exist on top of any of them.
+- No category/resource creation UI, reviewer assignment, or
+  organization tooling exist yet. Saved resources (Milestone 8A),
+  resource submissions/correction reports (Milestone 8B), and
+  moderation of both (Milestone 9A) are real — but no notes, folders,
+  collections, sharing, or export exist on top of saved resources; no
+  private moderator notes, bulk review, appeal workflow, email
+  notifications, automated duplicate merge, or audit export exist on
+  top of moderation. See
+  [docs/milestones/milestone-09a-moderation-workflow.md](docs/milestones/milestone-09a-moderation-workflow.md)'s
+  Known Limitations for the complete moderation-specific list.
 - Newly-registered accounts are always `emailVerified: false` — no email-delivery
   mechanism exists to verify them, a deliberate, documented limitation (see
   [ADR-007](docs/decisions/ADR-007-user-identity-and-password-hashing.md)), not a bug.
@@ -342,13 +360,17 @@ Runs on [http://localhost:3000](http://localhost:3000) and expects the backend a
 - Resource submissions and correction reports (Milestone 8B) work end
   to end for any authenticated role — propose a new resource, report an
   issue on an existing one, track status and withdraw a still-pending
-  item from the dashboard — but neither creates or modifies a public
-  resource on its own. There is no moderation queue, approval/rejection
-  endpoint, reviewer notes, email notification, attachment support,
-  draft saving, editing after submission, or rate limiting — approving,
-  rejecting, and actually applying either kind of contribution to the
-  public dataset are entirely Milestone 9. No organizations exist yet
-  either (Milestone 10).
+  item from the dashboard. There is no email notification, attachment
+  support, draft saving, editing after submission, or rate limiting.
+- Moderation (Milestone 9A) works end to end for `MODERATOR`/`ADMIN`
+  accounts — a queue for each contribution type, full detail, approve/
+  reject with a required reason, real resource publication/correction
+  application, and an audit trail. There is no reviewer assignment,
+  private moderator notes, bulk review, appeal workflow, automated
+  duplicate-listing merge, or automated operating-hours correction (V9's
+  correction-report schema never captured structured proposed hours —
+  see [ADR-016](docs/decisions/ADR-016-moderation-workflow-design.md)).
+  No organizations exist yet either (Milestone 10).
 - No deployment workflow or hosted environment exists yet; CI currently verifies the
   backend and frontend only.
 - No automated dependency-vulnerability scanning is configured in this project.

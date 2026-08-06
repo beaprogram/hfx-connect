@@ -384,13 +384,41 @@ Summary of what actually exists in the code:
   `login`/`refreshSession`/`logout` pass `credentials: "include"`;
   `getCurrentUser` passes an `accessToken` that becomes an `Authorization:
   Bearer` header — never a cookie.
-- **No creation-form visibility logic exists yet.** The milestone brief
-  explicitly permits an action to simply not appear at all rather than
-  building fake disabled controls to "demonstrate" roles — this frontend has
-  no category/resource creation UI at all yet, so there is nothing to hide
-  per-role. `/dashboard` shows the current role as plain text; backend
-  enforcement (`SecurityConfig`) remains authoritative regardless of
-  anything the frontend renders or hides.
+- **Role-based visibility exists as of Milestone 9A**, in exactly one
+  place: the "Moderation" nav link (`AuthNav`/`MobileNav`) and the
+  `/moderation` routes, both gated on `MODERATOR`/`ADMIN` — see
+  "Role-Based Route Guarding" below. There is still no category/
+  resource creation UI or role-management UI; `/dashboard` shows the
+  current role as plain text. Backend enforcement (`SecurityConfig`)
+  remains authoritative regardless of anything the frontend renders or
+  hides, in every case.
+
+## Role-Based Route Guarding (Milestone 9A)
+
+`components/moderation/moderation-route.tsx`'s `ModerationRoute` is a
+distinct component from `ProtectedRoute`, not a role-parameterized
+variant of it — it makes one additional check `ProtectedRoute`
+deliberately never makes ("does this signed-in account have a
+sufficient role"), and the two failure modes need different UI: a
+signed-out visitor is redirected to `/login` (the same
+`buildLoginHref(usePathname())` pattern `ProtectedRoute` uses), but a
+signed-in `USER`/`ORGANIZATION` account is not redirected anywhere —
+they *are* authenticated, so redirecting to login would be both wrong
+and confusing. Instead they see an in-place "Access denied" message,
+with `role="alert"` for assistive-technology announcement. Both
+components share the identical loading-state flash-prevention
+(`state.status === "loading"` and the brief `"unauthenticated"` instant
+before the redirect effect fires both render a loading placeholder,
+never the protected content).
+
+Every check `ModerationRoute` makes is one more UX-layer convenience
+on top of the same non-negotiable rule `ProtectedRoute` already
+documents: the backend's own `/api/v1/moderation/**` authorization
+(`SecurityConfig`, backed by the account's *current* database role —
+ADR-009/ADR-016) is the actual security boundary. A `USER` account
+that somehow reached `/moderation`'s rendered HTML directly would still
+get `403` from every API call the page makes; the guard exists so that
+never has to happen in the first place, not because it's load-bearing.
 
 ## Saved Resources and Private-Data Cache Isolation
 
@@ -419,11 +447,17 @@ rather than introducing new ones). Summary:
   browser tab). `clearPrivateContributionCaches` (Milestone 8B) loops
   `queryClient.removeQueries` over a small, explicit list of key
   prefixes — `saved-resources`, `resource-submissions`,
-  `correction-reports` — rather than a full `queryClient.clear()`,
-  which would also discard unrelated, harmless public caches (the
-  category list, public resource pages) for no benefit. Adding a future
-  private-data domain means appending one string to that list, not
-  writing new clearing logic. This is why `AuthProvider` depends on
+  `correction-reports`, and (Milestone 9A) `moderation` — rather than a
+  full `queryClient.clear()`, which would also discard unrelated,
+  harmless public caches (the category list, public resource pages)
+  for no benefit. `moderation` is the first prefix in that list *not*
+  rooted in `userId` (`moderationKeys` in `lib/query/keys.ts` — the
+  underlying data is role-gated shared moderator state, not any one
+  account's own data), but it is cleared for the identical reason: it
+  must never sit in one browser's cache across a session boundary.
+  Adding a future private- or session-scoped domain means appending one
+  string to that list, not writing new clearing logic. This is why
+  `AuthProvider` depends on
   `useQueryClient()`, which in turn means every render of `AuthProvider`
   (including in tests) needs a `QueryClientProvider` ancestor — a
   dependency that cascaded into several pre-existing test files across
@@ -457,18 +491,24 @@ for the resulting `WebCorsConfig`.
 - Keyword search (Milestone 6A) has no autocomplete, typo tolerance, or
   relevance ranking — a submit-based, exact-substring, case-insensitive
   match only. No debounced/per-keystroke search either — see ADR-010.
-- No role-specific dashboards, category/resource creation forms, or
-  moderation UI — `/dashboard` shows the current authenticated
-  account's safe fields, a logout control, a Saved Resources section
-  (Milestone 8A), and My Resource Submissions/My Correction Reports
-  sections (Milestone 8B); no other account feature exists yet.
+- No category/resource creation forms and no role-management UI —
+  `/dashboard` shows the current authenticated account's safe fields, a
+  logout control, a Saved Resources section (Milestone 8A), and My
+  Resource Submissions/My Correction Reports sections (Milestone 8B,
+  now including the review outcome once decided — Milestone 9A). A
+  `MODERATOR`/`ADMIN` account additionally sees a "Moderation" nav link
+  and the `/moderation` queue/detail/decision UI (Milestone 9A) — see
+  "Role-Based Route Guarding" below.
 - No notes, folders, or collections on saved resources (Milestone 8A) —
   a flat, unorganized list only; no saved-resource sharing or export.
 - No editing a submission or report after it's created (beyond
   withdrawal), no attachments/images, no draft saving, and no way to
   see another user's contributions or any public contribution feed
-  (Milestone 8B) — approving, rejecting, and actually publishing a
-  submission or applying a correction are entirely Milestone 9.
+  (Milestone 8B).
+- No reviewer assignment, private moderator notes, bulk review, appeal
+  workflow, or audit export in the moderation UI (Milestone 9A) — see
+  `docs/milestones/milestone-09a-moderation-workflow.md`'s Known
+  Limitations.
 - The protected-route guard is UX-layer only; a direct request to
   `/dashboard`'s HTML bypasses nothing real, because the backend never
   trusted the frontend's routing in the first place — see "Authentication

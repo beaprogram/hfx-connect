@@ -58,7 +58,8 @@ anticipated this when categories' ID type was decided.
 | `cost_type` | `VARCHAR(20)` | `NOT NULL`, one of `FREE`/`LOW_COST`/`PAID`/`UNKNOWN`, defaults to `UNKNOWN` |
 | `cost_details` | `VARCHAR(500)` | nullable |
 | `eligibility` | `VARCHAR(1000)` | nullable |
-| `verification_status` | `VARCHAR(20)` | `NOT NULL`, one of `UNVERIFIED`/`VERIFIED`, defaults to `UNVERIFIED` (no mutator exists yet — Milestone 9 moderation) |
+| `verification_status` | `VARCHAR(20)` | `NOT NULL`, one of `UNVERIFIED`/`VERIFIED`, defaults to `UNVERIFIED` — settable only via `CommunityResource.markVerified`, used exclusively by the Milestone 9A moderation workflow (approving a submission, or applying a correction) |
+| `last_verified_at` | `TIMESTAMPTZ` | nullable — added by V10 (Milestone 9A); set together with `verification_status = 'VERIFIED'`, never independently. See ADR-016 |
 | `active` | `BOOLEAN` | `NOT NULL`, defaults to `TRUE` |
 | `created_at` | `TIMESTAMPTZ` | `NOT NULL`, defaults to `now()` |
 | `updated_at` | `TIMESTAMPTZ` | `NOT NULL`, defaults to `now()` |
@@ -254,6 +255,12 @@ alternative natural key.
 | `submitted_at` | `TIMESTAMPTZ` | `NOT NULL`, defaults to `now()` |
 | `updated_at` | `TIMESTAMPTZ` | `NOT NULL`, defaults to `now()` |
 | `withdrawn_at` | `TIMESTAMPTZ` | nullable |
+| `reviewed_by_user_id` | `UUID` | nullable, `REFERENCES users(id) ON DELETE RESTRICT` — added by V10 (Milestone 9A). Present only once `status` is `APPROVED`/`REJECTED` (`CHECK`-enforced together with `reviewed_at`/`review_reason`) |
+| `reviewed_at` | `TIMESTAMPTZ` | nullable — V10 |
+| `review_reason` | `VARCHAR(1000)` | nullable — V10; the same text shown to the submission's owner |
+| `resulting_resource_id` | `UUID` | nullable, `REFERENCES resources(id) ON DELETE SET NULL`, partial-unique (`WHERE resulting_resource_id IS NOT NULL`) — V10; the resource an `APPROVED` submission published, at most one ever |
+| `resulting_resource_name` | `VARCHAR(180)` | nullable — V10, snapshot captured at approval time |
+| `resulting_resource_slug` | `VARCHAR(220)` | nullable — V10, snapshot captured at approval time |
 
 `resource_submissions_pending_duplicate_key` — a **partial** unique
 index, `UNIQUE (submitted_by_user_id, category_id, normalized_name)
@@ -302,6 +309,10 @@ A user-reported issue on an existing, active resource, awaiting review
 | `submitted_at` | `TIMESTAMPTZ` | `NOT NULL`, defaults to `now()` |
 | `updated_at` | `TIMESTAMPTZ` | `NOT NULL`, defaults to `now()` |
 | `withdrawn_at` | `TIMESTAMPTZ` | nullable |
+| `reviewed_by_user_id` | `UUID` | nullable, `REFERENCES users(id) ON DELETE RESTRICT` — V10 (Milestone 9A), same reasoning as `resource_submissions.reviewed_by_user_id` |
+| `reviewed_at` | `TIMESTAMPTZ` | nullable — V10 |
+| `review_reason` | `VARCHAR(1000)` | nullable — V10 |
+| `applied_to_resource_at` | `TIMESTAMPTZ` | nullable — V10; distinct from `reviewed_at` — set only when a scalar field was actually written to the target resource (an `APPROVED` report may apply nothing) |
 
 Every `proposed_*` column is nullable and independently optional — a
 `RESOURCE_CLOSED` or `OTHER` report can be explanation-only, with no
@@ -323,6 +334,43 @@ Read/written by `CorrectionReportService` for the authenticated-only
 `/api/v1/users/me/correction-reports`. Never exposed publicly and never
 modifies the `resources` row it targets.
 
+### `moderation_audit_events`
+
+An append-only moderation audit trail (Milestone 9A, added by V10) —
+see [ADR-016](../decisions/ADR-016-moderation-workflow-design.md) for
+the full design. One row per concrete moderation effect, not one row
+per API call; no application code path ever updates or deletes a row.
+
+| Column | Type | Constraints |
+|---|---|---|
+| `id` | `UUID` | Primary key |
+| `contribution_type` | `VARCHAR(30)` | `NOT NULL`, `CHECK` one of `RESOURCE_SUBMISSION`/`CORRECTION_REPORT` |
+| `contribution_id` | `UUID` | `NOT NULL` — a plain column, not a foreign key: it addresses either `resource_submissions` or `correction_reports` depending on `contribution_type`, and Postgres has no polymorphic-reference mechanism |
+| `action` | `VARCHAR(30)` | `NOT NULL`, `CHECK` one of `REVIEW_DECISION`/`RESOURCE_CREATED`/`RESOURCE_UPDATED`/`RESOURCE_DEACTIVATED` |
+| `decision` | `VARCHAR(20)` | nullable, `CHECK` one of `APPROVED`/`REJECTED` when present |
+| `actor_user_id` | `UUID` | `NOT NULL`, `REFERENCES users(id) ON DELETE RESTRICT` — moderation history must not silently lose reviewer identity |
+| `actor_email` | `VARCHAR(180)` | `NOT NULL` — a point-in-time snapshot, the same pattern `correction_reports.resource_name_snapshot` already established (V9); avoids a join back to `users` on every audit read and stays meaningful if the account's email later changes |
+| `review_reason` | `VARCHAR(1000)` | nullable |
+| `affected_resource_id` | `UUID` | nullable, `REFERENCES resources(id) ON DELETE SET NULL` |
+| `before_snapshot` | `JSONB` | nullable — a small, explicitly-built field map (never a serialized entity); present only on a row recording a concrete effect |
+| `after_snapshot` | `JSONB` | nullable — same reasoning |
+| `created_at` | `TIMESTAMPTZ` | `NOT NULL`, defaults to `now()` |
+
+Index: `moderation_audit_events_contribution_idx` on
+`(contribution_type, contribution_id, created_at)` — supports both a
+single contribution's full history and, via its leading column, the
+global filtered list.
+
+Mapped by `ModerationAuditEvent`, whose `beforeSnapshot`/
+`afterSnapshot` fields use Hibernate 7's native
+`@JdbcTypeCode(SqlTypes.JSON)` support against `Map<String, Object>` —
+the first use of a JSONB-backed entity field in this codebase outside
+`resources.location`'s native-SQL-only geography column. Read/written
+by `ModerationAuditRecorder` (write-only) and
+`ModerationAuditQueryService` (read-only); moderator/admin-only via
+`/api/v1/moderation/**`, never reachable from a public or owner-facing
+route.
+
 ## Database Engine
 
 PostgreSQL 17 with the PostGIS 3.5 extension, via the `postgis/postgis:17-3.5` Docker
@@ -338,11 +386,11 @@ see [ADR-004](../decisions/ADR-004-manual-flyway-configuration.md) for why, and
 `backend/README.md` for how to run and inspect migrations locally.
 
 Hibernate/JPA is used for reading and writing rows (`categories`, `resources`,
-`resource_operating_hours`, `saved_resources`, `resource_submissions`, and
-`correction_reports` all have JPA entities), but never for schema creation
-or changes — `spring.jpa.hibernate.ddl-auto=validate` makes Hibernate check
-that entity mappings match what Flyway already created, and fail startup if
-they don't, rather than ever creating or altering a table itself.
+`resource_operating_hours`, `saved_resources`, `resource_submissions`,
+`correction_reports`, and `moderation_audit_events` all have JPA entities),
+but never for schema creation or changes — `spring.jpa.hibernate.ddl-auto=validate`
+makes Hibernate check that entity mappings match what Flyway already created, and
+fail startup if they don't, rather than ever creating or altering a table itself.
 
 ## Planned Entities
 

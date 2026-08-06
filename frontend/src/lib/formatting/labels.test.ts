@@ -1,4 +1,4 @@
-import { costTypeLabel, verificationStatusLabel, contributionStatusLabel, issueTypeLabel } from "./labels";
+import { costTypeLabel, verificationStatusLabel, contributionStatusLabel, issueTypeLabel, moderationActionLabel } from "./labels";
 
 describe("costTypeLabel", () => {
   it.each([
@@ -48,5 +48,16 @@ describe("issueTypeLabel", () => {
     const labels = issueTypes.map(issueTypeLabel);
     expect(labels.every((label) => label.length > 0)).toBe(true);
     expect(new Set(labels).size).toBe(issueTypes.length);
+  });
+});
+
+describe("moderationActionLabel", () => {
+  it.each([
+    ["REVIEW_DECISION", "Review decision recorded"],
+    ["RESOURCE_CREATED", "Resource published"],
+    ["RESOURCE_UPDATED", "Resource updated"],
+    ["RESOURCE_DEACTIVATED", "Resource deactivated"],
+  ] as const)("formats %s as %s", (action, expected) => {
+    expect(moderationActionLabel(action)).toBe(expected);
   });
 });

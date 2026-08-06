@@ -56,7 +56,9 @@ class ResourceRepositoryIntegrationTest extends AbstractPostgresIntegrationTest 
 				"city", "province", "postal_code", "phone", "email", "website_url", "cost_type",
 				"cost_details", "eligibility", "verification_status", "active", "created_at", "updated_at",
 				// "location" added by V7 (Milestone 7A) — see ADR-012.
-				"location");
+				"location",
+				// "last_verified_at" added by V10 (Milestone 9A) — see ADR-016.
+				"last_verified_at");
 	}
 
 	@Test

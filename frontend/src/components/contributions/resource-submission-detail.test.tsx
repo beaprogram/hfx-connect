@@ -98,6 +98,34 @@ describe("ResourceSubmissionDetail", () => {
     await waitFor(() => expect(mockWithdrawResourceSubmission).toHaveBeenCalledWith("sub-1", "token-1"));
   });
 
+  it("shows 'Approved and published' with a link to the public listing", async () => {
+    mockGetResourceSubmission.mockResolvedValue({
+      ...submission,
+      status: "APPROVED",
+      reviewedAt: "2026-08-02T00:00:00Z",
+      reviewReason: "Verified against the source.",
+      resultingResource: { id: "res-1", name: "Halifax Food Bank", slug: "halifax-food-bank" },
+    });
+    renderWithQueryClient();
+
+    expect(await screen.findByText(/approved and published/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /view the public listing/i })).toHaveAttribute("href", "/resources/halifax-food-bank");
+    expect(screen.getByText(/verified against the source/i)).toBeInTheDocument();
+  });
+
+  it("never shows the reviewing moderator's identity", async () => {
+    mockGetResourceSubmission.mockResolvedValue({
+      ...submission,
+      status: "REJECTED",
+      reviewedAt: "2026-08-02T00:00:00Z",
+      reviewReason: "Not enough detail.",
+    });
+    renderWithQueryClient();
+
+    await screen.findByText(/not enough detail/i);
+    expect(screen.queryByText(/mod-1|moderator@/i)).not.toBeInTheDocument();
+  });
+
   it("does not show a Withdraw button for an already-withdrawn submission", async () => {
     mockGetResourceSubmission.mockResolvedValue({ ...submission, status: "WITHDRAWN", withdrawnAt: "2026-08-02T00:00:00Z" });
     renderWithQueryClient();

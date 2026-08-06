@@ -6,13 +6,16 @@ import { login as apiLogin, logout as apiLogout, refreshSession } from "@/lib/ap
 import type { UserResponse } from "@/lib/validation/schemas";
 
 /**
- * Every query-key prefix that roots private, per-account data — see
+ * Every query-key prefix that must never survive a session boundary — see
  * `lib/query/keys.ts`'s `savedResourceKeys`/`resourceSubmissionKeys`/
- * `correctionReportKeys`, each of which starts with one of these strings
- * followed by a `userId`. Cleared unconditionally on logout and on a
- * detected account switch, never left to go stale.
+ * `correctionReportKeys` (rooted in a `userId`, per-account private data)
+ * and `moderationKeys` (Milestone 9A — not rooted in `userId`, since it is
+ * role-gated shared moderator state rather than any one account's data, but
+ * cleared for the identical reason: it must never sit in this browser's
+ * cache across a logout or account switch). Cleared unconditionally on
+ * logout and on a detected account switch, never left to go stale.
  */
-const PRIVATE_QUERY_KEY_PREFIXES = ["saved-resources", "resource-submissions", "correction-reports"] as const;
+const PRIVATE_QUERY_KEY_PREFIXES = ["saved-resources", "resource-submissions", "correction-reports", "moderation"] as const;
 
 function clearPrivateContributionCaches(queryClient: QueryClient): void {
   for (const prefix of PRIVATE_QUERY_KEY_PREFIXES) {

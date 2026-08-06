@@ -6,7 +6,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.Instant;
 import java.util.UUID;
 
-@Schema(description = "A resource submission belonging to the current user. Never includes another user's data or any internal review detail.")
+@Schema(description = "A resource submission belonging to the current user. Never includes another user's data, the reviewing moderator's identity, or any internal audit detail.")
 public record ResourceSubmissionResponse(
 		UUID id,
 		CategorySummaryResponse category,
@@ -27,10 +27,16 @@ public record ResourceSubmissionResponse(
 		SubmissionStatus status,
 		Instant submittedAt,
 		Instant updatedAt,
-		Instant withdrawnAt) {
+		Instant withdrawnAt,
+		Instant reviewedAt,
+		String reviewReason,
+		ResultingResourceSummaryResponse resultingResource) {
 
 	static ResourceSubmissionResponse from(ResourceSubmission submission) {
 		var category = submission.getCategory();
+		ResultingResourceSummaryResponse resultingResource = submission.getResultingResourceId() == null ? null
+				: new ResultingResourceSummaryResponse(submission.getResultingResourceId(),
+						submission.getResultingResourceName(), submission.getResultingResourceSlug());
 		return new ResourceSubmissionResponse(
 				submission.getId(),
 				new CategorySummaryResponse(category.getId(), category.getName(), category.getSlug()),
@@ -51,7 +57,10 @@ public record ResourceSubmissionResponse(
 				submission.getStatus(),
 				submission.getSubmittedAt(),
 				submission.getUpdatedAt(),
-				submission.getWithdrawnAt());
+				submission.getWithdrawnAt(),
+				submission.getReviewedAt(),
+				submission.getReviewReason(),
+				resultingResource);
 	}
 
 }

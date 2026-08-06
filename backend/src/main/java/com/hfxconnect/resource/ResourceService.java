@@ -82,6 +82,27 @@ public class ResourceService {
 
 	@Transactional
 	public ResourceDetails create(CreateResourceCommand command) {
+		return createInternal(command, null);
+	}
+
+	/**
+	 * Creates a resource that has already been through a full moderator
+	 * review — used only by the Milestone 9A resource-submission approval
+	 * flow. Immediately marks the resource {@link VerificationStatus#VERIFIED}
+	 * with {@code verifiedAt}, unlike {@link #create}, which always starts a
+	 * resource {@link VerificationStatus#UNVERIFIED} (the direct
+	 * {@code POST /api/v1/resources} path used by {@code ResourceController}
+	 * is unaffected — it keeps calling the plain {@link #create}). Shares
+	 * every other validation/slug/duplicate rule with {@link #create} via
+	 * {@link #createInternal} — there is exactly one place that knows how to
+	 * construct and persist a {@link CommunityResource}.
+	 */
+	@Transactional
+	public ResourceDetails createVerified(CreateResourceCommand command, Instant verifiedAt) {
+		return createInternal(command, verifiedAt);
+	}
+
+	private ResourceDetails createInternal(CreateResourceCommand command, Instant verifiedAt) {
 		Category category = requireActiveCategory(command.categoryId());
 
 		ResourceValidation.Normalized fields = ResourceValidation.validate(
@@ -99,6 +120,10 @@ public class ResourceService {
 				fields.description(), fields.addressLine1(), fields.addressLine2(), fields.city(),
 				fields.province(), fields.postalCode(), fields.phone(), fields.email(), fields.websiteUrl(),
 				costType, fields.costDetails(), fields.eligibility());
+
+		if (verifiedAt != null) {
+			resource.markVerified(verifiedAt);
+		}
 
 		try {
 			// saveAndFlush (not save): CommunityResource's id is a Hibernate-

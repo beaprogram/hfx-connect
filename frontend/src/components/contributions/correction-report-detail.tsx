@@ -80,11 +80,37 @@ export function CorrectionReportDetail({ reportId }: { reportId: string }) {
         </div>
       </div>
 
-      <p className="text-sm text-slate-700" role="status">
-        This report has not changed the resource. It is visible only to you while it awaits review.
-      </p>
+      {report.status === "PENDING_REVIEW" && (
+        <p className="text-sm text-slate-700" role="status">
+          This report has not changed the resource. It is visible only to you while it awaits review.
+        </p>
+      )}
+      {report.status === "APPROVED" && (
+        <p className="text-sm text-slate-700" role="status">
+          {report.changesApplied
+            ? "Approved. The reported information was reviewed and applied."
+            : "Approved. The reported information was reviewed."}
+          {report.reviewReason && <> — &ldquo;{report.reviewReason}&rdquo;</>}
+        </p>
+      )}
+      {report.status === "REJECTED" && (
+        <p className="text-sm text-slate-700" role="status">
+          Rejected{report.reviewReason && <> — &ldquo;{report.reviewReason}&rdquo;</>}
+        </p>
+      )}
+      {report.status === "WITHDRAWN" && (
+        <p className="text-sm text-slate-700" role="status">
+          Withdrawn
+        </p>
+      )}
 
       <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-2 text-sm">
+        {report.reviewedAt && (
+          <>
+            <dt className="font-medium text-slate-700">Reviewed</dt>
+            <dd className="text-slate-900">{formatDate(report.reviewedAt)}</dd>
+          </>
+        )}
         <dt className="font-medium text-slate-700">Issue</dt>
         <dd className="text-slate-900">{issueTypeLabel(report.issueType)}</dd>
         <dt className="font-medium text-slate-700">Explanation</dt>

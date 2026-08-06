@@ -514,6 +514,12 @@ phone/email/website-scheme rules real resource creation uses
 (`docs/architecture/backend-architecture.md`'s "Focused Entities Over
 Generic Frameworks" section).
 
+**Milestone 9A**: once a moderator has decided, the response also
+includes `reviewedAt`, `reviewReason`, and — only for an `APPROVED`
+submission — `resultingResource` (`{id, name, slug}`, linking to the
+now-public resource). The reviewing moderator's identity is never
+included in this response; see "Moderation" below.
+
 **Duplicate-pending policy**: at most one `PENDING_REVIEW` submission
 per (account, category, normalized name) at a time — a repeat while one
 is already pending returns `409 RESOURCE_SUBMISSION_CONFLICT`. A
@@ -605,6 +611,12 @@ deleted, an existing report is preserved (not cascaded away) —
 `resource.name`/`resource.slug` remain populated from a snapshot
 captured when the report was created.
 
+**Milestone 9A**: once a moderator has decided, the response also
+includes `reviewedAt`, `reviewReason`, and — only once `status` is
+`APPROVED` — `changesApplied` (`true`/`false`; a moderator may approve
+without applying any automatic change). The reviewing moderator's
+identity is never included in this response; see "Moderation" below.
+
 ```bash
 curl -X POST "http://localhost:8080/api/v1/resources/$RESOURCE_ID/correction-reports" \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
@@ -621,3 +633,92 @@ curl -X POST "http://localhost:8080/api/v1/resources/$RESOURCE_ID/correction-rep
 | `401` | Missing or invalid access token |
 | `404` | No active resource exists with the given id, or no report with the given id is owned by the current user |
 | `409` | The current user already has a pending report for this resource and issue type |
+
+## Moderation — `/api/v1/moderation/**` (Milestone 9A)
+
+Full design: [ADR-016](../decisions/ADR-016-moderation-workflow-design.md).
+Reviewing pending resource submissions and correction reports.
+**Every route below requires a Bearer access token for a current
+`ADMIN` or `MODERATOR` account** — `401` with no token, `403` for any
+other role, enforced by `SecurityConfig`'s `/api/v1/moderation/**`
+matcher and backed by the account's *current* database role (never a
+JWT claim alone — see ADR-009). Submitter/reporter identity is never
+exposed on any route in this section; a moderator/admin can never
+review their own contribution (`403 SELF_REVIEW_NOT_ALLOWED`, no
+exception for `ADMIN`).
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/v1/moderation/resource-submissions` | Queue. `status` (default `PENDING_REVIEW`), `categoryId`, `page`, `size`, `sort` (`submittedAt`, default, oldest first; `updatedAt`, newest first). |
+| `GET` | `/api/v1/moderation/resource-submissions/{submissionId}` | Full detail, not owner-scoped. |
+| `POST` | `/api/v1/moderation/resource-submissions/{submissionId}/approve` | `{"reason": "..."}` — publishes a `VERIFIED` public resource in the same transaction. |
+| `POST` | `/api/v1/moderation/resource-submissions/{submissionId}/reject` | `{"reason": "..."}` — never creates a resource. |
+| `GET` | `/api/v1/moderation/resource-submissions/{submissionId}/audit-events` | This submission's audit history, oldest first. |
+| `GET` | `/api/v1/moderation/correction-reports` | Queue. `status`, `issueType`, `page`, `size`, `sort`. |
+| `GET` | `/api/v1/moderation/correction-reports/{reportId}` | Full detail, including the target resource's current live values. |
+| `POST` | `/api/v1/moderation/correction-reports/{reportId}/approve` | `{"reason": "...", "applyProposedChanges": true, "deactivateResource": false}`. |
+| `POST` | `/api/v1/moderation/correction-reports/{reportId}/reject` | `{"reason": "..."}` — never modifies the target resource. |
+| `GET` | `/api/v1/moderation/correction-reports/{reportId}/audit-events` | This report's audit history, oldest first. |
+| `GET` | `/api/v1/moderation/audit-events` | Global audit list. `contributionType`, `decision` filters, both optional. Newest first. |
+
+A review `reason` is required for every decision (approve or reject,
+either domain) — trimmed, 5-1000 characters — and is always the same
+text later shown to the contribution's owner; there is no separate
+private moderator-note field.
+
+**Resource-submission approval**: revalidates every proposed field
+with the same rules real resource creation uses, generates the slug
+the same way, and publishes the resource `VERIFIED` with a real
+`lastVerifiedAt`. A slug/name collision with an existing resource
+returns `409 RESOURCE_PUBLICATION_CONFLICT` and leaves the submission
+`PENDING_REVIEW` — it is never marked `APPROVED` when publication
+fails.
+
+**Correction-report approval** — `applyProposedChanges` and
+`deactivateResource` are independent; both may be `false` (a
+legitimate "reviewed, no automatic public-data change" outcome):
+
+```bash
+curl -X POST "http://localhost:8080/api/v1/moderation/correction-reports/$REPORT_ID/approve" \
+  -H "Authorization: Bearer $MODERATOR_TOKEN" -H "Content-Type: application/json" \
+  -d '{"reason":"Confirmed the new address against the source.","applyProposedChanges":true,"deactivateResource":false}'
+```
+
+- `applyProposedChanges=true` applies only whichever of the report's 13
+  supported scalar fields (name, description, address, city, province,
+  postal code, phone, email, website, cost type, cost details,
+  eligibility) are present — category is never touched (the schema has
+  no `proposedCategory` field). Returns `400
+  UNSUPPORTED_CORRECTION_APPLICATION` for `issueType: "OPERATING_HOURS"`
+  or `"DUPLICATE_RESOURCE"` — neither has an automated field mapping;
+  reject with a reason, or handle the change manually through the
+  existing operating-hours endpoint.
+- `deactivateResource=true` is only legal for `issueType:
+  "RESOURCE_CLOSED"` — `400 INVALID_DEACTIVATION_REQUEST` otherwise.
+- A merged-field result that would be invalid, or that collides with
+  existing data, returns `409 CORRECTION_APPLICATION_CONFLICT` and
+  leaves the report `PENDING_REVIEW`.
+
+**Concurrency**: a second moderator's decision on an already-decided (or
+concurrently-being-decided) contribution returns `409
+CONTRIBUTION_ALREADY_REVIEWED` — the database's own row lock is
+authoritative, not a pre-check (see ADR-016's "Concurrency Control").
+
+**Audit history** — `beforeSnapshot`/`afterSnapshot` are small,
+explicitly-built field maps (never a full serialized entity), present
+only on the row(s) recording a concrete effect
+(`RESOURCE_CREATED`/`RESOURCE_UPDATED`/`RESOURCE_DEACTIVATED`); a bare
+`REVIEW_DECISION` row (every rejection, and a no-op approval) has
+neither. `actorEmail` is a point-in-time snapshot, not a live account
+lookup.
+
+### Status codes
+
+| Status | Meaning |
+|---|---|
+| `200` | Queue/detail/approve/reject/audit-events succeeded |
+| `400` | Missing/invalid reason, an invalid deactivation request, an unsupported correction application, invalid pagination/sort, or the resulting resource/correction would be invalid |
+| `401` | Missing or invalid access token |
+| `403` | Current account is not `ADMIN`/`MODERATOR`, or a self-review attempt (`SELF_REVIEW_NOT_ALLOWED`) |
+| `404` | No submission/report exists with the given id |
+| `409` | Already reviewed/withdrawn (`CONTRIBUTION_ALREADY_REVIEWED`), a publication conflict (`RESOURCE_PUBLICATION_CONFLICT`), or a correction-application conflict (`CORRECTION_APPLICATION_CONFLICT`) |

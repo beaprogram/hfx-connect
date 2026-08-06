@@ -90,13 +90,17 @@ the public API contract can evolve independently.
 
 Core entities anticipated by the product requirements: `users`, `organizations`,
 `categories`, `resources` (now with a geographic `location` column, Milestone
-7A — see [ADR-012](../decisions/ADR-012-postgis-nearby-search-design.md)),
-`resource_operating_hours` (Milestone 6B), `saved_resources` (Milestone
-8A), `resource_submissions`/`correction_reports` (Milestone 8B, in
+7A — see [ADR-012](../decisions/ADR-012-postgis-nearby-search-design.md), and a
+`verification_status`/`last_verified_at` pair a moderator can actually set,
+Milestone 9A), `resource_operating_hours` (Milestone 6B), `saved_resources`
+(Milestone 8A), `resource_submissions`/`correction_reports` (Milestone 8B, in
 place of the originally-anticipated single `resource_reports` name —
-see ADR-015), `events`, and `resource_history`. The authoritative,
-versioned schema lives in Flyway migration files (see
-`docs/database/README.md` for the current, real schema — not a plan).
+see ADR-015; both now carry review metadata as of Milestone 9A),
+`moderation_audit_events` (Milestone 9A — an append-only review-decision
+trail, not part of the originally-anticipated entity list), `events`, and
+`resource_history`. The authoritative, versioned schema lives in Flyway
+migration files (see `docs/database/README.md` for the current, real
+schema — not a plan).
 
 Milestone 7B built the first visual consumer of that geographic column: an
 interactive Leaflet/OpenStreetMap frontend map over the existing
@@ -114,8 +118,17 @@ Milestone 8B implemented `resource_submissions` and `correction_reports`
 authenticated account propose a new resource or report an issue with
 an existing one. Both create pending review items only; approving,
 rejecting, and actually applying either kind of contribution to the
-public dataset remain entirely Milestone 9 (see
+public dataset were entirely deferred to Milestone 9 (see
 [ADR-015](../decisions/ADR-015-community-contribution-workflows-design.md)).
+
+Milestone 9A closed that loop: a `MODERATOR`/`ADMIN` can now review
+either kind of pending contribution, publish an approved submission as
+a real, verified public resource, apply an approved correction's
+supported changes (or deactivate a resource for an approved
+`RESOURCE_CLOSED` report), and every decision leaves an immutable
+audit record — see
+[ADR-016](../decisions/ADR-016-moderation-workflow-design.md) for the
+concurrency, publication, correction-application, and audit design.
 
 ## Deployment Path
 

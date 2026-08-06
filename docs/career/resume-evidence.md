@@ -1205,5 +1205,104 @@ prior milestones.
 
 ### Measurements Still Needed
 [MEASURE AFTER DEPLOYMENT]: real-world submission/report volume and
-review-queue growth rate, to inform Milestone 9's moderation-queue
-pagination and any eventual rate-limiting thresholds.
+review-queue growth rate, to inform the moderation queue's pagination
+and any eventual rate-limiting thresholds.
+
+## Moderation Workflow: Review Decisions, Publication, and Audit History
+
+### Product Purpose
+Closes the loop the prior contribution milestone deliberately left
+open: a moderator or admin can now review a pending resource submission
+or correction report, publish an approved submission as a real public
+resource, apply an approved correction's supported changes (or
+deactivate a resource for an approved closure report), and every
+decision leaves an immutable, append-only audit record — the first
+feature in the project where community-submitted content can actually
+become part of the public dataset, always through a real human
+decision, never automatically.
+
+### Technologies Used
+JPA pessimistic row-level locking (`SELECT ... FOR UPDATE` via
+`@Lock(LockModeType.PESSIMISTIC_WRITE)`) as the concurrency-control
+mechanism for a genuinely atomic multi-step decision transaction;
+Hibernate 7's native JSONB column mapping
+(`@JdbcTypeCode(SqlTypes.JSON)`) for an append-only audit trail;
+PostgreSQL `CHECK` constraints expressing "these columns are present
+together or absent together" as a database-enforced invariant, not just
+an application convention; and a genuine two-thread concurrent-request
+integration test (not a mocked or reasoned-about race) proving the
+locking strategy actually serializes competing moderator decisions.
+
+### Problem Solved
+Two moderators must never both "win" a race to decide the same pending
+item — never two public resources published from one submission, never
+a correction applied twice, never a partially-mutated resource left
+behind by a failed transaction. Chose row-level `PESSIMISTIC_WRITE`
+locking over JPA optimistic locking (`@Version`) specifically so the
+*entire* review transaction — not just its final write — is serialized
+against a concurrent competitor, with no separate retry/conflict-
+translation code path to get subtly wrong; proved the choice correct
+with a real two-thread test, not just a unit test asserting the
+exception type a mocked scenario would throw. A second, easy-to-miss
+version of the same problem existed one level down for correction
+reports specifically — two *different* pending reports can target the
+*same* resource — solved by locking the target resource row
+independently of the report's own lock, discovered by reasoning through
+the actual failure mode (a lost update) rather than assuming one lock
+was automatically sufficient.
+
+A second, unrelated problem: caught a real defect during this
+milestone's own manual end-to-end verification that 684 passing
+automated tests had not caught — a new `lastVerifiedAt` field reached
+the entity and service layer cleanly, but was never added to the
+public-facing response DTO that claimed to expose "full resource
+detail," because no automated test asserted that specific DTO's actual
+field set against a live HTTP response. Fixed, and turned into a
+permanent regression test and a documented general lesson (entity-layer
+test coverage does not imply response-DTO coverage) rather than treated
+as a one-off fix.
+
+### Implementation
+`backend/src/main/java/com/hfxconnect/moderation/` (audit entity/
+repository/recorder/query-service, two review services, three
+controllers); extensions to `com.hfxconnect.resource`/
+`resourcesubmission`/`correctionreport`;
+`frontend/src/components/moderation/` (role guard, two moderation
+queues, two review-detail views with decision forms, shared audit-
+history component).
+
+### Tests
+45 new backend tests, including two real two-thread concurrent-review
+integration tests, alongside the existing 639 (684 total, 0 failures).
+72 new frontend tests across 9 new/extended files, alongside the
+existing 406 (478 total, 0 failures). 43/43 scripted manual-verification
+checks passed against the real running stack (direct API calls plus a
+genuine headless-Chromium session), including the full authorization
+matrix, self-review prevention for both `MODERATOR` and `ADMIN`, a real
+concurrent-decision race, and a live confirmation that a suspended
+moderator's still-valid token loses access on the very next request.
+
+### Evidence
+Commits on branch `milestone/09a-moderation-workflow`; see
+`docs/development-log/2026-08-06.md` for the full session record and
+`docs/milestones/milestone-09a-moderation-workflow.md` for acceptance
+criteria.
+
+### Potential Resume Wording
+Designed and implemented a moderation review workflow for a Spring
+Boot/Next.js application using database-enforced pessimistic row
+locking to guarantee exactly-once decision semantics under concurrent
+moderator access, proved correct with genuine multi-threaded integration
+tests rather than mocked assertions; built an append-only JSONB audit
+trail using explicit field-allowlist snapshots (never entity
+serialization) to structurally rule out an entire class of accidental
+data leak; and, during the feature's own manual verification pass,
+caught and fixed a real gap between entity-layer test coverage and
+public API response coverage that 684 passing automated tests had
+missed, then closed it permanently with a targeted regression test.
+
+### Measurements Still Needed
+[MEASURE AFTER DEPLOYMENT]: real-world moderation queue depth and
+average time-to-decision, to inform whether reviewer assignment or
+queue prioritization (both explicitly out of scope for this milestone)
+would be worth building.

@@ -99,7 +99,8 @@ matrix is expressed:
 | `POST /api/v1/resources` | `ADMIN` or `MODERATOR` |
 | `PUT /api/v1/resources/{id}/operating-hours` | `ADMIN` or `MODERATOR` (Milestone 6B) |
 | `PUT /api/v1/resources/{id}/location` | `ADMIN` or `MODERATOR` (Milestone 7A) |
-| Everything else | `authenticated()` — fail closed by default |
+| `/api/v1/moderation/**` | `ADMIN` or `MODERATOR` (Milestone 9A) — one matcher covers all eleven moderation routes (queue, detail, approve, reject, audit history, for both contribution domains) |
+| Everything else | `authenticated()` — fail closed by default (this is what covers the current-user resource-submission/correction-report routes, Milestone 8B — any authenticated role) |
 
 `ORGANIZATION` accounts cannot create resources yet, even though the role
 exists: organization ownership/verification doesn't exist (Milestone 10), so
@@ -342,6 +343,40 @@ security mechanism invented:
   a genuine concurrent-request race to `409`, never a `500` or a
   duplicate row — the same "database constraint is the authority, not
   the application check alone" posture ADR-014 already established.
+
+## Moderation Authorization and Concurrency (Milestone 9A)
+
+Full design: [ADR-016](../decisions/ADR-016-moderation-workflow-design.md).
+
+- `/api/v1/moderation/**` requires `ADMIN`/`MODERATOR`, backed by the
+  account's *current* database role/status (`JwtAuthenticationFilter`
+  re-loads the account on every request — see "Request Authentication"
+  above), never a JWT claim taken at face value. A suspended
+  moderator's still-unexpired token loses access on the very next
+  request — verified live, not just reasoned about, during manual
+  verification.
+- A moderator/admin can never review their own contribution
+  (`403 SELF_REVIEW_NOT_ALLOWED`), checked against the current database
+  owner column, with no exemption for `ADMIN` — confirmed by a
+  dedicated test per role.
+- No moderation endpoint accepts a client-supplied reviewer identity,
+  `reviewedAt`, `resultingResourceId`, or final status — every one of
+  those is assigned only inside the review transaction, from the
+  authenticated principal and the transaction's own outcome.
+- Concurrency is a real security property here, not just a correctness
+  one: without it, two moderators racing the same item could each
+  believe they made the authoritative decision. A `PESSIMISTIC_WRITE`
+  row lock (not an application-level pre-check) makes the database
+  transaction itself the arbiter — proven with an actual two-thread
+  concurrent-transaction test, not reasoning alone.
+- A failed publication or correction application rolls back the entire
+  review transaction — no partial resource mutation, and the
+  contribution is never marked `APPROVED` when the effect it claims to
+  have happened did not.
+- Moderation audit history (`moderation_audit_events`,
+  `/audit-events` routes) is moderator/admin-only and never reachable
+  from any owner-facing or public route — confirmed live (`403` for a
+  contribution's own owner attempting the audit route).
 
 ## See Also
 

@@ -120,6 +120,18 @@ public class CorrectionReport {
 	@Column(name = "withdrawn_at")
 	private Instant withdrawnAt;
 
+	@Column(name = "reviewed_by_user_id")
+	private UUID reviewedByUserId;
+
+	@Column(name = "reviewed_at")
+	private Instant reviewedAt;
+
+	@Column(name = "review_reason", length = 1000)
+	private String reviewReason;
+
+	@Column(name = "applied_to_resource_at")
+	private Instant appliedToResourceAt;
+
 	protected CorrectionReport() {
 		// required by JPA
 	}
@@ -162,6 +174,37 @@ public class CorrectionReport {
 		}
 		this.status = CorrectionReportStatus.WITHDRAWN;
 		this.withdrawnAt = Instant.now();
+	}
+
+	/**
+	 * Approves this report (Milestone 9A) — only legal while still {@link
+	 * CorrectionReportStatus#PENDING_REVIEW}. {@code appliedToResourceAt} is
+	 * {@code null} when the moderator approved without applying any scalar
+	 * field change (see {@code CorrectionReportReviewService}) — distinct
+	 * from {@code reviewedAt}, which is always set on any final decision.
+	 */
+	public void approve(UUID reviewerId, String reason, Instant appliedToResourceAt) {
+		if (status != CorrectionReportStatus.PENDING_REVIEW) {
+			throw new InvalidContributionStatusException(
+					"Only a pending-review correction report can be approved (current status: " + status + ").");
+		}
+		this.status = CorrectionReportStatus.APPROVED;
+		this.reviewedByUserId = reviewerId;
+		this.reviewedAt = Instant.now();
+		this.reviewReason = reason;
+		this.appliedToResourceAt = appliedToResourceAt;
+	}
+
+	/** Rejects this report (Milestone 9A) — only legal while still {@link CorrectionReportStatus#PENDING_REVIEW}. */
+	public void reject(UUID reviewerId, String reason) {
+		if (status != CorrectionReportStatus.PENDING_REVIEW) {
+			throw new InvalidContributionStatusException(
+					"Only a pending-review correction report can be rejected (current status: " + status + ").");
+		}
+		this.status = CorrectionReportStatus.REJECTED;
+		this.reviewedByUserId = reviewerId;
+		this.reviewedAt = Instant.now();
+		this.reviewReason = reason;
 	}
 
 	@PrePersist
@@ -270,6 +313,22 @@ public class CorrectionReport {
 
 	public Instant getWithdrawnAt() {
 		return withdrawnAt;
+	}
+
+	public UUID getReviewedByUserId() {
+		return reviewedByUserId;
+	}
+
+	public Instant getReviewedAt() {
+		return reviewedAt;
+	}
+
+	public String getReviewReason() {
+		return reviewReason;
+	}
+
+	public Instant getAppliedToResourceAt() {
+		return appliedToResourceAt;
 	}
 
 }

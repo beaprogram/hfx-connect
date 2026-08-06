@@ -1,4 +1,4 @@
-import type { ContributionStatus, CostType, DayOfWeek, HoursStatus, IssueType, VerificationStatus } from "@/lib/validation/schemas";
+import type { ContributionStatus, CostType, DayOfWeek, HoursStatus, IssueType, ModerationAction, VerificationStatus } from "@/lib/validation/schemas";
 
 const COST_TYPE_LABELS: Record<CostType, string> = {
   FREE: "Free",
@@ -85,6 +85,18 @@ const ISSUE_TYPE_LABELS: Record<IssueType, string> = {
 
 export function issueTypeLabel(issueType: IssueType): string {
   return ISSUE_TYPE_LABELS[issueType];
+}
+
+const MODERATION_ACTION_LABELS: Record<ModerationAction, string> = {
+  REVIEW_DECISION: "Review decision recorded",
+  RESOURCE_CREATED: "Resource published",
+  RESOURCE_UPDATED: "Resource updated",
+  RESOURCE_DEACTIVATED: "Resource deactivated",
+};
+
+/** A moderation audit event's readable action label (Milestone 9A) — moderator/admin-only display, never colour alone. */
+export function moderationActionLabel(action: ModerationAction): string {
+  return MODERATION_ACTION_LABELS[action];
 }
 
 export function formatLocalTime(time: string): string {

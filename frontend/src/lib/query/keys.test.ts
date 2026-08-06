@@ -1,4 +1,4 @@
-import { savedResourceKeys, resourceSubmissionKeys, correctionReportKeys } from "./keys";
+import { savedResourceKeys, resourceSubmissionKeys, correctionReportKeys, moderationKeys } from "./keys";
 
 describe("savedResourceKeys", () => {
   it("roots every key in the given userId", () => {
@@ -62,6 +62,32 @@ describe("correctionReportKeys", () => {
   it("distinguishes different report ids", () => {
     const keyA = correctionReportKeys.detail("user-1", "report-1");
     const keyB = correctionReportKeys.detail("user-1", "report-2");
+    expect(keyA).not.toEqual(keyB);
+  });
+});
+
+describe("moderationKeys", () => {
+  it("roots every key in a fixed 'moderation' prefix, not a userId", () => {
+    expect(moderationKeys.submissionQueue({ page: 0, size: 20 })[0]).toBe("moderation");
+    expect(moderationKeys.correctionQueue({ page: 0, size: 20 })[0]).toBe("moderation");
+    expect(moderationKeys.globalAudit({ page: 0, size: 20 })[0]).toBe("moderation");
+  });
+
+  it("distinguishes different submission detail ids", () => {
+    const keyA = moderationKeys.submissionDetail("sub-1");
+    const keyB = moderationKeys.submissionDetail("sub-2");
+    expect(keyA).not.toEqual(keyB);
+  });
+
+  it("distinguishes different correction detail ids", () => {
+    const keyA = moderationKeys.correctionDetail("report-1");
+    const keyB = moderationKeys.correctionDetail("report-2");
+    expect(keyA).not.toEqual(keyB);
+  });
+
+  it("distinguishes different queue filter params", () => {
+    const keyA = moderationKeys.submissionQueue({ status: "PENDING_REVIEW", page: 0, size: 20 });
+    const keyB = moderationKeys.submissionQueue({ status: "APPROVED", page: 0, size: 20 });
     expect(keyA).not.toEqual(keyB);
   });
 });
