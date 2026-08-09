@@ -122,3 +122,43 @@ export const moderationKeys = {
   globalAudit: (params: { contributionType?: string; decision?: string; page: number; size: number }) =>
     ["moderation", "audit-events", params] as const,
 };
+
+/**
+ * Organization keys (Milestone 10A) — private, per-account data, rooted in
+ * `userId` for the same reason `savedResourceKeys`/`resourceSubmissionKeys`
+ * already are: one account owns/manages at most one organization profile.
+ */
+export const organizationKeys = {
+  all: (userId: string) => ["organization", userId] as const,
+  profile: (userId: string) => [...organizationKeys.all(userId), "profile"] as const,
+  claims: (userId: string, params: { status?: string; page: number; size: number }) =>
+    [...organizationKeys.all(userId), "claims", params] as const,
+  resources: (userId: string, params: { page: number; size: number }) =>
+    [...organizationKeys.all(userId), "resources", params] as const,
+};
+
+/** A verified organization's public profile (Milestone 10A) — public data, not cleared on logout, the same posture `resourceKeys` already has. */
+export const publicOrganizationKeys = {
+  detail: (slug: string) => ["public-organization", slug] as const,
+};
+
+/**
+ * Admin organization-verification keys (Milestone 10A) — not rooted in
+ * `userId`, the same reasoning `moderationKeys` already establishes: this is
+ * role-gated shared ADMIN state, not any one account's data. Still cleared
+ * on logout/account-switch for the identical reason `moderationKeys` is.
+ */
+export const adminOrganizationKeys = {
+  queue: (params: { verificationStatus?: string; page: number; size: number; sort?: string }) =>
+    ["admin-organizations", "queue", params] as const,
+  detail: (organizationId: string) => ["admin-organizations", "detail", organizationId] as const,
+  audit: (organizationId: string, params: { page: number; size: number }) =>
+    ["admin-organizations", "audit", organizationId, params] as const,
+};
+
+/** Admin ownership-claim-review keys (Milestone 10A) — same shared-state reasoning as `adminOrganizationKeys`. */
+export const adminOwnershipClaimKeys = {
+  queue: (params: { status?: string; organizationId?: string; page: number; size: number }) =>
+    ["admin-ownership-claims", "queue", params] as const,
+  detail: (claimId: string) => ["admin-ownership-claims", "detail", claimId] as const,
+};

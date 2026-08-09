@@ -107,6 +107,22 @@ export const resourceSummaryResponseSchema = z.object({
 });
 export type ResourceSummaryResponse = z.infer<typeof resourceSummaryResponseSchema>;
 
+/**
+ * A resource's owning organization, embedded on the public resource detail
+ * and nearby-search responses only (Milestone 10A) — never on the compact
+ * `resourceSummaryResponseSchema` list card, matching the backend's own
+ * `ResourceOrganizationSummaryResponse`. `verified` is always `true` when
+ * this object is present at all — the backend never returns a pending,
+ * rejected, or suspended organization's summary here.
+ */
+export const organizationSummarySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  slug: z.string(),
+  verified: z.boolean(),
+});
+export type OrganizationSummary = z.infer<typeof organizationSummarySchema>;
+
 export const resourceResponseSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -131,6 +147,8 @@ export const resourceResponseSchema = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
   hours: operatingHoursSchema,
+  /** Present only when owned by a currently-verified organization (Milestone 10A). */
+  organization: organizationSummarySchema.nullish(),
 });
 export type ResourceResponse = z.infer<typeof resourceResponseSchema>;
 
@@ -169,6 +187,8 @@ export const nearbyResourceSummaryResponseSchema = z.object({
   latitude: z.number().finite().gte(-90).lte(90),
   longitude: z.number().finite().gte(-180).lte(180),
   distanceMeters: z.number().finite().nonnegative(),
+  /** Present only when owned by a currently-verified organization (Milestone 10A). */
+  organization: organizationSummarySchema.nullish(),
 });
 export type NearbyResourceSummaryResponse = z.infer<typeof nearbyResourceSummaryResponseSchema>;
 
@@ -552,3 +572,233 @@ export const moderationAuditEventPageSchema = z.object({
   totalPages: z.number(),
 });
 export type ModerationAuditEventPage = z.infer<typeof moderationAuditEventPageSchema>;
+
+/**
+ * Organizations and resource-ownership claims (Milestone 10A). See
+ * `lib/api/organization.ts` and `components/organization/`. `ORGANIZATION`
+ * role is not the same thing as a `VERIFIED` organization — see
+ * ADR-017; every schema below distinguishes the two explicitly via
+ * `verificationStatus`.
+ */
+
+export const organizationVerificationStatusSchema = z.enum([
+  "PENDING_VERIFICATION",
+  "VERIFIED",
+  "REJECTED",
+  "SUSPENDED",
+]);
+export type OrganizationVerificationStatus = z.infer<typeof organizationVerificationStatusSchema>;
+
+/** The current account's own organization profile — never includes the reviewing admin's identity, only the safe `verificationReason` text. */
+export const organizationResponseSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  slug: z.string(),
+  description: z.string().nullish(),
+  websiteUrl: z.string().nullish(),
+  publicEmail: z.string().nullish(),
+  phone: z.string().nullish(),
+  addressLine1: z.string().nullish(),
+  city: z.string().nullish(),
+  province: z.string().nullish(),
+  postalCode: z.string().nullish(),
+  verificationStatus: organizationVerificationStatusSchema,
+  verifiedAt: z.string().nullish(),
+  verificationReason: z.string().nullish(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type OrganizationResponse = z.infer<typeof organizationResponseSchema>;
+
+/** A verified organization's public profile — never includes owner/review metadata. */
+export const publicOrganizationResponseSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  slug: z.string(),
+  description: z.string().nullish(),
+  websiteUrl: z.string().nullish(),
+  publicEmail: z.string().nullish(),
+  phone: z.string().nullish(),
+  addressLine1: z.string().nullish(),
+  city: z.string().nullish(),
+  province: z.string().nullish(),
+  postalCode: z.string().nullish(),
+  verificationStatus: organizationVerificationStatusSchema,
+  verifiedAt: z.string().nullish(),
+});
+export type PublicOrganizationResponse = z.infer<typeof publicOrganizationResponseSchema>;
+
+/** ADMIN-only organization-queue row — deliberately compact. */
+export const adminOrganizationQueueItemSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  slug: z.string(),
+  verificationStatus: organizationVerificationStatusSchema,
+  createdAt: z.string(),
+});
+export type AdminOrganizationQueueItem = z.infer<typeof adminOrganizationQueueItemSchema>;
+
+export const adminOrganizationQueuePageSchema = z.object({
+  content: z.array(adminOrganizationQueueItemSchema),
+  page: z.number(),
+  size: z.number(),
+  totalElements: z.number(),
+  totalPages: z.number(),
+});
+export type AdminOrganizationQueuePage = z.infer<typeof adminOrganizationQueuePageSchema>;
+
+/** The full ADMIN-facing view of one organization — `ownerUserId`/`verifiedByUserId` are raw account ids, never resolved to an email. */
+export const adminOrganizationDetailSchema = z.object({
+  id: z.string(),
+  ownerUserId: z.string(),
+  name: z.string(),
+  slug: z.string(),
+  description: z.string().nullish(),
+  websiteUrl: z.string().nullish(),
+  publicEmail: z.string().nullish(),
+  phone: z.string().nullish(),
+  addressLine1: z.string().nullish(),
+  city: z.string().nullish(),
+  province: z.string().nullish(),
+  postalCode: z.string().nullish(),
+  verificationStatus: organizationVerificationStatusSchema,
+  verifiedByUserId: z.string().nullish(),
+  verifiedAt: z.string().nullish(),
+  verificationReason: z.string().nullish(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type AdminOrganizationDetail = z.infer<typeof adminOrganizationDetailSchema>;
+
+export const ownershipClaimStatusSchema = z.enum(["PENDING_REVIEW", "APPROVED", "REJECTED", "WITHDRAWN"]);
+export type OwnershipClaimStatus = z.infer<typeof ownershipClaimStatusSchema>;
+
+/** A compact resource summary shown on an ownership claim — smaller than the full public resource response. */
+export const claimedResourceSummarySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  slug: z.string(),
+  category: categorySummarySchema,
+  active: z.boolean(),
+});
+export type ClaimedResourceSummary = z.infer<typeof claimedResourceSummarySchema>;
+
+/** One of the current organization's own resource-ownership claims. */
+export const ownershipClaimResponseSchema = z.object({
+  id: z.string(),
+  resource: claimedResourceSummarySchema.nullish(),
+  status: ownershipClaimStatusSchema,
+  requestedAt: z.string(),
+  reviewedAt: z.string().nullish(),
+  reviewReason: z.string().nullish(),
+});
+export type OwnershipClaimResponse = z.infer<typeof ownershipClaimResponseSchema>;
+
+export const ownershipClaimPageResponseSchema = z.object({
+  content: z.array(ownershipClaimResponseSchema),
+  page: z.number(),
+  size: z.number(),
+  totalElements: z.number(),
+  totalPages: z.number(),
+});
+export type OwnershipClaimPageResponse = z.infer<typeof ownershipClaimPageResponseSchema>;
+
+/** ADMIN-only ownership-claim-queue row — deliberately compact. */
+export const adminOwnershipClaimQueueItemSchema = z.object({
+  id: z.string(),
+  organizationId: z.string(),
+  organizationName: z.string().nullish(),
+  resource: claimedResourceSummarySchema.nullish(),
+  status: ownershipClaimStatusSchema,
+  requestedAt: z.string(),
+});
+export type AdminOwnershipClaimQueueItem = z.infer<typeof adminOwnershipClaimQueueItemSchema>;
+
+export const adminOwnershipClaimQueuePageSchema = z.object({
+  content: z.array(adminOwnershipClaimQueueItemSchema),
+  page: z.number(),
+  size: z.number(),
+  totalElements: z.number(),
+  totalPages: z.number(),
+});
+export type AdminOwnershipClaimQueuePage = z.infer<typeof adminOwnershipClaimQueuePageSchema>;
+
+/**
+ * The full ADMIN-facing view of one ownership claim — `currentResourceOrganizationId`
+ * is read fresh from the resource, never inferred from the claim's own
+ * status, since a claim is workflow history rather than the ownership
+ * authority itself (ADR-017).
+ */
+export const adminOwnershipClaimDetailSchema = z.object({
+  id: z.string(),
+  organizationId: z.string(),
+  organizationName: z.string(),
+  organizationSlug: z.string(),
+  organizationVerificationStatus: organizationVerificationStatusSchema,
+  resource: claimedResourceSummarySchema.nullish(),
+  currentResourceOrganizationId: z.string().nullish(),
+  status: ownershipClaimStatusSchema,
+  requestedAt: z.string(),
+  reviewedByUserId: z.string().nullish(),
+  reviewedAt: z.string().nullish(),
+  reviewReason: z.string().nullish(),
+});
+export type AdminOwnershipClaimDetail = z.infer<typeof adminOwnershipClaimDetailSchema>;
+
+/** One resource owned by the current organization — read-only; no editing action exists yet. */
+export const ownedResourceSummarySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  slug: z.string(),
+  category: categorySummarySchema,
+  active: z.boolean(),
+  verificationStatus: verificationStatusSchema,
+  lastVerifiedAt: z.string().nullish(),
+});
+export type OwnedResourceSummary = z.infer<typeof ownedResourceSummarySchema>;
+
+export const ownedResourcePageResponseSchema = z.object({
+  content: z.array(ownedResourceSummarySchema),
+  page: z.number(),
+  size: z.number(),
+  totalElements: z.number(),
+  totalPages: z.number(),
+});
+export type OwnedResourcePageResponse = z.infer<typeof ownedResourcePageResponseSchema>;
+
+export const organizationAuditEventTypeSchema = z.enum([
+  "ORGANIZATION_SUBMITTED",
+  "ORGANIZATION_VERIFIED",
+  "ORGANIZATION_REJECTED",
+  "ORGANIZATION_SUSPENDED",
+  "OWNERSHIP_CLAIM_SUBMITTED",
+  "OWNERSHIP_CLAIM_APPROVED",
+  "OWNERSHIP_CLAIM_REJECTED",
+  "OWNERSHIP_CLAIM_WITHDRAWN",
+]);
+export type OrganizationAuditEventType = z.infer<typeof organizationAuditEventTypeSchema>;
+
+/** ADMIN-only organization/ownership audit trail entry — never fetched by any owner-facing or public route. */
+export const organizationAuditEventSchema = z.object({
+  id: z.string(),
+  eventType: organizationAuditEventTypeSchema,
+  organizationId: z.string(),
+  resourceId: z.string().nullish(),
+  claimId: z.string().nullish(),
+  actorUserId: z.string(),
+  actorEmail: z.string(),
+  reviewReason: z.string().nullish(),
+  beforeSnapshot: z.record(z.string(), z.unknown()).nullish(),
+  afterSnapshot: z.record(z.string(), z.unknown()).nullish(),
+  createdAt: z.string(),
+});
+export type OrganizationAuditEvent = z.infer<typeof organizationAuditEventSchema>;
+
+export const organizationAuditEventPageSchema = z.object({
+  content: z.array(organizationAuditEventSchema),
+  page: z.number(),
+  size: z.number(),
+  totalElements: z.number(),
+  totalPages: z.number(),
+});
+export type OrganizationAuditEventPage = z.infer<typeof organizationAuditEventPageSchema>;

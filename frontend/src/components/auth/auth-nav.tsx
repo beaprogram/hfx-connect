@@ -29,6 +29,8 @@ export function AuthNav() {
 
   if (state.status === "authenticated") {
     const isModerator = state.user.role === "MODERATOR" || state.user.role === "ADMIN";
+    const isOrganization = state.user.role === "ORGANIZATION";
+    const isAdmin = state.user.role === "ADMIN";
     return (
       <div className="flex items-center gap-4">
         <Link href="/dashboard" className={linkClassName}>
@@ -37,6 +39,16 @@ export function AuthNav() {
         {isModerator && (
           <Link href="/moderation" className={linkClassName}>
             Moderation
+          </Link>
+        )}
+        {isOrganization && (
+          <Link href="/organization" className={linkClassName}>
+            Organization
+          </Link>
+        )}
+        {isAdmin && (
+          <Link href="/admin/organizations" className={linkClassName}>
+            Administration
           </Link>
         )}
         <button type="button" onClick={handleLogout} className={linkClassName}>

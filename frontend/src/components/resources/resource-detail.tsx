@@ -2,6 +2,7 @@ import Link from "next/link";
 import { CostBadge, HoursStatusBadge, VerificationBadge } from "@/components/resources/status-badges";
 import { ExternalWebsiteLink } from "@/components/resources/external-website-link";
 import { ResourceDetailSaveControl } from "@/components/resources/resource-detail-save-control";
+import { ClaimResourceControl } from "@/components/organization/claim-resource-control";
 import { addressLines } from "@/lib/formatting/address";
 import { formatDate } from "@/lib/formatting/dates";
 import { costTypeLabel, dayOfWeekLabel, formatLocalTime } from "@/lib/formatting/labels";
@@ -39,8 +40,16 @@ export function ResourceDetail({ resource }: { resource: ResourceResponse }) {
         <CostBadge costType={resource.costType} />
         <HoursStatusBadge status={resource.hours.hoursStatus} />
       </div>
-      <div className="mt-4">
+      <div className="mt-4 flex flex-col items-start gap-3">
         <ResourceDetailSaveControl resourceId={resource.id} resourceName={resource.name} />
+        {resource.organization && (
+          <p className="text-sm text-slate-600">
+            Owned by <span className="font-medium text-slate-900">{resource.organization.name}</span>
+            {" · "}
+            <span className="text-green-700">Verified organization</span>
+          </p>
+        )}
+        {!resource.organization && resource.active && <ClaimResourceControl resourceId={resource.id} />}
       </div>
 
       {resource.description && (
