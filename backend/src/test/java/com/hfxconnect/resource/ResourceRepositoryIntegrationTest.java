@@ -58,7 +58,9 @@ class ResourceRepositoryIntegrationTest extends AbstractPostgresIntegrationTest 
 				// "location" added by V7 (Milestone 7A) — see ADR-012.
 				"location",
 				// "last_verified_at" added by V10 (Milestone 9A) — see ADR-016.
-				"last_verified_at");
+				"last_verified_at",
+				// "organization_id" added by V11 (Milestone 10A) — see ADR-017.
+				"organization_id");
 	}
 
 	@Test

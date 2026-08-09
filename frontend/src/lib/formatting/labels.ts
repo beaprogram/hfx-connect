@@ -1,4 +1,15 @@
-import type { ContributionStatus, CostType, DayOfWeek, HoursStatus, IssueType, ModerationAction, VerificationStatus } from "@/lib/validation/schemas";
+import type {
+  ContributionStatus,
+  CostType,
+  DayOfWeek,
+  HoursStatus,
+  IssueType,
+  ModerationAction,
+  OrganizationAuditEventType,
+  OrganizationVerificationStatus,
+  OwnershipClaimStatus,
+  VerificationStatus,
+} from "@/lib/validation/schemas";
 
 const COST_TYPE_LABELS: Record<CostType, string> = {
   FREE: "Free",
@@ -97,6 +108,46 @@ const MODERATION_ACTION_LABELS: Record<ModerationAction, string> = {
 /** A moderation audit event's readable action label (Milestone 9A) — moderator/admin-only display, never colour alone. */
 export function moderationActionLabel(action: ModerationAction): string {
   return MODERATION_ACTION_LABELS[action];
+}
+
+const ORGANIZATION_VERIFICATION_STATUS_LABELS: Record<OrganizationVerificationStatus, string> = {
+  PENDING_VERIFICATION: "Pending verification",
+  VERIFIED: "Verified",
+  REJECTED: "Rejected",
+  SUSPENDED: "Suspended",
+};
+
+/** An organization's readable verification-status label (Milestone 10A) — never colour alone. */
+export function organizationVerificationStatusLabel(status: OrganizationVerificationStatus): string {
+  return ORGANIZATION_VERIFICATION_STATUS_LABELS[status];
+}
+
+const OWNERSHIP_CLAIM_STATUS_LABELS: Record<OwnershipClaimStatus, string> = {
+  PENDING_REVIEW: "Pending review",
+  APPROVED: "Approved",
+  REJECTED: "Rejected",
+  WITHDRAWN: "Withdrawn",
+};
+
+/** A resource-ownership claim's readable status label (Milestone 10A) — never colour alone. */
+export function ownershipClaimStatusLabel(status: OwnershipClaimStatus): string {
+  return OWNERSHIP_CLAIM_STATUS_LABELS[status];
+}
+
+const ORGANIZATION_AUDIT_EVENT_TYPE_LABELS: Record<OrganizationAuditEventType, string> = {
+  ORGANIZATION_SUBMITTED: "Organization profile submitted",
+  ORGANIZATION_VERIFIED: "Organization verified",
+  ORGANIZATION_REJECTED: "Organization rejected",
+  ORGANIZATION_SUSPENDED: "Organization suspended",
+  OWNERSHIP_CLAIM_SUBMITTED: "Ownership claim submitted",
+  OWNERSHIP_CLAIM_APPROVED: "Ownership claim approved",
+  OWNERSHIP_CLAIM_REJECTED: "Ownership claim rejected",
+  OWNERSHIP_CLAIM_WITHDRAWN: "Ownership claim withdrawn",
+};
+
+/** An organization/ownership audit event's readable label (Milestone 10A) — admin-only display, never colour alone. */
+export function organizationAuditEventTypeLabel(eventType: OrganizationAuditEventType): string {
+  return ORGANIZATION_AUDIT_EVENT_TYPE_LABELS[eventType];
 }
 
 export function formatLocalTime(time: string): string {

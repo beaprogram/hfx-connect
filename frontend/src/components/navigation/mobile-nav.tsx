@@ -66,6 +66,16 @@ export function MobileNav() {
                   Moderation
                 </Link>
               )}
+              {state.user.role === "ORGANIZATION" && (
+                <Link href="/organization" onClick={() => setOpen(false)} className={linkClassName}>
+                  Organization
+                </Link>
+              )}
+              {state.user.role === "ADMIN" && (
+                <Link href="/admin/organizations" onClick={() => setOpen(false)} className={linkClassName}>
+                  Administration
+                </Link>
+              )}
               <button
                 type="button"
                 onClick={async () => {

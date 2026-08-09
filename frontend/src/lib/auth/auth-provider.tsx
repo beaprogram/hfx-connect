@@ -8,14 +8,26 @@ import type { UserResponse } from "@/lib/validation/schemas";
 /**
  * Every query-key prefix that must never survive a session boundary — see
  * `lib/query/keys.ts`'s `savedResourceKeys`/`resourceSubmissionKeys`/
- * `correctionReportKeys` (rooted in a `userId`, per-account private data)
- * and `moderationKeys` (Milestone 9A — not rooted in `userId`, since it is
- * role-gated shared moderator state rather than any one account's data, but
- * cleared for the identical reason: it must never sit in this browser's
- * cache across a logout or account switch). Cleared unconditionally on
- * logout and on a detected account switch, never left to go stale.
+ * `correctionReportKeys`/`organizationKeys` (each rooted in a `userId`,
+ * per-account private data) and `moderationKeys`/`adminOrganizationKeys`/
+ * `adminOwnershipClaimKeys` (not rooted in `userId`, since each is
+ * role-gated shared moderator/admin state rather than any one account's
+ * data, but cleared for the identical reason: it must never sit in this
+ * browser's cache across a logout or account switch). Deliberately excludes
+ * `public-organization` (Milestone 10A) — a verified organization's public
+ * profile is not private data, the same posture the public `resources`
+ * cache already has. Cleared unconditionally on logout and on a detected
+ * account switch, never left to go stale.
  */
-const PRIVATE_QUERY_KEY_PREFIXES = ["saved-resources", "resource-submissions", "correction-reports", "moderation"] as const;
+const PRIVATE_QUERY_KEY_PREFIXES = [
+  "saved-resources",
+  "resource-submissions",
+  "correction-reports",
+  "moderation",
+  "organization",
+  "admin-organizations",
+  "admin-ownership-claims",
+] as const;
 
 function clearPrivateContributionCaches(queryClient: QueryClient): void {
   for (const prefix of PRIVATE_QUERY_KEY_PREFIXES) {

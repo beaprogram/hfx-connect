@@ -48,6 +48,19 @@ import org.springframework.web.cors.CorsConfigurationSource;
  *       single matcher covers all of them; the moderation workflow's own
  *       self-review check happens inside the service layer, not here — this
  *       matcher only answers "may this account moderate at all."
+ *   <li>{@code /api/v1/organizations/me} and {@code /api/v1/organizations/me/**}
+ *       — {@code ORGANIZATION} only (Milestone 10A — see ADR-017). Declared
+ *       <em>before</em> the public single-segment slug matcher below so
+ *       {@code /api/v1/organizations/me} itself is never reached by the
+ *       public rule — first-match-wins.
+ *   <li>{@code GET /api/v1/organizations/{slug}} — public. Only a single
+ *       path segment (Ant {@code *}, not {@code **}), so it can never
+ *       accidentally match a nested {@code /me/**} route.
+ *   <li>{@code /api/v1/admin/organizations/**} and
+ *       {@code /api/v1/admin/resource-ownership-claims/**} — {@code ADMIN}
+ *       only (Milestone 10A). Organization verification and ownership-claim
+ *       decisions are deliberately not extended to {@code MODERATOR} — see
+ *       ADR-017.
  *   <li>Everything else: {@code authenticated()} — fail closed, not fail
  *       open, for any route this list doesn't already name (this is what
  *       covers the current-user resource-submission/correction-report
@@ -103,6 +116,10 @@ public class SecurityConfig {
 						.requestMatchers(HttpMethod.PUT, "/api/v1/resources/*/location")
 						.hasAnyRole("ADMIN", "MODERATOR")
 						.requestMatchers("/api/v1/moderation/**").hasAnyRole("ADMIN", "MODERATOR")
+						.requestMatchers("/api/v1/organizations/me", "/api/v1/organizations/me/**").hasRole("ORGANIZATION")
+						.requestMatchers(HttpMethod.GET, "/api/v1/organizations/*").permitAll()
+						.requestMatchers("/api/v1/admin/organizations/**").hasRole("ADMIN")
+						.requestMatchers("/api/v1/admin/resource-ownership-claims/**").hasRole("ADMIN")
 						.anyRequest().authenticated())
 				.addFilterBefore(new JwtAuthenticationFilter(accessTokenService, userRepository),
 						UsernamePasswordAuthenticationFilter.class);

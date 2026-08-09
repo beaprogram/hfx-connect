@@ -2,7 +2,7 @@
 
 ## Current Schema
 
-As of Milestone 8B, the schema contains nine Flyway migrations:
+As of Milestone 10A, the schema contains eleven Flyway migrations:
 
 | Version | File | Purpose |
 |---|---|---|
@@ -15,6 +15,8 @@ As of Milestone 8B, the schema contains nine Flyway migrations:
 | 7 | `backend/src/main/resources/db/migration/V7__add_resource_location.sql` | Adds `resources.location` (geography) and its GiST index |
 | 8 | `backend/src/main/resources/db/migration/V8__create_saved_resources_table.sql` | Creates the `saved_resources` table |
 | 9 | `backend/src/main/resources/db/migration/V9__create_resource_submissions_and_correction_reports.sql` | Creates the `resource_submissions` and `correction_reports` tables |
+| 10 | `backend/src/main/resources/db/migration/V10__add_moderation_workflow_and_audit.sql` | Adds review metadata to `resource_submissions`/`correction_reports`, `resources.last_verified_at`, and the `moderation_audit_events` table |
+| 11 | `backend/src/main/resources/db/migration/V11__create_organizations_and_resource_claims.sql` | Creates `organizations` and `resource_ownership_claims`, adds `resources.organization_id`, and creates `organization_audit_events` |
 
 ### `categories`
 
@@ -60,6 +62,7 @@ anticipated this when categories' ID type was decided.
 | `eligibility` | `VARCHAR(1000)` | nullable |
 | `verification_status` | `VARCHAR(20)` | `NOT NULL`, one of `UNVERIFIED`/`VERIFIED`, defaults to `UNVERIFIED` — settable only via `CommunityResource.markVerified`, used exclusively by the Milestone 9A moderation workflow (approving a submission, or applying a correction) |
 | `last_verified_at` | `TIMESTAMPTZ` | nullable — added by V10 (Milestone 9A); set together with `verification_status = 'VERIFIED'`, never independently. See ADR-016 |
+| `organization_id` | `UUID` | nullable — added by V11 (Milestone 10A), `REFERENCES organizations(id) ON DELETE SET NULL`. `NULL` means an ordinary HFX-Connect-managed listing; set only by an approved resource-ownership claim (`AdminResourceOwnershipClaimService.approve`). Deliberately a plain column, not a Hibernate `@ManyToOne` — see ADR-017 |
 | `active` | `BOOLEAN` | `NOT NULL`, defaults to `TRUE` |
 | `created_at` | `TIMESTAMPTZ` | `NOT NULL`, defaults to `now()` |
 | `updated_at` | `TIMESTAMPTZ` | `NOT NULL`, defaults to `now()` |
@@ -371,6 +374,101 @@ by `ModerationAuditRecorder` (write-only) and
 `/api/v1/moderation/**`, never reachable from a public or owner-facing
 route.
 
+### `organizations`
+
+An `ORGANIZATION` account's own profile (Milestone 10A, added by V11)
+— see [ADR-017](../decisions/ADR-017-organization-identity-and-ownership.md).
+Exactly one per owning account; begins `PENDING_VERIFICATION` and can
+only reach `VERIFIED`/`REJECTED`/`SUSPENDED` through an `ADMIN`
+decision.
+
+| Column | Type | Constraints |
+|---|---|---|
+| `id` | `UUID` | Primary key |
+| `owner_user_id` | `UUID` | `NOT NULL`, `UNIQUE`, `REFERENCES users(id) ON DELETE RESTRICT` — one profile per account |
+| `name` | `VARCHAR(180)` | `NOT NULL`, non-blank |
+| `normalized_name` | `VARCHAR(180)` | `NOT NULL` — lowercased form, mirrors `categories.normalized_name`'s reasoning |
+| `slug` | `VARCHAR(220)` | `NOT NULL`, `UNIQUE`, format-checked, stable after creation |
+| `description` | `VARCHAR(2000)` | nullable |
+| `website_url` | `VARCHAR(500)` | nullable |
+| `public_email` | `VARCHAR(180)` | nullable |
+| `phone` | `VARCHAR(40)` | nullable |
+| `address_line_1` | `VARCHAR(200)` | nullable — unlike `resources.address_line_1`, an organization's address is optional |
+| `city` | `VARCHAR(100)` | nullable |
+| `province` | `VARCHAR(2)` | nullable, must be a valid province/territory code when present |
+| `postal_code` | `VARCHAR(7)` | nullable, normalized Canadian format when present |
+| `verification_status` | `VARCHAR(20)` | `NOT NULL`, `CHECK` one of `PENDING_VERIFICATION`/`VERIFIED`/`REJECTED`/`SUSPENDED`, defaults to `PENDING_VERIFICATION` |
+| `verified_by_user_id` | `UUID` | nullable, `REFERENCES users(id) ON DELETE RESTRICT` |
+| `verified_at` | `TIMESTAMPTZ` | nullable |
+| `verification_reason` | `VARCHAR(1000)` | nullable |
+| `created_at` | `TIMESTAMPTZ` | `NOT NULL`, defaults to `now()` |
+| `updated_at` | `TIMESTAMPTZ` | `NOT NULL`, defaults to `now()` |
+
+`CHECK` constraint `organizations_verification_metadata_check` requires
+`verified_by_user_id`/`verified_at`/`verification_reason` present
+together on `VERIFIED`/`REJECTED`/`SUSPENDED` and absent together on
+`PENDING_VERIFICATION` — the same present/absent-together shape V10's
+review-metadata constraints already established. Index:
+`organizations_verification_status_idx` on `(verification_status)`,
+supporting the admin queue's default filtered view.
+
+### `resource_ownership_claims`
+
+An organization's request to own an existing resource (Milestone 10A,
+added by V11) — workflow history, never itself the ownership authority
+(see ADR-017's "Ownership Source of Truth" — that's `resources
+.organization_id`).
+
+| Column | Type | Constraints |
+|---|---|---|
+| `id` | `UUID` | Primary key |
+| `organization_id` | `UUID` | `NOT NULL`, `REFERENCES organizations(id) ON DELETE RESTRICT` |
+| `resource_id` | `UUID` | `NOT NULL`, `REFERENCES resources(id) ON DELETE RESTRICT` |
+| `status` | `VARCHAR(20)` | `NOT NULL`, `CHECK` one of `PENDING_REVIEW`/`APPROVED`/`REJECTED`/`WITHDRAWN`, defaults to `PENDING_REVIEW` |
+| `requested_at` | `TIMESTAMPTZ` | `NOT NULL`, defaults to `now()` |
+| `reviewed_by_user_id` | `UUID` | nullable, `REFERENCES users(id) ON DELETE RESTRICT` |
+| `reviewed_at` | `TIMESTAMPTZ` | nullable |
+| `review_reason` | `VARCHAR(1000)` | nullable |
+| `created_at` | `TIMESTAMPTZ` | `NOT NULL`, defaults to `now()` |
+| `updated_at` | `TIMESTAMPTZ` | `NOT NULL`, defaults to `now()` |
+
+A partial unique index, `resource_ownership_claims_pending_key`, on
+`(organization_id, resource_id) WHERE status = 'PENDING_REVIEW'`
+enforces at most one pending claim per organization/resource pair at
+the database level — this is what makes the duplicate-claim rejection
+authoritative rather than a pure application-level check (the same
+"database constraint is the actual authority" posture every duplicate
+guard in this codebase already follows). Indexes:
+`resource_ownership_claims_organization_id_idx`,
+`resource_ownership_claims_resource_id_idx`.
+
+### `organization_audit_events`
+
+An append-only organization/ownership audit trail (Milestone 10A,
+added by V11) — a new, separate table from `moderation_audit_events`,
+not a reuse of it; see ADR-017's "A New, Separate Audit Table" for why.
+
+| Column | Type | Constraints |
+|---|---|---|
+| `id` | `UUID` | Primary key |
+| `event_type` | `VARCHAR(30)` | `NOT NULL`, `CHECK` one of `ORGANIZATION_SUBMITTED`/`ORGANIZATION_VERIFIED`/`ORGANIZATION_REJECTED`/`ORGANIZATION_SUSPENDED`/`OWNERSHIP_CLAIM_SUBMITTED`/`OWNERSHIP_CLAIM_APPROVED`/`OWNERSHIP_CLAIM_REJECTED`/`OWNERSHIP_CLAIM_WITHDRAWN` |
+| `organization_id` | `UUID` | `NOT NULL` — a plain column, not a foreign key, matching `moderation_audit_events.contribution_id`'s reasoning |
+| `resource_id` | `UUID` | nullable — present for ownership-claim events |
+| `claim_id` | `UUID` | nullable — present for ownership-claim events |
+| `actor_user_id` | `UUID` | `NOT NULL`, `REFERENCES users(id) ON DELETE RESTRICT` |
+| `actor_email` | `VARCHAR(180)` | `NOT NULL` — a point-in-time snapshot, the same pattern `moderation_audit_events.actor_email` already established |
+| `review_reason` | `VARCHAR(1000)` | nullable |
+| `before_snapshot` | `JSONB` | nullable — a small, explicitly-built field map, never a serialized entity |
+| `after_snapshot` | `JSONB` | nullable — same reasoning |
+| `created_at` | `TIMESTAMPTZ` | `NOT NULL`, defaults to `now()` |
+
+Index: `organization_audit_events_organization_idx` on
+`(organization_id)`. Mapped by `OrganizationAuditEvent`, the second
+entity in this codebase (after `ModerationAuditEvent`) using
+Hibernate 7's native `@JdbcTypeCode(SqlTypes.JSON)` support. Read/
+written by `OrganizationAuditRecorder`/`OrganizationAuditQueryService`;
+`ADMIN`-only, never reachable from a public or owner-facing route.
+
 ## Database Engine
 
 PostgreSQL 17 with the PostGIS 3.5 extension, via the `postgis/postgis:17-3.5` Docker
@@ -387,8 +485,9 @@ see [ADR-004](../decisions/ADR-004-manual-flyway-configuration.md) for why, and
 
 Hibernate/JPA is used for reading and writing rows (`categories`, `resources`,
 `resource_operating_hours`, `saved_resources`, `resource_submissions`,
-`correction_reports`, and `moderation_audit_events` all have JPA entities),
-but never for schema creation or changes — `spring.jpa.hibernate.ddl-auto=validate`
+`correction_reports`, `moderation_audit_events`, `organizations`,
+`resource_ownership_claims`, and `organization_audit_events` all have JPA
+entities), but never for schema creation or changes — `spring.jpa.hibernate.ddl-auto=validate`
 makes Hibernate check that entity mappings match what Flyway already created, and
 fail startup if they don't, rather than ever creating or altering a table itself.
 
@@ -396,10 +495,10 @@ fail startup if they don't, rather than ever creating or altering a table itself
 
 The remaining entities anticipated by the product requirements are listed in
 [docs/architecture/system-overview.md](../architecture/system-overview.md#data-model-direction):
-`organizations`, `events`, and `resource_history` (`operating_hours` is now
-implemented, as `resource_operating_hours` above — Milestone 6B;
-`saved_resources` is now implemented, as above — Milestone 8A;
-`resource_submissions`/`correction_reports` are now implemented, as above —
-Milestone 8B, in place of the originally-anticipated `resource_reports`
-name). These will be introduced as real Flyway migrations in later
-milestones.
+`events` and `resource_history` (`operating_hours` is now implemented, as
+`resource_operating_hours` above — Milestone 6B; `saved_resources` is now
+implemented, as above — Milestone 8A; `resource_submissions`/
+`correction_reports` are now implemented, as above — Milestone 8B, in place
+of the originally-anticipated `resource_reports` name; `organizations` is
+now implemented, as above — Milestone 10A). These will be introduced as real
+Flyway migrations in later milestones.

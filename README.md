@@ -9,8 +9,8 @@ newcomer services, recreation, and events — that are currently scattered acros
 municipal websites, organization pages, and social media, and adds transparent
 verification so users can trust what they find.
 
-**Project status: Milestone 9A (Moderation Queue, Review Decisions,
-Publication, and Audit History) complete.** The backend
+**Project status: Milestone 10A (Organization Profiles, Verification,
+and Resource Ownership) complete.** The backend
 has three working REST APIs: categories
 (Milestone 3A —
 [backend/README.md](backend/README.md#category-api-apiv1categories)), resources
@@ -67,11 +67,29 @@ owner, and leaves an immutable audit record; a moderator can never
 review their own contribution, and two moderators can never both
 "win" a race to decide the same item (see
 [ADR-016](docs/decisions/ADR-016-moderation-workflow-design.md)).
+An `ORGANIZATION` account can now create and manage an organization
+profile at `/organization` (Milestone 10A): it starts pending
+verification, an `ADMIN` reviews it at `/admin/organizations`, and —
+once verified — the organization can request ownership of an existing
+public resource ("Claim this listing" on the resource's own detail
+page). An `ADMIN` approves or rejects each claim at
+`/admin/resource-claims`; an approval assigns real ownership
+(`resources.organization_id`) atomically, safe even under two
+organizations racing to claim the same resource, and the public
+resource then shows safe organization attribution. Suspending an
+organization never touches resources it already owns — they stay
+active and public; only public attribution and the organization's own
+public profile become unavailable. `ORGANIZATION` role and `VERIFIED`
+status are two independently-enforced facts throughout, and
+organization/claim admin review is `ADMIN`-only, not extended to
+`MODERATOR` (see
+[ADR-017](docs/decisions/ADR-017-organization-identity-and-ownership.md)).
 See
 [docs/milestones/](docs/milestones/) for exactly what each milestone delivered, and
 [docs/development-workflow.md](docs/development-workflow.md) for the full
-12-milestone roadmap (Milestones 3, 5, 6, and 8 are each split into lettered
-sub-milestones — 3A/3B/3C, 5A/5B/5C, 6A/6B, 7A/7B, 8A/8B). A baseline GitHub
+12-milestone roadmap (Milestones 3, 5, 6, 7, 8, 9, and 10 are each split into
+lettered sub-milestones — 3A/3B/3C, 5A/5B/5C, 6A/6B, 7A/7B, 8A/8B, 9A, 10A/10B).
+A baseline GitHub
 Actions workflow verifies the backend and frontend on pull requests;
 deployment automation remains part of the later release milestone.
 
@@ -262,6 +280,7 @@ Runs on [http://localhost:3000](http://localhost:3000) and expects the backend a
 - [Milestone 8A: Saved Resources and Authenticated Dashboard Integration](docs/milestones/milestone-08a-saved-resources.md)
 - [Milestone 8B: Resource Submissions and Correction Reports](docs/milestones/milestone-08b-submissions-corrections.md)
 - [Milestone 9A: Moderation Queue, Review Decisions, Publication, and Audit History](docs/milestones/milestone-09a-moderation-workflow.md)
+- [Milestone 10A: Organization Profiles, Verification, and Resource Ownership](docs/milestones/milestone-10a-organization-management.md)
 - [Wireframes](docs/wireframes/)
 - [API Documentation](docs/api/README.md)
 - [Database Documentation](docs/database/)
@@ -279,11 +298,12 @@ Runs on [http://localhost:3000](http://localhost:3000) and expects the backend a
 - [ADR-014: Saved Resources Design](docs/decisions/ADR-014-saved-resources-design.md)
 - [ADR-015: Community Contribution Workflows Design](docs/decisions/ADR-015-community-contribution-workflows-design.md)
 - [ADR-016: Moderation Workflow Design](docs/decisions/ADR-016-moderation-workflow-design.md)
+- [ADR-017: Organization Identity and Ownership](docs/decisions/ADR-017-organization-identity-and-ownership.md)
 - [Development Log](docs/development-log/)
 - [Resume Evidence](docs/career/resume-evidence.md)
 - [Interview Notes](docs/career/interview-notes.md)
 
-## Known Limitations (as of Milestone 9A)
+## Known Limitations (as of Milestone 10A)
 
 - **No rate limiting exists** — login accepts unlimited attempts. **No
   access-token revocation exists** — a compromised access token remains valid
@@ -292,24 +312,33 @@ Runs on [http://localhost:3000](http://localhost:3000) and expects the backend a
   *next* request, not immediately). Both are documented, honest
   limitations — see
   [docs/architecture/security-architecture.md](docs/architecture/security-architecture.md).
-- **No object-level/ownership authorization** — every authorization rule is
-  role-based; "this resource belongs to this organization" isn't a concept
-  yet (Milestone 10). `ORGANIZATION` accounts cannot create resources yet
-  for the same reason.
+- **Object-level ownership authorization now exists in one specific
+  place** — a resource can belong to a verified organization
+  (`resources.organization_id`, Milestone 10A), and only that
+  organization's own `/api/v1/organizations/me/**` requests are scoped
+  to it. It does not exist anywhere else: every other authorization
+  rule in the codebase is still role-based. `ORGANIZATION` accounts
+  still cannot create or directly edit a resource — only request
+  ownership of an existing one, subject to `ADMIN` approval.
 - The frontend's `/dashboard` route guard is a client-side UX convenience,
   not a security boundary — the backend's `SecurityConfig` is authoritative
   regardless of what the frontend renders or hides. See
   [ADR-009](docs/decisions/ADR-009-request-authentication-and-role-authorization.md).
-- No category/resource creation UI, reviewer assignment, or
-  organization tooling exist yet. Saved resources (Milestone 8A),
-  resource submissions/correction reports (Milestone 8B), and
-  moderation of both (Milestone 9A) are real — but no notes, folders,
-  collections, sharing, or export exist on top of saved resources; no
-  private moderator notes, bulk review, appeal workflow, email
-  notifications, automated duplicate merge, or audit export exist on
-  top of moderation. See
+- No category/resource creation UI or reviewer assignment exist yet.
+  Saved resources (Milestone 8A), resource submissions/correction
+  reports (Milestone 8B), moderation of both (Milestone 9A), and
+  organization profiles/verification/resource ownership (Milestone
+  10A) are real — but no notes, folders, collections, sharing, or
+  export exist on top of saved resources; no private moderator notes,
+  bulk review, appeal workflow, email notifications, automated
+  duplicate merge, or audit export exist on top of moderation; no
+  multi-member organization accounts, ownership-transfer/revocation
+  UI, organization-managed resource editing, or event management exist
+  on top of organizations. See
   [docs/milestones/milestone-09a-moderation-workflow.md](docs/milestones/milestone-09a-moderation-workflow.md)'s
-  Known Limitations for the complete moderation-specific list.
+  and
+  [docs/milestones/milestone-10a-organization-management.md](docs/milestones/milestone-10a-organization-management.md)'s
+  Known Limitations for the complete lists.
 - Newly-registered accounts are always `emailVerified: false` — no email-delivery
   mechanism exists to verify them, a deliberate, documented limitation (see
   [ADR-007](docs/decisions/ADR-007-user-identity-and-password-hashing.md)), not a bug.
@@ -370,7 +399,17 @@ Runs on [http://localhost:3000](http://localhost:3000) and expects the backend a
   duplicate-listing merge, or automated operating-hours correction (V9's
   correction-report schema never captured structured proposed hours —
   see [ADR-016](docs/decisions/ADR-016-moderation-workflow-design.md)).
-  No organizations exist yet either (Milestone 10).
+- Organization profiles, verification, and resource ownership
+  (Milestone 10A) work end to end — an `ORGANIZATION` account creates
+  a profile, an `ADMIN` verifies/rejects/suspends it, a verified
+  organization can request ownership of an existing public resource,
+  an `ADMIN` approves or rejects the claim, and an approved claim
+  assigns real ownership safely even under concurrent claims for the
+  same resource. There is no multi-member organization account, no
+  ownership-transfer or ownership-revocation UI, no organization-
+  managed resource editing, no automated business-registry
+  verification, and no events yet — see
+  [ADR-017](docs/decisions/ADR-017-organization-identity-and-ownership.md).
 - No deployment workflow or hosted environment exists yet; CI currently verifies the
   backend and frontend only.
 - No automated dependency-vulnerability scanning is configured in this project.

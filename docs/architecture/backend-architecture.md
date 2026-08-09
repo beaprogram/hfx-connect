@@ -558,3 +558,60 @@ checked explicitly — entity/service-layer test coverage does not imply
 response-DTO coverage. See ADR-016's "Verification Policy" section for
 the full account and the regression test now guarding against it
 recurring.
+
+## A Plain Foreign-Key Column Instead of a `@ManyToOne`, to Avoid Circular Package Coupling
+
+Milestone 10A needed `CommunityResource` to reference its owning
+`Organization`, but `com.hfxconnect.organization` already depends on
+`com.hfxconnect.resource` (the ownership-claim workflow reads/locks a
+resource by id). Adding a Hibernate `@ManyToOne` from
+`CommunityResource` back to `Organization` would have made the two
+packages depend on each other at the mapping level — this codebase's
+established one-direction-dependency convention (resource ← organization,
+never the reverse) would have broken. Instead, `CommunityResource
+.organizationId` is a plain `UUID` column, the same "no back-reference
+needed" pattern already used for `submittedByUserId`/`reportedByUserId`
+since Milestone 8B, now extended to a cross-package ownership
+relationship for the first time. `ResourceService` takes a narrow,
+read-only dependency on `OrganizationRepository` — one batch query per
+page of resources, loading only currently-`VERIFIED` organization
+summaries — rather than a bidirectional entity relationship. See
+[ADR-017](../decisions/ADR-017-organization-identity-and-ownership.md).
+
+## Reusing a Row Lock Across Two Different Decision Domains — Plus a Second Lock the First Domain Didn't Need
+
+Milestone 10A's organization-verification flow reuses Milestone 9A's
+exact `PESSIMISTIC_WRITE` row-lock pattern
+(`OrganizationRepository.findByIdForReview`) unchanged. Its
+ownership-claim-approval flow needed one lock more than that pattern
+alone provides: two *different* organizations' claims are two
+different `resource_ownership_claims` rows, so locking only the claim
+row would never serialize two admins approving different claims
+against the *same* resource — nothing would block the second approval
+transaction from also observing `organization_id IS NULL` as still
+true. `AdminResourceOwnershipClaimService.approve` additionally locks
+the target `CommunityResource` row via the same
+`ResourceRepository.findByIdForUpdate` the Milestone 9A
+correction-application flow already established for an identical "two
+different decision rows, one shared resource" shape — now a
+second, independent use of that exact method, confirming it as this
+codebase's general answer to that shape rather than a one-off. Proven
+correct by a real two-thread concurrent test
+(`OrganizationConcurrencyIntegrationTest`), not reasoning alone. See
+ADR-017's "Concurrency Strategy" section.
+
+## Promoting an Exception on Its Second Real Use, Not Preemptively
+
+`SelfReviewNotAllowedException` and `ContributionAlreadyReviewedException`
+moved from `com.hfxconnect.moderation` to `com.hfxconnect.common.error`
+in Milestone 10A, once — and only once — a second domain
+(organization/claim review) needed byte-for-byte the same rule. Name,
+HTTP status, error code, and message text were preserved exactly for
+`ContributionAlreadyReviewedException`, even though its name is a
+slight stretch for an organization context, specifically to avoid
+changing the wire-visible `code` on an already-shipped, already-tested
+Milestone 9A API contract. This is the same "shared pure utilities are
+extracted to be reusable on their second use, not preemptively"
+pattern `ResourceValidation`'s field-level helpers already established
+(Milestone 8B) — now applied to an exception type rather than a static
+helper method for the first time.

@@ -26,9 +26,11 @@ record NearbyResourceDetails(
 		double longitude,
 		double distanceMeters,
 		HoursStatus hoursStatus,
-		Boolean openNow) {
+		Boolean openNow,
+		ResourceOrganizationSummaryResponse organization) {
 
-	static NearbyResourceDetails from(NearbyResourceProjection projection, HoursStatus hoursStatus, Boolean openNow) {
+	static NearbyResourceDetails from(NearbyResourceProjection projection, HoursStatus hoursStatus, Boolean openNow,
+			ResourceOrganizationSummaryResponse organization) {
 		return new NearbyResourceDetails(
 				projection.getId(),
 				projection.getName(),
@@ -46,7 +48,8 @@ record NearbyResourceDetails(
 				projection.getLongitude(),
 				projection.getDistanceMeters(),
 				hoursStatus,
-				openNow);
+				openNow,
+				organization);
 	}
 
 }

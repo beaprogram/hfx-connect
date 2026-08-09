@@ -30,8 +30,9 @@ one begins.
 | 7B | `milestone/07b-interactive-map` | Visual map, browser geolocation, marker clustering, list/map sync |
 | 8A | `milestone/08a-saved-resources` | Saved resources and authenticated dashboard integration |
 | 8B | `milestone/08b-submissions-corrections` | Resource submissions, correction reports |
-| 9 | `milestone/09-moderation` | Moderation queue, approvals, verification status, audit trail |
-| 10 | `milestone/10-organizations-events` | Organization ownership, events, expiry handling |
+| 9A | `milestone/09a-moderation-workflow` | Moderation queue, approvals, verification status, audit trail |
+| 10A | `milestone/10a-organization-management` | Organization profiles, admin verification, resource ownership claims |
+| 10B | `milestone/10b-events` (planned) | Event CRUD, public event search, organization event management, expiry handling |
 | 11 | `milestone/11-quality` | Full test pass, security review, accessibility audit |
 | 12 | `milestone/12-release` | Production deployment, CI/CD, monitoring, final documentation |
 

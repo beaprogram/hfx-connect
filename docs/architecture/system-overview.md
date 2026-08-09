@@ -88,16 +88,20 @@ the public API contract can evolve independently.
 
 ## Data Model Direction
 
-Core entities anticipated by the product requirements: `users`, `organizations`,
+Core entities anticipated by the product requirements: `users`, `organizations`
+(now a real, implemented table as of Milestone 10A — see below),
 `categories`, `resources` (now with a geographic `location` column, Milestone
-7A — see [ADR-012](../decisions/ADR-012-postgis-nearby-search-design.md), and a
+7A — see [ADR-012](../decisions/ADR-012-postgis-nearby-search-design.md), a
 `verification_status`/`last_verified_at` pair a moderator can actually set,
-Milestone 9A), `resource_operating_hours` (Milestone 6B), `saved_resources`
+Milestone 9A, and an `organization_id` an approved ownership claim can
+set, Milestone 10A), `resource_operating_hours` (Milestone 6B), `saved_resources`
 (Milestone 8A), `resource_submissions`/`correction_reports` (Milestone 8B, in
 place of the originally-anticipated single `resource_reports` name —
 see ADR-015; both now carry review metadata as of Milestone 9A),
 `moderation_audit_events` (Milestone 9A — an append-only review-decision
-trail, not part of the originally-anticipated entity list), `events`, and
+trail, not part of the originally-anticipated entity list),
+`resource_ownership_claims`/`organization_audit_events` (Milestone 10A —
+also not part of the originally-anticipated entity list), `events`, and
 `resource_history`. The authoritative, versioned schema lives in Flyway
 migration files (see `docs/database/README.md` for the current, real
 schema — not a plan).
@@ -129,6 +133,16 @@ supported changes (or deactivate a resource for an approved
 audit record — see
 [ADR-016](../decisions/ADR-016-moderation-workflow-design.md) for the
 concurrency, publication, correction-application, and audit design.
+
+Milestone 10A implemented `organizations` and gave `ORGANIZATION`
+accounts real authority for the first time: a profile an `ADMIN` can
+verify, and — once verified — the ability to request ownership of an
+existing public resource, approved through the same kind of
+row-locked, audited `ADMIN` decision Milestone 9A established.
+`resources.organization_id` is the sole ownership authority;
+`resource_ownership_claims` is workflow history only — see
+[ADR-017](../decisions/ADR-017-organization-identity-and-ownership.md)
+for the concurrency, verification-reset, and audit design.
 
 ## Deployment Path
 

@@ -98,6 +98,24 @@ public class CommunityResource {
 	@Column(name = "last_verified_at")
 	private Instant lastVerifiedAt;
 
+	/**
+	 * The owning organization (Milestone 10A), or {@code null} for an
+	 * ordinary HFX Connect-managed listing. Deliberately a plain column, not
+	 * a {@code @ManyToOne} to {@code com.hfxconnect.organization.Organization}
+	 * — that package already depends on this one (for the ownership-claim
+	 * workflow, which needs to read/lock a resource); a reverse entity
+	 * relationship here would make the two packages depend on each other at
+	 * the mapping level. {@code ResourceService} instead batch-loads verified
+	 * organization summaries for a page of resources through a narrow,
+	 * read-only repository method — the same "no back-collection, resolve
+	 * association data through a dedicated query" posture {@code category}
+	 * uses for its own public-response needs, just without a JPA
+	 * relationship on this side. See ADR-017's "Ownership Source of Truth"
+	 * section.
+	 */
+	@Column(name = "organization_id")
+	private UUID organizationId;
+
 	@Column(nullable = false)
 	private boolean active;
 
@@ -175,6 +193,18 @@ public class CommunityResource {
 	public void markVerified(Instant at) {
 		this.verificationStatus = VerificationStatus.VERIFIED;
 		this.lastVerifiedAt = at;
+	}
+
+	/**
+	 * Assigns organization ownership (Milestone 10A) — used only by the
+	 * ownership-claim approval transaction, and only when this resource is
+	 * currently unowned (the caller, not this method, is responsible for
+	 * that check — see {@code ResourceOwnershipClaimReviewService}). No
+	 * mutator exists to clear ownership: revocation/transfer are out of
+	 * scope for this milestone (ADR-017).
+	 */
+	public void assignOrganization(UUID organizationId) {
+		this.organizationId = organizationId;
 	}
 
 	@PrePersist
@@ -259,6 +289,10 @@ public class CommunityResource {
 
 	public Instant getLastVerifiedAt() {
 		return lastVerifiedAt;
+	}
+
+	public UUID getOrganizationId() {
+		return organizationId;
 	}
 
 	public boolean isActive() {

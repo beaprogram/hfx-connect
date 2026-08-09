@@ -74,6 +74,13 @@ export async function postJson<T>(path: string, schema: ZodType<T>, options: Jso
   return parseJsonResponse(response, path, schema);
 }
 
+/** The `patchJson` counterpart to {@link postJson} — used for a partial update that returns the updated resource (e.g. an organization profile edit, Milestone 10A). */
+export async function patchJson<T>(path: string, schema: ZodType<T>, options: JsonRequestOptions = {}): Promise<T> {
+  const url = buildUrl(path);
+  const response = await sendJsonRequest(url, "PATCH", options);
+  return parseJsonResponse(response, path, schema);
+}
+
 /**
  * The `postJson` counterpart for a request with no meaningful response body
  * (logout returns `204 No Content`).
@@ -115,7 +122,7 @@ export async function deleteNoContent(path: string, options: JsonRequestOptions 
 
 function sendJsonRequest(
   url: string,
-  method: "POST" | "PUT" | "DELETE",
+  method: "POST" | "PUT" | "PATCH" | "DELETE",
   options: JsonRequestOptions,
 ): Promise<Response> {
   const headers = authorizedHeaders({ Accept: "application/json" }, options.accessToken);

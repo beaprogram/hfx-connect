@@ -6,6 +6,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.hfxconnect.AbstractPostgresIntegrationTest;
 import com.hfxconnect.category.Category;
 import com.hfxconnect.category.CategoryRepository;
+import com.hfxconnect.common.error.ContributionAlreadyReviewedException;
+import com.hfxconnect.common.error.SelfReviewNotAllowedException;
 import com.hfxconnect.common.text.SlugGenerator;
 import com.hfxconnect.correctionreport.CorrectionReportCreateRequest;
 import com.hfxconnect.correctionreport.CorrectionReportResponse;

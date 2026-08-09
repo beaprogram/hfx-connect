@@ -387,13 +387,16 @@ Summary of what actually exists in the code:
 - **Role-based visibility exists as of Milestone 9A**, in exactly one
   place: the "Moderation" nav link (`AuthNav`/`MobileNav`) and the
   `/moderation` routes, both gated on `MODERATOR`/`ADMIN` — see
-  "Role-Based Route Guarding" below. There is still no category/
-  resource creation UI or role-management UI; `/dashboard` shows the
-  current role as plain text. Backend enforcement (`SecurityConfig`)
-  remains authoritative regardless of anything the frontend renders or
-  hides, in every case.
+  "Role-Based Route Guarding" below. **Extended in Milestone 10A**: an
+  "Organization" nav link and `/organization/**` routes gated on
+  `ORGANIZATION`, and an "Administration" nav link and `/admin/**`
+  routes gated on `ADMIN` only (the first `/admin`-prefixed frontend
+  routes). There is still no category/resource creation UI or
+  role-management UI; `/dashboard` shows the current role as plain
+  text. Backend enforcement (`SecurityConfig`) remains authoritative
+  regardless of anything the frontend renders or hides, in every case.
 
-## Role-Based Route Guarding (Milestone 9A)
+## Role-Based Route Guarding (Milestone 9A, extended in Milestone 10A)
 
 `components/moderation/moderation-route.tsx`'s `ModerationRoute` is a
 distinct component from `ProtectedRoute`, not a role-parameterized
@@ -419,6 +422,19 @@ ADR-009/ADR-016) is the actual security boundary. A `USER` account
 that somehow reached `/moderation`'s rendered HTML directly would still
 get `403` from every API call the page makes; the guard exists so that
 never has to happen in the first place, not because it's load-bearing.
+
+Milestone 10A adds two more guards of the identical shape, not a
+generalized "role guard factory": `OrganizationRoute` (`ORGANIZATION`
+only) and `AdminRoute` (`ADMIN` only, deliberately *not*
+`hasAnyRole(ADMIN, MODERATOR)` like `ModerationRoute` — organization
+verification and ownership-claim review are not extended to
+`MODERATOR` on the backend either, see
+[ADR-017](../decisions/ADR-017-organization-identity-and-ownership.md)).
+Each is a small, separately-written component rather than a shared
+parameterized one, matching this codebase's own "duplication is fine
+until a third, meaningfully-different use justifies the abstraction"
+posture — three near-identical ~50-line guard components were judged
+clearer than one configurable one at this size.
 
 ## Saved Resources and Private-Data Cache Isolation
 
@@ -447,14 +463,21 @@ rather than introducing new ones). Summary:
   browser tab). `clearPrivateContributionCaches` (Milestone 8B) loops
   `queryClient.removeQueries` over a small, explicit list of key
   prefixes — `saved-resources`, `resource-submissions`,
-  `correction-reports`, and (Milestone 9A) `moderation` — rather than a
-  full `queryClient.clear()`, which would also discard unrelated,
-  harmless public caches (the category list, public resource pages)
-  for no benefit. `moderation` is the first prefix in that list *not*
-  rooted in `userId` (`moderationKeys` in `lib/query/keys.ts` — the
-  underlying data is role-gated shared moderator state, not any one
-  account's own data), but it is cleared for the identical reason: it
-  must never sit in one browser's cache across a session boundary.
+  `correction-reports`, (Milestone 9A) `moderation`, and (Milestone 10A)
+  `organization`, `admin-organizations`, `admin-ownership-claims` —
+  rather than a full `queryClient.clear()`, which would also discard
+  unrelated, harmless public caches (the category list, public
+  resource pages, and — Milestone 10A — a verified organization's
+  public profile) for no benefit. `moderation`, `admin-organizations`,
+  and `admin-ownership-claims` are the prefixes in that list *not*
+  rooted in `userId` — the underlying data is role-gated shared
+  moderator/admin state, not any one account's own data — but each is
+  cleared for the identical reason: it must never sit in one browser's
+  cache across a session boundary. `organization` *is* rooted in
+  `userId` (the same reasoning `saved-resources` already established),
+  and `public-organization` is deliberately **not** in this list at
+  all, for the same reason `resources` isn't — it is public data, not
+  a session boundary.
   Adding a future private- or session-scoped domain means appending one
   string to that list, not writing new clearing logic. This is why
   `AuthProvider` depends on
@@ -508,6 +531,11 @@ for the resulting `WebCorsConfig`.
 - No reviewer assignment, private moderator notes, bulk review, appeal
   workflow, or audit export in the moderation UI (Milestone 9A) — see
   `docs/milestones/milestone-09a-moderation-workflow.md`'s Known
+  Limitations.
+- No organization-managed resource-editing UI, ownership-transfer or
+  ownership-revocation UI, event management UI, or bulk admin approval
+  in the organization/admin UI (Milestone 10A) — see
+  `docs/milestones/milestone-10a-organization-management.md`'s Known
   Limitations.
 - The protected-route guard is UX-layer only; a direct request to
   `/dashboard`'s HTML bypasses nothing real, because the backend never

@@ -722,3 +722,94 @@ lookup.
 | `403` | Current account is not `ADMIN`/`MODERATOR`, or a self-review attempt (`SELF_REVIEW_NOT_ALLOWED`) |
 | `404` | No submission/report exists with the given id |
 | `409` | Already reviewed/withdrawn (`CONTRIBUTION_ALREADY_REVIEWED`), a publication conflict (`RESOURCE_PUBLICATION_CONFLICT`), or a correction-application conflict (`CORRECTION_APPLICATION_CONFLICT`) |
+
+## Organizations and Resource Ownership — `/api/v1/organizations/**`, `/api/v1/admin/**` (Milestone 10A)
+
+Full design: [ADR-017](../decisions/ADR-017-organization-identity-and-ownership.md).
+An `ORGANIZATION` account's own profile and resource-ownership claims,
+plus the `ADMIN`-only verification/claim-review surface, plus a
+verified organization's public profile. Holding the `ORGANIZATION` role
+is **not** the same thing as being a `VERIFIED` organization — every
+route below states which of the two it actually requires.
+
+### Organization profile
+
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/api/v1/organizations/me` | `ORGANIZATION` role only. Creates the current account's profile, always `PENDING_VERIFICATION`. `{"name": "...", "description": "...", "websiteUrl": "...", "publicEmail": "...", "phone": "...", "addressLine1": "...", "city": "...", "province": "...", "postalCode": "..."}` — only `name` is required. |
+| `GET` | `/api/v1/organizations/me` | `ORGANIZATION` role only. The current account's own profile. |
+| `PATCH` | `/api/v1/organizations/me` | `ORGANIZATION` role only. Same body shape as create. Changing `name` or `websiteUrl` on an already-`VERIFIED` profile resets it to `PENDING_VERIFICATION`. |
+| `GET` | `/api/v1/organizations/{slug}` | Public. Returns only a currently-`VERIFIED` organization's safe public fields; `404` for pending/rejected/suspended or a nonexistent slug — the two are indistinguishable. |
+
+`ownerUserId`, `verifiedByUserId`, and the full audit trail never
+appear on any response in this section except the `ADMIN`-only detail
+routes below.
+
+### Admin organization verification
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/v1/admin/organizations` | `ADMIN` only. Queue, defaults to `PENDING_VERIFICATION`, oldest submitted first. `verificationStatus`, `page`, `size`, `sort` (`createdAt`, default; `name`). |
+| `GET` | `/api/v1/admin/organizations/{organizationId}` | `ADMIN` only. Full detail, including `ownerUserId` (raw id, never resolved to an email). |
+| `POST` | `/api/v1/admin/organizations/{organizationId}/verify` | `{"reason": "..."}` — only legal from `PENDING_VERIFICATION`. |
+| `POST` | `/api/v1/admin/organizations/{organizationId}/reject` | `{"reason": "..."}` — profile is kept, not deleted; reason visible to the owner. |
+| `POST` | `/api/v1/admin/organizations/{organizationId}/suspend` | `{"reason": "..."}` — only legal from `VERIFIED`. Resources the organization already owns are untouched. |
+| `GET` | `/api/v1/admin/organizations/{organizationId}/audit-events` | This organization's audit history, oldest first. |
+
+Unlike `/api/v1/moderation/**`, these routes are **`ADMIN` only** —
+`MODERATOR` receives `403`. A self-review attempt (an admin who owns
+the target organization) returns `403 SELF_REVIEW_NOT_ALLOWED`, no
+exception. A decision on an already-decided organization returns `409
+CONTRIBUTION_ALREADY_REVIEWED` — the same shared exception Milestone
+9A's moderation workflow uses, reused here rather than duplicated.
+
+### Resource ownership claims
+
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/api/v1/organizations/me/resource-claims/{resourceId}` | `ORGANIZATION` role, and the current organization must be `VERIFIED`. Target resource must exist, be active, and be currently unowned. No request body. |
+| `GET` | `/api/v1/organizations/me/resource-claims` | The current organization's own claims only. `status`, `page`, `size`. |
+| `POST` | `/api/v1/organizations/me/resource-claims/{claimId}/withdraw` | Only the current organization's own, still-`PENDING_REVIEW` claim. Another organization's claim id returns `404`, never leaking its existence. |
+| `GET` | `/api/v1/organizations/me/resources` | `ORGANIZATION` role only. Resources currently owned (`resources.organization_id` matches), both active and inactive. |
+| `GET` | `/api/v1/admin/resource-ownership-claims` | `ADMIN` only. Queue, defaults to `PENDING_REVIEW`, oldest requested first. `status`, `organizationId`, `page`, `size`. |
+| `GET` | `/api/v1/admin/resource-ownership-claims/{claimId}` | `ADMIN` only. Full detail, including the resource's current live ownership. |
+| `POST` | `/api/v1/admin/resource-ownership-claims/{claimId}/approve` | `{"reason": "..."}` — assigns `resources.organizationId` atomically in the same transaction. |
+| `POST` | `/api/v1/admin/resource-ownership-claims/{claimId}/reject` | `{"reason": "..."}` — the resource is never modified. |
+
+**`resources.organization_id` is the sole ownership authority** — a
+claim's `status` is workflow history, never itself the grant (see
+ADR-017's "Ownership Source of Truth"). Approval re-verifies, inside
+the locked transaction, that the organization is still `VERIFIED` and
+the resource is still active and unowned; if the resource became owned
+in the meantime it returns `409 RESOURCE_ALREADY_OWNED` and leaves the
+claim `PENDING_REVIEW` for an admin to explicitly decide. A duplicate
+pending claim for the same organization/resource pair returns `409
+RESOURCE_OWNERSHIP_CLAIM_CONFLICT`.
+
+**Concurrency**: two different organizations' claims racing for the
+same resource are safe — approval locks both the claim row and the
+target resource row (reusing the exact lock Milestone 9A's correction-
+application flow established), proven with a real two-thread test, not
+reasoning alone.
+
+### Public resource attribution
+
+`GET /api/v1/resources/{id}`, `.../slug/{slug}`, and
+`GET /api/v1/resources/nearby` all gain an optional `organization`
+field — `{"id": "...", "name": "...", "slug": "...", "verified": true}`
+— present only when the resource is owned by a currently-`VERIFIED`
+organization. The compact list-card response from `GET
+/api/v1/resources` never includes it. A suspended organization's
+resource stays public and owned; only the attribution disappears.
+
+### Status codes
+
+| Status | Meaning |
+|---|---|
+| `200` | Profile get/update, queue/detail/decision/audit-events, claim list/withdraw, owned-resources succeeded |
+| `201` | Profile or claim created |
+| `400` | Validation failure, invalid pagination/sort, or claiming an inactive resource (`INACTIVE_RESOURCE`) |
+| `401` | Missing or invalid access token |
+| `403` | Current account lacks the required role, the organization is not `VERIFIED` (`ORGANIZATION_NOT_VERIFIED`), or a self-review attempt (`SELF_REVIEW_NOT_ALLOWED`) |
+| `404` | No organization/claim exists with the given id, no resource exists with the given id, or the current account has no profile yet (`ORGANIZATION_NOT_FOUND`) |
+| `409` | Duplicate profile/slug (`ORGANIZATION_CONFLICT`), already reviewed (`CONTRIBUTION_ALREADY_REVIEWED`), duplicate pending claim (`RESOURCE_OWNERSHIP_CLAIM_CONFLICT`), or the resource is already owned (`RESOURCE_ALREADY_OWNED`) |
