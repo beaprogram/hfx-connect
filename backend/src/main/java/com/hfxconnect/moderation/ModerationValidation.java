@@ -10,8 +10,18 @@ import java.util.Map;
  * never a place for hidden moderator-only notes, and control characters are
  * stripped so a copy-pasted reason can never inject unexpected formatting
  * into a plain-text display.
+ *
+ * <p><strong>{@code public}, and {@link #validateReason} is {@code public
+ * static}, as of Milestone 10A</strong>: organization verification/
+ * suspension decisions and resource-ownership-claim approve/reject decisions
+ * (see {@code com.hfxconnect.organization}) need byte-for-byte the same
+ * required/bounded/control-character-stripped review-reason rule a
+ * moderation decision already has — the same "shared pure utilities are
+ * extracted to be reusable on their second use, not preemptively" pattern
+ * {@link com.hfxconnect.resource.ResourceValidation} already established
+ * (Milestone 8B).
  */
-final class ModerationValidation {
+public final class ModerationValidation {
 
 	static final int REASON_MIN_LENGTH = 5;
 	static final int REASON_MAX_LENGTH = 1000;
@@ -19,7 +29,7 @@ final class ModerationValidation {
 	private ModerationValidation() {
 	}
 
-	static String validateReason(String reason) {
+	public static String validateReason(String reason) {
 		String normalized = reason == null ? "" : stripControlCharacters(reason.trim());
 		if (normalized.isEmpty()) {
 			throw new ValidationException("The submitted review contains invalid information.",

@@ -1,7 +1,9 @@
 package com.hfxconnect.moderation;
 
+import com.hfxconnect.common.error.ContributionAlreadyReviewedException;
 import com.hfxconnect.common.error.InvalidPaginationException;
 import com.hfxconnect.common.error.InvalidSortException;
+import com.hfxconnect.common.error.SelfReviewNotAllowedException;
 import com.hfxconnect.resource.CreateResourceCommand;
 import com.hfxconnect.resource.ResourceConflictException;
 import com.hfxconnect.resource.ResourceDetails;

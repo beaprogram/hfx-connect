@@ -1,7 +1,9 @@
 package com.hfxconnect.moderation;
 
+import com.hfxconnect.common.error.ContributionAlreadyReviewedException;
 import com.hfxconnect.common.error.InvalidPaginationException;
 import com.hfxconnect.common.error.InvalidSortException;
+import com.hfxconnect.common.error.SelfReviewNotAllowedException;
 import com.hfxconnect.common.error.ValidationException;
 import com.hfxconnect.correctionreport.CorrectionReport;
 import com.hfxconnect.correctionreport.CorrectionReportNotFoundException;
