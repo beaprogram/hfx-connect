@@ -21,7 +21,9 @@ public record NearbyResourceSummaryResponse(
 		@Schema(example = "44.6488") double latitude,
 		@Schema(example = "-63.5752") double longitude,
 		@Schema(description = "Straight-line geographic distance from the search origin, in metres.", example = "1204.7")
-		double distanceMeters) {
+		double distanceMeters,
+		@Schema(description = "The owning organization's safe summary (Milestone 10A) — present only when owned by a currently-verified organization.")
+		ResourceOrganizationSummaryResponse organization) {
 
 	static NearbyResourceSummaryResponse from(NearbyResourceDetails details) {
 		return new NearbyResourceSummaryResponse(
@@ -39,7 +41,8 @@ public record NearbyResourceSummaryResponse(
 				details.openNow(),
 				details.latitude(),
 				details.longitude(),
-				details.distanceMeters());
+				details.distanceMeters(),
+				details.organization());
 	}
 
 }

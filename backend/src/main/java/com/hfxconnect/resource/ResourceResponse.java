@@ -29,7 +29,9 @@ public record ResourceResponse(
 		Instant createdAt,
 		Instant updatedAt,
 		@Schema(description = "Weekly schedule and currently-calculated open status, evaluated in America/Halifax. See ADR-011.")
-		OperatingHoursResponse hours) {
+		OperatingHoursResponse hours,
+		@Schema(description = "The owning organization's safe summary (Milestone 10A) — present only when owned by a currently-verified organization.")
+		ResourceOrganizationSummaryResponse organization) {
 
 	static ResourceResponse from(ResourceDetails details) {
 		return new ResourceResponse(
@@ -54,7 +56,8 @@ public record ResourceResponse(
 				CategorySummaryResponse.from(details),
 				details.createdAt(),
 				details.updatedAt(),
-				OperatingHoursResponse.from(details.weeklyHours(), details.hoursStatus(), details.openNow()));
+				OperatingHoursResponse.from(details.weeklyHours(), details.hoursStatus(), details.openNow()),
+				details.organization());
 	}
 
 }

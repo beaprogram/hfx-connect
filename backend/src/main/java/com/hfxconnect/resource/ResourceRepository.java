@@ -4,6 +4,8 @@ import jakarta.persistence.LockModeType;
 import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalTime;
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.domain.Page;
@@ -50,8 +52,29 @@ public interface ResourceRepository extends JpaRepository<CommunityResource, UUI
 	@Query("SELECT r FROM CommunityResource r JOIN FETCH r.category WHERE r.id = :id")
 	Optional<CommunityResource> findByIdWithCategory(UUID id);
 
+	/**
+	 * Batch resource-summary lookup for an ownership-claim list/queue
+	 * (Milestone 10A) — one query for a whole page of claims, never one per
+	 * row, the same posture {@code findByOrganizationIdWithCategory} and
+	 * {@code ResourceService}'s hours/organization batch loaders already
+	 * establish.
+	 */
+	@Query("SELECT r FROM CommunityResource r JOIN FETCH r.category WHERE r.id IN :ids")
+	List<CommunityResource> findByIdInWithCategory(Collection<UUID> ids);
+
 	@Query("SELECT r FROM CommunityResource r JOIN FETCH r.category WHERE r.slug = :slug AND r.active = true")
 	Optional<CommunityResource> findBySlugAndActiveTrueWithCategory(String slug);
+
+	/**
+	 * An organization's owned-resource list (Milestone 10A) — both active
+	 * and inactive owned resources are returned; the caller decides how to
+	 * present each (see {@code OrganizationResourceService}). {@code
+	 * organizationId} is a plain column, not a relationship, so this is a
+	 * simple equality filter rather than a join condition.
+	 */
+	@Query(value = "SELECT r FROM CommunityResource r JOIN FETCH r.category WHERE r.organizationId = :organizationId",
+			countQuery = "SELECT count(r) FROM CommunityResource r WHERE r.organizationId = :organizationId")
+	Page<CommunityResource> findByOrganizationIdWithCategory(UUID organizationId, Pageable pageable);
 
 	/**
 	 * The single query behind the public resource listing (Milestone 6A,
@@ -158,6 +181,7 @@ public interface ResourceRepository extends JpaRepository<CommunityResource, UUI
 	@Query(value = "SELECT r.id AS id, r.name AS name, r.slug AS slug, r.city AS city, r.province AS province, "
 			+ "r.cost_type AS costType, r.verification_status AS verificationStatus, r.active AS active, "
 			+ "r.created_at AS createdAt, c.id AS categoryId, c.name AS categoryName, c.slug AS categorySlug, "
+			+ "r.organization_id AS organizationId, "
 			+ "ST_Y(r.location::geometry) AS latitude, ST_X(r.location::geometry) AS longitude, "
 			+ "ST_Distance(r.location, ST_SetSRID(ST_MakePoint(:longitude, :latitude), 4326)::geography) AS distanceMeters "
 			+ "FROM resources r JOIN categories c ON c.id = r.category_id "

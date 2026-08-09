@@ -11,11 +11,15 @@ import com.hfxconnect.common.error.InvalidRadiusException;
 import com.hfxconnect.common.error.InvalidSortException;
 import com.hfxconnect.common.error.InvalidVerificationStatusException;
 import com.hfxconnect.common.error.ValidationException;
+import com.hfxconnect.organization.Organization;
+import com.hfxconnect.organization.OrganizationRepository;
+import com.hfxconnect.organization.OrganizationVerificationStatus;
 import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalTime;
 import java.time.ZonedDateTime;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -71,13 +75,16 @@ public class ResourceService {
 	private final CategoryRepository categoryRepository;
 	private final ResourceOperatingHoursRepository operatingHoursRepository;
 	private final OpenNowCalculator openNowCalculator;
+	private final OrganizationRepository organizationRepository;
 
 	public ResourceService(ResourceRepository resourceRepository, CategoryRepository categoryRepository,
-			ResourceOperatingHoursRepository operatingHoursRepository, OpenNowCalculator openNowCalculator) {
+			ResourceOperatingHoursRepository operatingHoursRepository, OpenNowCalculator openNowCalculator,
+			OrganizationRepository organizationRepository) {
 		this.resourceRepository = resourceRepository;
 		this.categoryRepository = categoryRepository;
 		this.operatingHoursRepository = operatingHoursRepository;
 		this.openNowCalculator = openNowCalculator;
+		this.organizationRepository = organizationRepository;
 	}
 
 	@Transactional
@@ -228,10 +235,11 @@ public class ResourceService {
 
 		List<UUID> resourceIds = results.getContent().stream().map(CommunityResource::getId).toList();
 		Map<UUID, List<OperatingHoursEntry>> hoursByResourceId = loadHoursByResourceIds(resourceIds);
+		Map<UUID, ResourceOrganizationSummaryResponse> organizationByResourceId = loadOrganizationSummariesByResources(results.getContent());
 
 		List<ResourceDetails> content = results.getContent().stream()
-				.map(resource -> toResourceDetails(
-						resource, hoursByResourceId.getOrDefault(resource.getId(), List.of()), nowHalifax))
+				.map(resource -> toResourceDetails(resource, hoursByResourceId.getOrDefault(resource.getId(), List.of()),
+						nowHalifax, organizationByResourceId.get(resource.getId())))
 				.toList();
 
 		return new ResourcePage(content, results.getNumber(), results.getSize(), results.getTotalElements(),
@@ -316,11 +324,21 @@ public class ResourceService {
 		List<UUID> resourceIds = results.getContent().stream().map(NearbyResourceProjection::getId).toList();
 		Map<UUID, List<OperatingHoursEntry>> hoursByResourceId = loadHoursByResourceIds(resourceIds);
 
+		Map<UUID, UUID> organizationIdByResourceId = new HashMap<>();
+		for (NearbyResourceProjection projection : results.getContent()) {
+			if (projection.getOrganizationId() != null) {
+				organizationIdByResourceId.put(projection.getId(), projection.getOrganizationId());
+			}
+		}
+		Map<UUID, ResourceOrganizationSummaryResponse> organizationByResourceId =
+				loadOrganizationSummariesByOrganizationIds(organizationIdByResourceId);
+
 		List<NearbyResourceDetails> content = results.getContent().stream()
 				.map(projection -> {
 					List<OperatingHoursEntry> hours = hoursByResourceId.getOrDefault(projection.getId(), List.of());
 					OpenNowCalculator.Result result = openNowCalculator.calculate(hours, nowHalifax);
-					return NearbyResourceDetails.from(projection, result.status(), result.openNow());
+					return NearbyResourceDetails.from(projection, result.status(), result.openNow(),
+							organizationByResourceId.get(projection.getId()));
 				})
 				.toList();
 
@@ -380,13 +398,15 @@ public class ResourceService {
 		List<OperatingHoursEntry> hours = operatingHoursRepository.findByResourceId(resource.getId()).stream()
 				.map(OperatingHoursEntry::from)
 				.toList();
-		return toResourceDetails(resource, hours, openNowCalculator.nowInHalifax());
+		ResourceOrganizationSummaryResponse organization = loadOrganizationSummariesByResources(List.of(resource))
+				.get(resource.getId());
+		return toResourceDetails(resource, hours, openNowCalculator.nowInHalifax(), organization);
 	}
 
 	private ResourceDetails toResourceDetails(CommunityResource resource, List<OperatingHoursEntry> hours,
-			ZonedDateTime nowHalifax) {
+			ZonedDateTime nowHalifax, ResourceOrganizationSummaryResponse organization) {
 		OpenNowCalculator.Result result = openNowCalculator.calculate(hours, nowHalifax);
-		return ResourceDetails.from(resource, result.status(), result.openNow(), hours);
+		return ResourceDetails.from(resource, result.status(), result.openNow(), hours, organization);
 	}
 
 	private Map<UUID, List<OperatingHoursEntry>> loadHoursByResourceIds(List<UUID> resourceIds) {
@@ -396,6 +416,48 @@ public class ResourceService {
 		return operatingHoursRepository.findByResourceIdIn(resourceIds).stream()
 				.collect(Collectors.groupingBy(ResourceOperatingHours::getResourceId,
 						Collectors.mapping(OperatingHoursEntry::from, Collectors.toList())));
+	}
+
+	/**
+	 * Batch-loaded, verified-only organization summaries for a page of
+	 * resources (Milestone 10A) — one query for the whole page, never one
+	 * per card, the same posture {@link #loadHoursByResourceIds} already
+	 * established. An organization that is not currently
+	 * {@link OrganizationVerificationStatus#VERIFIED} (pending, rejected,
+	 * or suspended) simply never appears in the returned map — see
+	 * ADR-017's "Public Organization Exposure" section for why that single
+	 * rule is enough to cover all three cases.
+	 */
+	private Map<UUID, ResourceOrganizationSummaryResponse> loadOrganizationSummariesByResources(List<CommunityResource> resources) {
+		Map<UUID, UUID> organizationIdByResourceId = new HashMap<>();
+		for (CommunityResource resource : resources) {
+			if (resource.getOrganizationId() != null) {
+				organizationIdByResourceId.put(resource.getId(), resource.getOrganizationId());
+			}
+		}
+		return loadOrganizationSummariesByOrganizationIds(organizationIdByResourceId);
+	}
+
+	/** Same batching as {@link #loadOrganizationSummariesByResources}, for callers (like {@link #nearby}) that only have a raw organization id per result, not a {@link CommunityResource}. */
+	private Map<UUID, ResourceOrganizationSummaryResponse> loadOrganizationSummariesByOrganizationIds(
+			Map<UUID, UUID> organizationIdByResourceId) {
+		if (organizationIdByResourceId.isEmpty()) {
+			return Map.of();
+		}
+		Map<UUID, Organization> verifiedOrganizationsById = organizationRepository
+				.findByIdInAndVerificationStatus(Set.copyOf(organizationIdByResourceId.values()), OrganizationVerificationStatus.VERIFIED)
+				.stream()
+				.collect(Collectors.toMap(Organization::getId, org -> org));
+
+		Map<UUID, ResourceOrganizationSummaryResponse> byResourceId = new HashMap<>();
+		organizationIdByResourceId.forEach((resourceId, organizationId) -> {
+			Organization organization = verifiedOrganizationsById.get(organizationId);
+			if (organization != null) {
+				byResourceId.put(resourceId,
+						new ResourceOrganizationSummaryResponse(organization.getId(), organization.getName(), organization.getSlug(), true));
+			}
+		});
+		return byResourceId;
 	}
 
 	private static CostType resolveCostType(String costType) {

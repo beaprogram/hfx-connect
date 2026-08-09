@@ -43,4 +43,7 @@ interface NearbyResourceProjection {
 
 	Double getDistanceMeters();
 
+	/** Milestone 10A — {@code null} for an unowned resource. See {@code ResourceService.loadOrganizationSummariesByOrganizationIds}. */
+	UUID getOrganizationId();
+
 }

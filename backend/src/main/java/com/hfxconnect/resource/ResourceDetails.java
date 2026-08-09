@@ -46,15 +46,16 @@ public record ResourceDetails(
 		Instant updatedAt,
 		HoursStatus hoursStatus,
 		Boolean openNow,
-		List<OperatingHoursEntry> weeklyHours) {
+		List<OperatingHoursEntry> weeklyHours,
+		ResourceOrganizationSummaryResponse organization) {
 
-	/** A resource with no computed hours yet (freshly created/updated) is UNKNOWN — see ADR-011. */
+	/** A resource with no computed hours yet (freshly created/updated) is UNKNOWN — see ADR-011. Never owned at creation time. */
 	static ResourceDetails from(CommunityResource resource) {
-		return from(resource, HoursStatus.UNKNOWN, null, List.of());
+		return from(resource, HoursStatus.UNKNOWN, null, List.of(), null);
 	}
 
 	static ResourceDetails from(CommunityResource resource, HoursStatus hoursStatus, Boolean openNow,
-			List<OperatingHoursEntry> weeklyHours) {
+			List<OperatingHoursEntry> weeklyHours, ResourceOrganizationSummaryResponse organization) {
 		return new ResourceDetails(
 				resource.getId(),
 				resource.getCategory().getId(),
@@ -81,7 +82,8 @@ public record ResourceDetails(
 				resource.getUpdatedAt(),
 				hoursStatus,
 				openNow,
-				weeklyHours);
+				weeklyHours,
+				organization);
 	}
 
 }
