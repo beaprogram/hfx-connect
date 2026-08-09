@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { getJson, postJson, postNoContent, putNoContent, deleteNoContent } from "./client";
+import { getJson, postJson, patchJson, postNoContent, putNoContent, deleteNoContent } from "./client";
 import { ApiRequestError, ApiResponseShapeError } from "./errors";
 
 const testSchema = z.object({ id: z.number(), name: z.string() });
@@ -163,6 +163,38 @@ describe("postJson", () => {
     await expect(postJson("/api/v1/auth/login", testSchema, { body: {} })).rejects.toMatchObject({
       status: 401,
       code: "AUTHENTICATION_FAILED",
+    });
+  });
+});
+
+describe("patchJson", () => {
+  beforeEach(() => {
+    global.fetch = jest.fn();
+  });
+
+  it("sends a PATCH request with a JSON body (Milestone 10A organization profile update)", async () => {
+    mockFetchOnce({ ok: true, status: 200, json: async () => ({ id: 1, name: "x" }) });
+
+    await patchJson("/api/v1/organizations/me", testSchema, { body: { name: "Renamed Org" }, accessToken: "a-token" });
+
+    const [url, init] = (global.fetch as jest.Mock).mock.calls[0];
+    expect(url).toContain("/api/v1/organizations/me");
+    expect(init.method).toBe("PATCH");
+    expect((init.headers as Record<string, string>)["Content-Type"]).toBe("application/json");
+    expect((init.headers as Record<string, string>).Authorization).toBe("Bearer a-token");
+    expect(JSON.parse(init.body as string)).toEqual({ name: "Renamed Org" });
+  });
+
+  it("throws ApiRequestError with the backend's ApiError body on a non-2xx response", async () => {
+    mockFetchOnce({
+      ok: false,
+      status: 409,
+      json: async () => ({ timestamp: null, status: 409, code: "ORGANIZATION_CONFLICT", message: "Conflict." }),
+    });
+
+    await expect(patchJson("/api/v1/organizations/me", testSchema, { body: {} })).rejects.toMatchObject({
+      status: 409,
+      code: "ORGANIZATION_CONFLICT",
     });
   });
 });

@@ -186,8 +186,14 @@ describe("AuthProvider", () => {
       ["resource-submissions", user.id, "list", { page: 0 }],
       ["correction-reports", user.id, "list", { page: 0 }],
       ["moderation", "resource-submissions", "queue", { page: 0 }],
+      ["organization", user.id, "profile"],
+      ["admin-organizations", "queue", { page: 0 }],
+      ["admin-ownership-claims", "queue", { page: 0 }],
     ];
-    for (const key of privateKeys) {
+    // A verified organization's public profile is not private data — it must
+    // survive logout, the same posture the public "resources" cache has.
+    const publicKey = ["public-organization", "halifax-newcomer-services"];
+    for (const key of [...privateKeys, publicKey]) {
       queryClient.setQueryData(key, { content: ["fake"] });
       expect(queryClient.getQueryData(key)).toBeDefined();
     }
@@ -198,6 +204,7 @@ describe("AuthProvider", () => {
     for (const key of privateKeys) {
       expect(queryClient.getQueryData(key)).toBeUndefined();
     }
+    expect(queryClient.getQueryData(publicKey)).toBeDefined();
   });
 
   it("logging in as a different account clears the previous account's private-data caches", async () => {
@@ -233,6 +240,9 @@ describe("AuthProvider", () => {
       ["resource-submissions", user.id, "list", { page: 0 }],
       ["correction-reports", user.id, "list", { page: 0 }],
       ["moderation", "resource-submissions", "queue", { page: 0 }],
+      ["organization", user.id, "profile"],
+      ["admin-organizations", "queue", { page: 0 }],
+      ["admin-ownership-claims", "queue", { page: 0 }],
     ];
     for (const key of privateKeys) {
       queryClient.setQueryData(key, { content: ["fake"] });
