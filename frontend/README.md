@@ -26,7 +26,16 @@ dashboard section with a withdraw action on still-pending items and
 review either contribution type at `/moderation` — a queue, full
 detail, and approve/reject decision forms, gated by a role-aware route
 guard distinct from the plain authentication guard every other
-protected route uses. See
+protected route uses. As of Milestone 10A, an `ORGANIZATION` account
+sees an "Organization" nav link and can create/edit an organization
+profile, view resources it owns, and manage its resource-ownership
+claims at `/organization/**`; an `ADMIN` account sees an
+"Administration" nav link and can review organizations and ownership
+claims at `/admin/organizations`/`/admin/resource-claims` — the first
+`/admin`-prefixed routes in this frontend, gated by an `ADMIN`-only
+guard distinct from the `ADMIN`/`MODERATOR` moderation guard. An
+eligible resource's detail page also gains a "Claim this listing"
+control for a verified organization viewing an unowned resource. See
 [docs/architecture/frontend-architecture.md](../docs/architecture/frontend-architecture.md#authentication-architecture)
 for the authentication design, its
 ["URL State" section](../docs/architecture/frontend-architecture.md#url-state-resources)
@@ -35,10 +44,11 @@ for the search design, its
 for the map, its
 ["Saved Resources and Private-Data Cache Isolation" section](../docs/architecture/frontend-architecture.md#saved-resources-and-private-data-cache-isolation)
 for the private-data cache pattern shared by saved resources,
-submissions, correction reports, and moderation, and its
-["Role-Based Route Guarding" section](../docs/architecture/frontend-architecture.md#role-based-route-guarding-milestone-9a)
-for the moderation guard. No role-management UI or reviewer-assignment
-UI exist yet.
+submissions, correction reports, moderation, and organizations, and
+its
+["Role-Based Route Guarding" section](../docs/architecture/frontend-architecture.md#role-based-route-guarding-milestone-9a-extended-in-milestone-10a)
+for the moderation/organization/admin guards. No role-management UI or
+reviewer-assignment UI exist yet.
 
 ## Stack
 
@@ -129,6 +139,16 @@ frontend/
         page.tsx                     Queue tabs (resource submissions, correction reports)
         resource-submissions/[id]/page.tsx  Submission review detail + decision forms
         correction-reports/[id]/page.tsx     Report review detail + decision forms
+      organization/                ORGANIZATION only (Milestone 10A)
+        page.tsx                     Dashboard: create-profile form or status overview
+        profile/page.tsx             Edit organization profile
+        resources/page.tsx           Owned resources (read-only)
+        claims/page.tsx               Resource-ownership claims, with withdraw
+      admin/                          ADMIN only (Milestone 10A) — the first /admin routes
+        organizations/page.tsx       Organization-verification queue
+        organizations/[id]/page.tsx  Organization detail + verify/reject/suspend
+        resource-claims/page.tsx     Resource-ownership-claim queue
+        resource-claims/[id]/page.tsx  Claim detail + approve/reject
     components/
       categories/               Category card/grid
       resources/                Resource card/grid, filter form (incl. keyword search
@@ -156,30 +176,46 @@ frontend/
                                             CorrectionReportReviewDetail,
                                             ModerationDecisionForm/CorrectionApprovalForm,
                                             ModerationAuditHistory (Milestone 9A)
+      organization/                OrganizationRoute/AdminRoute (role guards),
+                                            OrganizationDashboard/ProfileForm/ProfilePage/
+                                            ResourcesList/ClaimsList/Nav/StatusBadge/
+                                            AuditHistory, ClaimResourceControl (public
+                                            resource detail page), AdminOrganizationQueue/
+                                            Detail, AdminOwnershipClaimQueue/Detail
+                                            (Milestone 10A — reuses ModerationDecisionForm
+                                            for every verify/reject/suspend/approve/reject
+                                            reason form rather than duplicating it)
       navigation/                Mobile disclosure nav (auth-aware as of Milestone 5C;
-                                            role-conditional "Moderation" link, Milestone 9A)
+                                            role-conditional "Moderation" link, Milestone 9A;
+                                            "Organization"/"Administration" links, Milestone 10A)
       auth/                          Login/register forms, dashboard content, the
                                             protected-route guard (returnTo-aware,
                                             Milestone 8B), the auth-aware nav link
-                                            (Milestone 5C; role-conditional "Moderation"
-                                            link, Milestone 9A), and SavedResourcesSection
+                                            (Milestone 5C; role-conditional "Moderation"/
+                                            "Organization"/"Administration" links,
+                                            Milestone 9A/10A), and SavedResourcesSection
                                             (Milestone 8A)
       feedback/                    Shared badge/empty-state/error components
       site-header.tsx, site-footer.tsx
     lib/
-      api/                          Typed API client (client.ts) + one module per
-                                            resource (categories.ts, resources.ts, auth.ts,
-                                            saved-resources.ts — Milestone 8A;
-                                            resource-submissions.ts,
+      api/                          Typed API client (client.ts — getJson/postJson/
+                                            patchJson/postNoContent/putNoContent/
+                                            deleteNoContent, patchJson added Milestone 10A)
+                                            + one module per resource (categories.ts,
+                                            resources.ts, auth.ts, saved-resources.ts —
+                                            Milestone 8A; resource-submissions.ts,
                                             correction-reports.ts — Milestone 8B;
-                                            moderation.ts — Milestone 9A)
+                                            moderation.ts — Milestone 9A; organization.ts —
+                                            Milestone 10A)
       auth/                         AuthProvider/useAuth — the in-memory session
                                             (Milestone 5C; clears every private-data
                                             cache prefix on logout/account switch,
-                                            Milestone 8A/8B/9A) — and return-to.ts's
-                                            open-redirect-safe returnTo validation, now
-                                            also used by ProtectedRoute (Milestone 8B) and
-                                            ModerationRoute (Milestone 9A)
+                                            Milestone 8A/8B/9A/10A, deliberately excluding
+                                            the public organization-profile prefix) — and
+                                            return-to.ts's open-redirect-safe returnTo
+                                            validation, now also used by ProtectedRoute
+                                            (Milestone 8B), ModerationRoute (Milestone 9A),
+                                            and OrganizationRoute/AdminRoute (Milestone 10A)
       map/                          MapSearchProvider/useMapSearch (session-scoped
                                             centre/radius/geolocation/selection state,
                                             mounted at the /resources layout) and
@@ -258,3 +294,10 @@ three account-linked domains.
   queue/detail/decision-form UI reuses the same API client, TanStack
   Query, and form/validation conventions every prior milestone
   established; `npm audit` is unchanged from Milestone 8B.
+- Milestone 10A introduced no new dependencies either — the
+  organization/admin UI reuses the same API client (plus one new
+  `patchJson` function in the existing `client.ts`), TanStack Query,
+  and form/validation conventions every prior milestone established,
+  including `ModerationDecisionForm` itself for every verify/reject/
+  suspend/approve/reject reason form; `npm audit` is unchanged from
+  Milestone 9A.

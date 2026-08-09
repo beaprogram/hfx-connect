@@ -261,6 +261,24 @@ curl -X POST "http://localhost:8080/api/v1/moderation/resource-submissions/{subm
 curl -X POST "http://localhost:8080/api/v1/moderation/correction-reports/{reportId}/approve" \
   -H "Authorization: Bearer $MODERATOR_TOKEN" -H "Content-Type: application/json" \
   -d '{"reason":"Confirmed the new address.","applyProposedChanges":true,"deactivateResource":false}'
+
+# Organizations (Milestone 10A) — ORGANIZATION role required for /me routes
+curl -X POST "http://localhost:8080/api/v1/organizations/me" \
+  -H "Authorization: Bearer $ORG_TOKEN" -H "Content-Type: application/json" \
+  -d '{"name":"Halifax Newcomer Services"}'
+curl "http://localhost:8080/api/v1/organizations/halifax-newcomer-services"   # public, VERIFIED only
+
+# Admin organization verification (Milestone 10A) — ADMIN only, not MODERATOR
+curl -X POST "http://localhost:8080/api/v1/admin/organizations/{organizationId}/verify" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" -H "Content-Type: application/json" \
+  -d '{"reason":"Confirmed against public registry."}'
+
+# Resource ownership claims (Milestone 10A) — organization must be VERIFIED
+curl -X POST "http://localhost:8080/api/v1/organizations/me/resource-claims/{resourceId}" \
+  -H "Authorization: Bearer $ORG_TOKEN"
+curl -X POST "http://localhost:8080/api/v1/admin/resource-ownership-claims/{claimId}/approve" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" -H "Content-Type: application/json" \
+  -d '{"reason":"Confirmed ownership documentation."}'
 ```
 
 **Keyword search (`q`, Milestone 6A):** case-insensitive substring match
@@ -330,6 +348,21 @@ and a row-level `PESSIMISTIC_WRITE` lock guarantees exactly one of two
 concurrent decisions on the same item ever succeeds — the other gets
 `409`. Every final decision records an append-only audit event. Full
 design: [ADR-016](../docs/decisions/ADR-016-moderation-workflow-design.md).
+
+**Organizations and resource ownership (Milestone 10A):** an
+`ORGANIZATION` account manages one profile (`/api/v1/organizations/me`)
+that always starts `PENDING_VERIFICATION` — holding the role is not
+the same thing as being verified. An `ADMIN` (never `MODERATOR`)
+verifies/rejects/suspends it. Only a `VERIFIED` organization may
+request ownership of an existing, active, unowned resource
+(`POST /api/v1/organizations/me/resource-claims/{resourceId}`); an
+`ADMIN` approves or rejects the claim, and approval atomically assigns
+`resources.organizationId` — the sole ownership authority; a claim's
+own status is workflow history only. Approval locks both the claim row
+and the target resource row, so two organizations' claims racing for
+the same resource can never both succeed. Suspending an organization
+never touches resources it already owns. Full design:
+[ADR-017](../docs/decisions/ADR-017-organization-identity-and-ownership.md).
 
 A resource is created under an existing, active category (`categories.id`, a
 `BIGINT` — not the `UUID` a resource's own `id` is; see
@@ -540,6 +573,17 @@ backend/
                                                              types — PESSIMISTIC_WRITE row locking for concurrency,
                                                              self-review prevention, publication/correction-
                                                              application transactions — see ADR-016
+    organization/                                  Organization domain (Milestone 10A): Organization/
+                                                             ResourceOwnershipClaim/OrganizationAuditEvent
+                                                             (+repositories, JSONB snapshots), OrganizationService,
+                                                             AdminOrganizationService, ResourceOwnershipClaimService,
+                                                             AdminResourceOwnershipClaimService,
+                                                             OrganizationResourceService, five controllers, DTOs,
+                                                             seven exception types — PESSIMISTIC_WRITE row locking
+                                                             on both the decision row and (for claim approval) the
+                                                             target resource row, self-review prevention (reusing
+                                                             common.error's promoted exceptions), verification-reset
+                                                             policy — see ADR-017
   src/main/resources/
     application.properties                        Base configuration (env-based DB connection,
                                                              JPA, Actuator, JWT/cookie config)
@@ -561,6 +605,8 @@ backend/
                                                              migration (Milestone 8B — see ADR-015)
       V10__add_moderation_workflow_and_audit.sql   Tenth Flyway migration
                                                              (Milestone 9A — see ADR-016)
+      V11__create_organizations_and_resource_claims.sql   Eleventh Flyway
+                                                             migration (Milestone 10A — see ADR-017)
   src/test/java/com/hfxconnect/
     AbstractPostgresIntegrationTest.java   Shared Testcontainers setup (public — extended
                                                              from sub-packages like category/, resource/)

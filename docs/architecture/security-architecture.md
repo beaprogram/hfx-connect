@@ -100,13 +100,20 @@ matrix is expressed:
 | `PUT /api/v1/resources/{id}/operating-hours` | `ADMIN` or `MODERATOR` (Milestone 6B) |
 | `PUT /api/v1/resources/{id}/location` | `ADMIN` or `MODERATOR` (Milestone 7A) |
 | `/api/v1/moderation/**` | `ADMIN` or `MODERATOR` (Milestone 9A) — one matcher covers all eleven moderation routes (queue, detail, approve, reject, audit history, for both contribution domains) |
+| `/api/v1/organizations/me`, `/api/v1/organizations/me/**` | `ORGANIZATION` only (Milestone 10A) — declared before the public slug matcher below, so first-match-wins protects it |
+| `GET /api/v1/organizations/{slug}` | Public (Milestone 10A) — only a single path segment, so `/me` is never reachable through this matcher |
+| `/api/v1/admin/organizations/**` | `ADMIN` only (Milestone 10A) — deliberately not extended to `MODERATOR`, unlike `/api/v1/moderation/**` |
+| `/api/v1/admin/resource-ownership-claims/**` | `ADMIN` only (Milestone 10A) |
 | Everything else | `authenticated()` — fail closed by default (this is what covers the current-user resource-submission/correction-report routes, Milestone 8B — any authenticated role) |
 
-`ORGANIZATION` accounts cannot create resources yet, even though the role
-exists: organization ownership/verification doesn't exist (Milestone 10), so
-there is no way to attribute a created resource to an organization
-correctly — granting this now would create a real capability this project
-isn't ready to support, not a conservative default.
+`ORGANIZATION` accounts still cannot create or directly edit a resource
+— `POST /api/v1/resources` remains `ADMIN`/`MODERATOR` only. Milestone
+10A gives a verified organization a narrower, different capability:
+requesting ownership of an *existing* resource through the
+ownership-claim workflow (`ADMIN`-approved, never automatic) — not
+resource authorship. Direct organization-managed resource creation/
+editing remains out of scope; see ADR-017's "Out of Scope" and the
+milestone doc's Known Limitations.
 
 Roles map to Spring Security authorities as `ROLE_USER`/`ROLE_ORGANIZATION`/
 `ROLE_MODERATOR`/`ROLE_ADMIN`. No role hierarchy is configured — this
@@ -378,6 +385,50 @@ Full design: [ADR-016](../decisions/ADR-016-moderation-workflow-design.md).
   from any owner-facing or public route — confirmed live (`403` for a
   contribution's own owner attempting the audit route).
 
+## Organization Authorization and Ownership Concurrency (Milestone 10A)
+
+Full design: [ADR-017](../decisions/ADR-017-organization-identity-and-ownership.md).
+
+- The `ORGANIZATION` role and a `VERIFIED` organization profile are two
+  independently-checked facts everywhere they matter — holding the
+  role alone never grants claim-submission authority; every claim
+  operation re-checks the current account's own organization's
+  `verificationStatus` fresh, never from a cached/earlier check.
+- `/api/v1/admin/organizations/**` and
+  `/api/v1/admin/resource-ownership-claims/**` require `ADMIN`
+  specifically, not `ADMIN`/`MODERATOR` like `/api/v1/moderation/**` —
+  a deliberately narrower authorization boundary for a
+  higher-trust decision (verifying a real-world identity and granting
+  ownership of existing public data).
+- An `ADMIN` can never verify, reject, suspend, or decide a claim for
+  their own organization (`403 SELF_REVIEW_NOT_ALLOWED`), checked
+  against the current database owner column, with no exemption —
+  reusing the identical check Milestone 9A already proved correct per
+  role.
+- `resources.organization_id` is the only place any response reads
+  current ownership from — no code path ever infers ownership from a
+  claim's own `status`, which prevents a rejected/withdrawn/stale claim
+  record from ever being mistaken for a live ownership grant.
+- Claim approval is a real security property, not just a correctness
+  one: without locking the *target resource* row (in addition to the
+  claim row), two different organizations' claims could both read
+  "unowned" and both be approved, corrupting ownership. Proven safe
+  with an actual two-thread concurrent test racing two different claim
+  ids against the same resource, not reasoning alone.
+- No claim/organization endpoint accepts a client-supplied
+  `organizationId`, `ownerUserId`, verification status, or reviewer
+  identity — every one of those is assigned only inside the relevant
+  transaction, from the authenticated principal and the transaction's
+  own outcome.
+- Organization/ownership audit history (`organization_audit_events`,
+  `/audit-events` routes) is `ADMIN`-only and never reachable from any
+  owner-facing or public route.
+- Suspending an organization is deliberately not a "revoke everything"
+  operation: it never deactivates or unassigns a resource the
+  organization already owns — only its own public profile and public
+  resource attribution become unavailable, an intentionally narrow
+  blast radius (see ADR-017's "Organization Suspension").
+
 ## See Also
 
 - [ADR-007: User Identity and Password Hashing](../decisions/ADR-007-user-identity-and-password-hashing.md)
@@ -385,6 +436,8 @@ Full design: [ADR-016](../decisions/ADR-016-moderation-workflow-design.md).
 - [ADR-009: Request Authentication and Role Authorization](../decisions/ADR-009-request-authentication-and-role-authorization.md)
 - [ADR-006: Frontend-Backend Connectivity (CORS)](../decisions/ADR-006-frontend-backend-connectivity.md)
 - [ADR-012: PostGIS Resource Locations and Nearby-Search Design](../decisions/ADR-012-postgis-nearby-search-design.md)
+- [ADR-016: Moderation Workflow Design](../decisions/ADR-016-moderation-workflow-design.md)
+- [ADR-017: Organization Identity and Ownership](../decisions/ADR-017-organization-identity-and-ownership.md)
 - [ADR-013: Interactive Map and Geolocation Design](../decisions/ADR-013-interactive-map-and-geolocation-design.md)
 - [ADR-014: Saved Resources Design](../decisions/ADR-014-saved-resources-design.md)
 - [ADR-015: Community Contribution Workflows Design](../decisions/ADR-015-community-contribution-workflows-design.md)

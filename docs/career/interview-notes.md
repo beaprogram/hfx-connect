@@ -883,6 +883,70 @@ flow — I only avoided it because I wrote a dedicated test asserting an
 `ADMIN` account gets blocked reviewing its own contribution before
 implementing the check, not after.
 
+## Answerable Now (Milestone 10A)
+
+**Two different organizations both submit a claim for the same
+resource, and an admin approves both almost simultaneously. What
+stops the second one from also succeeding?** Locking only the claim
+row — the pattern I'd already proven for single-decision-row workflows
+in the moderation milestone — doesn't help here, because these are two
+*different* claim rows; a lock on one never blocks a transaction
+operating on the other. The fix is that claim approval additionally
+acquires a `PESSIMISTIC_WRITE` lock on the *target resource* row (I
+reused the exact repository method the moderation milestone's
+correction-application flow already had for an almost-identical
+shape), and re-checks `organization_id IS NULL` under that lock
+immediately before assigning ownership. Whichever approval gets the
+resource-row lock first wins; the second one re-reads, sees ownership
+is no longer null, and fails with a `409`. I proved it with a real
+two-thread test racing two different claim ids against the same
+resource — not just reasoning that the row lock "should" work.
+
+**Why doesn't the claim that lost the race get automatically
+rejected?** Because the system didn't actually make that decision — an
+admin did, implicitly, by approving the other claim first. Auto-
+rejecting the loser would put a decision in the audit trail that no
+human explicitly made. Instead it's left `PENDING_REVIEW`, and an
+admin has to look at it and explicitly reject it, which keeps the
+audit trail honest: every terminal state was a real decision, not a
+side effect of losing a race.
+
+**What's the difference between an organization holding the
+`ORGANIZATION` role and being a "verified" organization?** They're
+completely independent facts, checked separately everywhere it
+matters. The role just determines which account can create a profile
+and submit claims at all — it says nothing about whether anyone's
+confirmed the organization is real. Only an admin decision moves a
+profile from `PENDING_VERIFICATION` to `VERIFIED`, and only a
+`VERIFIED` organization can actually get a claim approved — re-checked
+fresh at approval time, not trusted from whatever it was when the
+claim was submitted, because an organization could have been suspended
+in between.
+
+**An organization edits its profile after being verified. What
+happens to its verified status?** Depends on what changed. If it's the
+organization's name or website — the identity-defining fields an admin
+actually verified — the profile silently drops back to
+`PENDING_VERIFICATION` and has to be re-reviewed. If it's just contact
+details like a phone number or address, verification is untouched. I
+made that split deliberately conservative: letting an organization
+rename itself while quietly keeping a "verified" badge felt like the
+kind of thing that looks fine in a demo and is actually a real
+identity-spoofing risk in production.
+
+**Why does suspending an organization not touch the resources it
+owns?** Because ownership and verification are genuinely separate
+facts stored in separate places — suspending only changes the
+organization's own row. The resource stays active and owned; it just
+stops showing organization attribution publicly, and that's actually a
+side effect of one query filtering on `verificationStatus = VERIFIED`
+for attribution, not a special suspension code path. I considered
+cascading suspension into hiding or deactivating the resource too, and
+decided against it — an organization under review for its *identity*
+shouldn't automatically make an already-public resource disappear;
+that's a separate decision an admin can make explicitly if it's ever
+actually warranted.
+
 ## To Be Added in Later Milestones
 
 - How geographic search is kept fast as content grows at production scale (deferred —
@@ -897,4 +961,8 @@ implementing the check, not after.
   and whether reviewer assignment/queue prioritization end up justified (deferred —
   Milestone 9A explicitly excluded both from scope; its own manual-verification
   dataset was six accounts and a handful of contributions).
+- How organization-verification turnaround and claim-approval volume behave at
+  production scale, and whether automated business-registry verification would
+  meaningfully reduce reviewer effort (deferred — Milestone 10A's own
+  manual-verification dataset was five accounts and two resources).
 - Trade-offs made and limitations knowingly deferred, updated at each milestone.

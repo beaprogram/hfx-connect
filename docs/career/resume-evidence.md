@@ -1306,3 +1306,95 @@ missed, then closed it permanently with a targeted regression test.
 average time-to-decision, to inform whether reviewer assignment or
 queue prioritization (both explicitly out of scope for this milestone)
 would be worth building.
+
+## Organization Identity, Verification, and Resource Ownership
+
+### Product Purpose
+Gives a real-world organization its own account authority for the
+first time: an `ORGANIZATION` account can create a profile, have it
+verified by an admin, and — once verified — request ownership of an
+existing public resource it did not create. An approved claim
+establishes a real, database-authoritative ownership relationship,
+visible as safe attribution on the resource's public page and through
+a protected "resources I own" dashboard, while a suspended
+organization's existing resources stay public and owned rather than
+disappearing.
+
+### Technologies Used
+The same JPA pessimistic row-level locking pattern as the moderation
+milestone, extended to a harder shape: claim approval locks *two*
+independent rows (the claim and the target resource) in one
+transaction, because two different organizations' claims are two
+different rows a single-row lock would never serialize against each
+other. Hibernate 7 native JSONB mapping for a second append-only audit
+table. PostgreSQL partial unique indexes (`WHERE status =
+'PENDING_REVIEW'`) enforcing "at most one pending claim per pair" as a
+database invariant. A deliberate schema choice to use a plain foreign-
+key column instead of a bidirectional ORM relationship, specifically
+to avoid introducing circular package coupling.
+
+### Problem Solved
+Two different organizations' ownership claims for the same resource
+must never both be approved. Locking only the claim row (the pattern
+that worked for the prior milestone's single-contribution-row
+decisions) would not have prevented this — two claim rows are two
+locks that never contend with each other. Solved by additionally
+locking the target resource row and re-verifying eligibility fresh
+under that lock immediately before assigning ownership, reusing an
+existing lock method from the prior milestone rather than inventing a
+new mechanism; proved correct with a real two-thread test racing two
+different claim ids against the same resource, not reasoning alone.
+
+A second, conceptually harder problem: keeping "has the `ORGANIZATION`
+role" and "is a currently-verified organization" as two facts that are
+never allowed to collapse into one, everywhere they matter — including
+designing a verification-reset policy so an organization can't quietly
+keep a "verified" badge after changing the very identity (name,
+website) an admin actually verified.
+
+### Implementation
+`backend/src/main/java/com/hfxconnect/organization/` (five services,
+five controllers, three entities, DTOs, seven exception types);
+extensions to `com.hfxconnect.resource` for a plain ownership column
+and batch-loaded public attribution; two exception classes promoted to
+a shared package for reuse across both review workflows.
+`frontend/src/components/organization/` (two role guards, profile
+create/edit, owned-resources list, claims list with withdraw, four
+admin queue/detail pages) plus a claim control wired into the existing
+public resource detail page.
+
+### Tests
+54 new backend tests, including two real two-thread concurrent-
+decision integration tests, alongside the existing 684 (738 total, 0
+failures). 61 new frontend tests across 8 new/extended files, alongside
+the existing 478 (539 total, 0 failures). A live scripted manual-
+verification pass against the real running stack (direct API calls
+plus real Next.js dev-server checks) covering the complete
+create-profile → verify → claim → approve → suspend lifecycle across
+five real accounts, with no gaps found that the automated suite had
+missed.
+
+### Evidence
+Commits on branch `milestone/10a-organization-management`; see
+`docs/development-log/2026-08-07.md` for the full session record and
+`docs/milestones/milestone-10a-organization-management.md` for
+acceptance criteria.
+
+### Potential Resume Wording
+Designed and implemented an organization-verification and resource-
+ownership feature for a Spring Boot/Next.js application, extending an
+existing pessimistic-locking pattern to safely serialize two
+independent contending rows in one transaction — proved correct with
+genuine multi-threaded integration tests; enforced a strict separation
+between account role and verified trust status throughout the API
+surface, including a deliberate policy resetting verification whenever
+an organization's identity-significant details change; and reused two
+exception types from a prior milestone's review workflow on their
+second real use rather than duplicating equivalent logic.
+
+### Measurements Still Needed
+[MEASURE AFTER DEPLOYMENT]: real-world time-to-verification for a
+submitted organization profile and claim-approval turnaround, to
+inform whether this milestone's deliberately deferred features
+(automated business-registry verification, uploaded proof documents)
+would meaningfully reduce reviewer effort.
